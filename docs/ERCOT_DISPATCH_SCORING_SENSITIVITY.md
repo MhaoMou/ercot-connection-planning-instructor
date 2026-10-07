@@ -4,8 +4,10 @@
 pilot. It is retained for provenance only and is not an active release
 configuration.
 
-Rules source: `data/teaching/dispatch_scoring_rules_v1.json` (legacy
-six-period pilot rules).
+This document records a historical sensitivity analysis of the retired
+six-period pilot rules. The pilot rules file is intentionally no longer part of
+the production repository; current scoring uses the half-year rule files and
+hourly ACTIVSg2000 economic-profile artifacts.
 
 The authoritative sweep evaluates all six zero-based pilot periods. Under the
 legacy pilot horizon, each representative period is weighted as `8760 / 6 =

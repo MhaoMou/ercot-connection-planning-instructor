@@ -23,12 +23,12 @@ Students can check a submission before uploading it with:
 ```bash
 PYTHONPATH=src python scripts/check_submission.py \
   --file team-blue.csv \
-  --artifact-dir data/processed/texas_dispatch_source_v1_years/2017 \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2017/jan_jun \
   --year 2017 --round jan_jun
 ```
 
 Use `--year 2017 --round jul_dec` for the July--December half-year. The
-released calendar determines whether January--June has 4,368 hours (2016) or
-4,344 hours (2017/2018); July--December has 4,416 hours. The checker validates
-the canonical `bus_id` schema against the released Zenodo bus and generator
-catalogs; the instructor-side evaluator remains authoritative.
+The released calendar determines whether January--June has 4,368 hours (2016)
+or 4,344 hours (2017/2018); July--December has 4,416 hours. The checker
+validates the canonical `bus_id` schema against the released ACTIVSg2000 bus and
+generator catalogs; the instructor-side evaluator remains authoritative.

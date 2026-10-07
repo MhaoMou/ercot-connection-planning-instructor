@@ -187,11 +187,24 @@ def _run(args: argparse.Namespace) -> int:
         calendar = None
         horizon = args.horizon
     region_to_source_bus = _load_region_map(args.region_map) if args.region_map else None
-    rules = load_scoring_rules(args.rules)
+    rules = load_scoring_rules(
+        args.rules,
+        artifact_dir=args.artifact_dir,
+        horizon=horizon,
+    )
     period_indices = (
         tuple(range(horizon))
         if args.period_indices is None
         else args.period_indices
+    )
+    # A validated ACTIVSg2000 scenario block is indexed locally from hour 0.
+    # The legacy calendar offset applies only to the retired contiguous-source
+    # artifacts and must not shift a half-year block into a different block.
+    scenario_block_offset = (
+        0
+        if (args.artifact_dir / "scenario_profile.json").is_file()
+        and args.source_period_offset is None
+        else None
     )
     result = evaluate_csv_batch(
         args.submissions_dir,
@@ -200,7 +213,15 @@ def _run(args: argparse.Namespace) -> int:
         horizon=horizon,
         rules=rules,
         period_indices=period_indices,
-        source_period_offset=(calendar.source_row_start if calendar is not None and args.source_period_offset is None else args.source_period_offset),
+        source_period_offset=(
+            args.source_period_offset
+            if args.source_period_offset is not None
+            else scenario_block_offset
+            if scenario_block_offset is not None
+            else calendar.source_row_start
+            if calendar is not None
+            else None
+        ),
         dispatch_workers=args.workers,
         projection_iterations=args.projection_iterations,
     )

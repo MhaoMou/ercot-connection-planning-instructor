@@ -14,7 +14,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from .csv_submission import (
     BUS_CSV_COLUMNS,
     load_generator_costs,
-    load_zenodo_bus_ids,
+    load_bus_ids,
     read_student_csv,
 )
 from .calendars import half_year_calendar
@@ -85,7 +85,7 @@ def validate_csv_submission(
 ) -> ValidationReport:
     """Validate a canonical student CSV without mutating or evaluating it.
 
-    ``artifact_dir`` should point to the prepared Zenodo artifact containing
+    ``artifact_dir`` should point to a validated scenario block containing
     ``bus.csv`` and ``generator_limits.csv``. Direct ID collections are useful
     for tests and for callers that already loaded those catalogs.
     """
@@ -94,7 +94,7 @@ def validate_csv_submission(
     if artifact_dir is not None:
         if bus_ids is not None or generator_ids is not None:
             raise ValueError("use artifact_dir or explicit catalogs, not both")
-        known_buses = load_zenodo_bus_ids(artifact_dir)
+        known_buses = load_bus_ids(artifact_dir)
         generator_costs = load_generator_costs(artifact_dir)
         known_generators = frozenset(generator_costs)
     else:
@@ -180,7 +180,7 @@ def validate_csv_submission(
             else:
                 issues.append(_issue("period must be an integer", row_number))
             if known_buses is not None and bus_id and bus_id not in known_buses:
-                issues.append(_issue(f"unknown Zenodo bus {bus_id}", row_number))
+                issues.append(_issue(f"unknown scenario bus {bus_id}", row_number))
 
             load, load_error = _finite_number(_value(row, "load_mw"), "load_mw", row_number, required=True)
             if load_error:
@@ -228,7 +228,7 @@ def validate_csv_submission(
                     if capacity < 0:
                         issues.append(_issue("generator capacity must be non-negative", row_number))
                     if known_generators is not None and generator_id not in known_generators:
-                        issues.append(_issue(f"unknown Zenodo generator {generator_id}", row_number))
+                        issues.append(_issue(f"unknown scenario generator {generator_id}", row_number))
                     spec = (bus_id, capacity)
                     if generator_id in generator_specs and generator_specs[generator_id] != spec:
                         issues.append(_issue(f"generator {generator_id} is not consistent across rows", row_number))
@@ -269,7 +269,7 @@ def validate_csv_submission(
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Check a student dispatch-game CSV submission.")
     parser.add_argument("--file", required=True, type=Path, help="CSV submission to validate")
-    parser.add_argument("--artifact-dir", type=Path, help="prepared Zenodo artifact containing bus.csv and generator_limits.csv")
+    parser.add_argument("--artifact-dir", type=Path, help="validated scenario block containing bus.csv and generator_limits.csv")
     parser.add_argument("--horizon", type=int, help="explicit submission horizon; use --year/--round for released calendars")
     parser.add_argument("--year", type=int, choices=(2016, 2017, 2018), help="released data year")
     parser.add_argument("--round", dest="round_name", choices=("jan_jun", "jul_dec"), help="released half-year")

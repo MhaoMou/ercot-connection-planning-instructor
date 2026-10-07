@@ -1,4 +1,4 @@
-"""Canonical data structures for the Zenodo Texas dispatch game.
+"""Canonical data structures for the ACTIVSg2000 dispatch game.
 
 The production evaluator operates on source-artifact bus IDs. These records
 contain only the fields needed to validate a student CSV, build joint dispatch,
@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ConnectionPlan:
-    """One team-owned data-center connection at a Zenodo source bus."""
+    """One team-owned data-center connection at a scenario source bus."""
 
     connection_id: str
     bus_id: str

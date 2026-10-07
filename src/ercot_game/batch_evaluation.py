@@ -16,26 +16,31 @@ from typing import Any, TYPE_CHECKING, NoReturn
 from .csv_submission import (
     CSVSubmission,
     load_generator_costs,
-    load_zenodo_bus_ids,
+    load_bus_ids,
     read_student_csv,
     read_submission_identity,
 )
 from .models import TeamPlan
 from .models import ConnectionPlan
+from .economic_profiles import (
+    HourlyEconomicProfiles,
+    load_economic_profiles,
+    load_economic_profiles_artifact,
+)
 
 if TYPE_CHECKING:
-    from tools.zenodo_texas.dcopf import DCOPFInfeasible, DCOPFUnresolved
-    from tools.zenodo_texas.plan_adapter import (
+    from tools.activsg2000.dcopf import DCOPFInfeasible, DCOPFUnresolved
+    from tools.activsg2000.plan_adapter import (
         BatchDispatchResult,
         evaluate_plans_with_prepared_dcopf,
     )
 else:  # pragma: no cover - runtime branch is exercised by import behavior
     try:
-        from tools.zenodo_texas.dcopf import (
+        from tools.activsg2000.dcopf import (
             DCOPFInfeasible as _runtime_dcopf_infeasible,
             DCOPFUnresolved as _runtime_dcopf_unresolved,
         )
-        from tools.zenodo_texas.plan_adapter import (
+        from tools.activsg2000.plan_adapter import (
             BatchDispatchResult as _runtime_batch_dispatch_result,
             evaluate_plans_with_prepared_dcopf as _runtime_evaluate_plans,
         )
@@ -53,7 +58,7 @@ else:  # pragma: no cover - runtime branch is exercised by import behavior
             *,
             period_indices: tuple[int, ...],
         ) -> NoReturn:
-            raise RuntimeError("the Zenodo Texas adapter is not importable")
+            raise RuntimeError("the ACTIVSg2000 adapter is not importable")
 
     globals().update(
         {
@@ -104,8 +109,8 @@ def _validate_rule_number(name: str, value: float, *, nonnegative: bool = False,
 @dataclass(frozen=True)
 class BatchScoringRules:
     rules_version: str
-    it_value_per_mwh: tuple[float, ...]
-    energy_price_per_mwh: tuple[float, ...]
+    it_value_per_mwh: tuple[float, ...] = ()
+    energy_price_per_mwh: tuple[float, ...] = ()
     time_step_hours: float = 1.0
     generator_capital_cost_per_mw: float = 0.0
     site_cost_per_site: float = 0.0
@@ -114,6 +119,7 @@ class BatchScoringRules:
     storage_capital_cost_per_mw: float = 0.0
     storage_capital_cost_per_mwh: float = 0.0
     storage_operating_cost_per_mwh: float = 0.0
+    economic_profiles: HourlyEconomicProfiles | None = None
 
     def __post_init__(self) -> None:
         for field_name in ("it_value_per_mwh", "energy_price_per_mwh"):
@@ -139,6 +145,8 @@ class BatchScoringRules:
         )
         for name in ("storage_capital_cost_per_mw", "storage_capital_cost_per_mwh", "storage_operating_cost_per_mwh"):
             _validate_rule_number(name, getattr(self, name), nonnegative=True)
+        if self.economic_profiles is not None and not isinstance(self.economic_profiles, HourlyEconomicProfiles):
+            raise ValueError("economic_profiles must be an HourlyEconomicProfiles instance")
 
 
 @dataclass(frozen=True)
@@ -198,15 +206,37 @@ class BatchEvaluation:
     source_period_indices: tuple[int, ...] = ()
 
 
-def load_scoring_rules(path: str | Path) -> BatchScoringRules:
-    """Load an explicit JSON scoring-rules file."""
+def load_scoring_rules(
+    path: str | Path,
+    *,
+    artifact_dir: str | Path | None = None,
+    horizon: int | None = None,
+) -> BatchScoringRules:
+    """Load scoring rules, optionally resolving the production profile artifact."""
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(payload, Mapping):
         raise ValueError("scoring rules must be a JSON object")
+    economic_profiles = None
+    if artifact_dir is not None and horizon in (4368, 4416):
+        economic_profiles = load_economic_profiles_artifact(
+            artifact_dir,
+            expected_horizon=horizon,
+        )
+    if isinstance(payload.get("economic_profiles"), Mapping):
+        inline_profiles = load_economic_profiles(payload["economic_profiles"])
+        if economic_profiles is not None and inline_profiles != economic_profiles:
+            raise ValueError("inline economic profiles conflict with the production artifact")
+        economic_profiles = inline_profiles
+    if economic_profiles is not None:
+        it_values: tuple[float, ...] = ()
+        energy_prices: tuple[float, ...] = ()
+    else:
+        it_values = tuple(float(value) for value in payload.get("it_value_per_mwh", ()))
+        energy_prices = tuple(float(value) for value in payload.get("energy_price_per_mwh", ()))
     return BatchScoringRules(
         rules_version=str(payload["rules_version"]),
-        it_value_per_mwh=tuple(float(value) for value in payload["it_value_per_mwh"]),
-        energy_price_per_mwh=tuple(float(value) for value in payload["energy_price_per_mwh"]),
+        it_value_per_mwh=it_values,
+        energy_price_per_mwh=energy_prices,
         time_step_hours=float(payload.get("time_step_hours", 1.0)),
         generator_capital_cost_per_mw=float(payload.get("generator_capital_cost_per_mw", 0.0)),
         site_cost_per_site=float(payload.get("site_cost_per_site", 0.0)),
@@ -215,6 +245,7 @@ def load_scoring_rules(path: str | Path) -> BatchScoringRules:
         storage_capital_cost_per_mw=float(payload.get("storage_capital_cost_per_mw", 0.0)),
         storage_capital_cost_per_mwh=float(payload.get("storage_capital_cost_per_mwh", 0.0)),
         storage_operating_cost_per_mwh=float(payload.get("storage_operating_cost_per_mwh", 0.0)),
+        economic_profiles=economic_profiles,
     )
 
 
@@ -391,16 +422,26 @@ def _score_team(
     for period_index, period in periods_by_index.items():
         load = period.submitted_load_mw_by_team[team_id]
         generation = sum(period.generator_dispatch_mw_by_team[team_id].values())
-        price = rules.energy_price_per_mwh[period_index]
-        value = rules.it_value_per_mwh[period_index]
+        profiles = rules.economic_profiles
+        value = profiles.it_value_for(period_index) if profiles is not None else rules.it_value_per_mwh[period_index]
         served += load * rules.time_step_hours
         it_value += load * value * rules.time_step_hours
         grid_purchase_by_team = getattr(period, "grid_purchase_mw_by_team", None)
-        if grid_purchase_by_team is not None:
-            grid_purchase = grid_purchase_by_team.get(team_id, max(0.0, load - generation))
+        if profiles is not None:
+            purchases_by_bus = getattr(period, "grid_purchase_mw_by_team_by_bus", None)
+            if purchases_by_bus is None or team_id not in purchases_by_bus:
+                raise ValueError("dispatch must provide bus-level grid purchases for hourly economic profiles")
+            energy_cost += sum(
+                amount * profiles.price_for_bus(bus_id, period_index)
+                for bus_id, amount in purchases_by_bus[team_id].items()
+            ) * rules.time_step_hours
         else:
-            grid_purchase = max(0.0, load - generation)
-        energy_cost += grid_purchase * price * rules.time_step_hours
+            price = rules.energy_price_per_mwh[period_index]
+            if grid_purchase_by_team is not None:
+                grid_purchase = grid_purchase_by_team.get(team_id, max(0.0, load - generation))
+            else:
+                grid_purchase = max(0.0, load - generation)
+            energy_cost += grid_purchase * price * rules.time_step_hours
         period_generator_cost = 0.0
         for generator_id, amount in period.generator_dispatch_mw_by_team[team_id].items():
             generator = generator_by_id.get(generator_id)
@@ -481,7 +522,10 @@ def _validate_rules(rules: BatchScoringRules, horizon: int, period_indices: tupl
         raise ValueError("period_indices must not contain duplicates")
     if any(index >= horizon for index in period_indices):
         raise ValueError("period_indices must be less than horizon")
-    if max(period_indices) >= len(rules.it_value_per_mwh) or max(period_indices) >= len(rules.energy_price_per_mwh):
+    if rules.economic_profiles is not None:
+        if max(period_indices) >= rules.economic_profiles.horizon_hours:
+            raise ValueError("economic profile must cover the selected period indices")
+    elif max(period_indices) >= len(rules.it_value_per_mwh) or max(period_indices) >= len(rules.energy_price_per_mwh):
         raise ValueError("scoring price/value vectors must cover the selected period indices")
     if not math.isfinite(rules.time_step_hours) or rules.time_step_hours <= 0:
         raise ValueError("time_step_hours must be finite and positive")
@@ -771,13 +815,21 @@ def evaluate_csv_batch(
     _validate_period_mapping(selected_periods, selected_source_periods)
     if bus_ids is None:
         try:
-            bus_ids = load_zenodo_bus_ids(artifact_dir)
+            bus_ids = load_bus_ids(artifact_dir)
         except (OSError, ValueError, csv.Error) as exc:
             raise ValueError(f"could not load production bus catalog: {exc}") from exc
     try:
         generator_cost_by_id = load_generator_costs(artifact_dir)
     except (OSError, ValueError, csv.Error) as exc:
         raise ValueError(f"could not load production generator catalog: {exc}") from exc
+    if rules.economic_profiles is not None:
+        if rules.economic_profiles.horizon_hours != horizon:
+            raise ValueError(
+                "economic profile horizon must match the evaluation horizon"
+            )
+        profile_bus_ids = rules.economic_profiles.bus_ids
+        if profile_bus_ids != frozenset(bus_ids):
+            raise ValueError("economic profile bus set must match the production bus catalog")
     collection = _collect_evaluation_inputs(
         csv_paths,
         region_to_source_bus=region_to_source_bus,
@@ -1155,6 +1207,19 @@ def evaluate_csv_batch(
             "storage_capital_cost_per_mw": rules.storage_capital_cost_per_mw,
             "storage_capital_cost_per_mwh": rules.storage_capital_cost_per_mwh,
             "storage_operating_cost_per_mwh": rules.storage_operating_cost_per_mwh,
+            **(
+                {
+                    "economic_profile": {
+                        "profile_version": rules.economic_profiles.profile_version,
+                        "horizon_hours": rules.economic_profiles.horizon_hours,
+                        "currency_year": rules.economic_profiles.currency_year,
+                        "price_source": rules.economic_profiles.price_source,
+                        "bus_count": len(rules.economic_profiles.bus_ids),
+                    }
+                }
+                if rules.economic_profiles is not None
+                else {}
+            ),
         },
         accepted_submissions=accepted,
         input_sha256_by_submission=input_hashes_by_submission,

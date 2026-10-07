@@ -1,20 +1,19 @@
 # ERCOT Instructor Batch Evaluation
 
 `ercot-game-batch` evaluates a directory of long-form student CSV submissions
-against the prepared Texas dispatch artifact. It writes the ranked leaderboard
+against one validated ACTIVSg2000 scenario block. It writes the ranked leaderboard
 and audit artifacts to one output directory; that directory is the source of
 truth for the ranking and audit record.
 
-The production data path is the Texas portion of the Zenodo U.S. Test System
-dataset. Student files use source `bus_id` values from that artifact and
-generator IDs from `generator_limits.csv`. This guide describes the only
-supported production evaluation path.
+The production data path is the public synthetic Texas ACTIVSg2000 system.
+Student files use source `bus_id` values from the selected block and generator
+IDs from its `generator_limits.csv`. This guide describes the only supported
+production evaluation path.
 
-The Zenodo Texas topology and generator catalog are fixed. The original
-prepared demand artifact is 2016; the released 2017 and 2018 demand artifacts
-use official ERCOT eight-weather-zone hourly load archives allocated to the
-same Zenodo buses using their fixed base-`Pd` shares. These are historical
-replays, not forecasts.
+The ACTIVSg2000 topology and generator catalog are fixed. The three-year
+scenario package uses deterministic bus-level load and generator-specific
+wind/solar availability recipes. These are controlled instructional scenarios,
+not historical ERCOT replays or official ERCOT operating forecasts.
 
 | Released year | January--June | July--December |
 |---|---:|---:|
@@ -33,7 +32,7 @@ For a 2017 January--June release (4,344 one-hour periods):
 ```bash
 ercot-game-batch run \
   --submissions-dir work/half_year_submissions \
-  --artifact-dir data/processed/texas_dispatch_source_v1_years/2017 \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2017/jan_jun \
   --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
   --year 2017 --round jan_jun \
   --workers 8 \
@@ -46,7 +45,7 @@ For July--December, use the matching year artifact and round:
 ```bash
 ercot-game-batch run \
   --submissions-dir work/half_year_submissions \
-  --artifact-dir data/processed/texas_dispatch_source_v1_years/2017 \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2017/jul_dec \
   --rules data/teaching/dispatch_scoring_rules_jul_dec_v1.json \
   --year 2017 --round jul_dec \
   --workers 8 \
@@ -57,7 +56,7 @@ ercot-game-batch run \
 The command requires a submission directory, prepared year-specific dispatch
 artifact, scoring-rules JSON, output directory, and either an explicit
 positive horizon or `--year` plus `--round`. Student files
-identify Zenodo source buses directly with `bus_id`. Every bus appearing in a
+identify ACTIVSg2000 source buses directly with `bus_id`. Every bus appearing in a
 production CSV must have one row for every period in the selected half-year.
 Partial pilot files are rejected before dispatch.
 
@@ -97,10 +96,8 @@ no simultaneous charge/discharge, initial and terminal state of charge at least
 `0.5 B`, and one-hour energy transitions.
 
 For the current classroom release, source generators use the nameplate
-`p_max_mw` values from the Zenodo generator catalog. The prepared hourly
-renewable profile files are retained as source metadata but are not imposed as
-hard availability caps, because doing so made 14 otherwise dispatchable
-July--December source hours infeasible.
+`p_max_mw` values from the ACTIVSg2000 generator catalog, constrained by the
+validated scenario's hourly generator-specific availability profiles.
 
 ## Evaluation behavior
 

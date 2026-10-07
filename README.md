@@ -1,14 +1,14 @@
 # ERCOT Data-Center Dispatch Game
 
 Instructor-facing implementation of a competitive connection-planning game
-based on the Texas portion of the Zenodo U.S. Test System dataset. The active
-workflow uses the approximately 2,000-bus prepared dispatch artifact, not the
-retired browser prototype or its abstract teaching network.
+based on the public synthetic Texas ACTIVSg2000 2,000-bus system. The active
+workflow uses a validated three-year ACTIVSg2000 scenario package rather than the retired prototype
+prototype or its abstract teaching network.
 
 ## Current production pipeline
 
 ```text
-Zenodo Texas dispatch artifact (~2,000 buses)
+Validated ACTIVSg2000 scenario package (2,000 buses; 3 years)
         -> student long-form CSV submissions
         -> CSV/catalog validation
         -> joint DCOPF dispatch
@@ -27,11 +27,11 @@ capital/operating cost, and storage capital/operating cost.
 | Path | Purpose |
 | --- | --- |
 | `src/ercot_game/` | Canonical CSV reader, validator, batch evaluator, and CLI |
-| `tools/zenodo_texas/` | Prepared-artifact loading, DCOPF, storage scheduling, and joint dispatch |
-| `data/processed/texas_dispatch_source_v1/` | Prepared Zenodo Texas buses, branches, demand, generators, and costs |
+| `tools/activsg2000/` | Scenario construction, hourly validation, DCOPF, storage scheduling, and joint dispatch |
+| `data/processed/activsg2000_scenarios_v1/` | Validated six-block ACTIVSg2000 scenario package |
 | `data/teaching/` | Half-year scoring rules |
 | `scripts/` | CSV checks, fixture generation, simulation, and summary utilities |
-| `tests/` | Active CSV, batch, DCOPF, storage, and Zenodo adapter tests |
+| `tests/` | Active CSV, batch, DCOPF, storage, and ACTIVSg2000 adapter tests |
 | `archive/legacy/` | Recoverable retired browser/practice implementation and historical tests |
 | `docs/` | Current instructor, student, calibration, and data documentation |
 
@@ -50,7 +50,7 @@ python -m pip install -e .
 ```bash
 ercot-game-check-csv \
   --file path/to/team.csv \
-  --artifact-dir data/processed/texas_dispatch_source_v1_years/2017 \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2017/jan_jun \
   --year 2017 --round jan_jun
 ```
 
@@ -71,7 +71,7 @@ For a 2017 January--June round:
 ```bash
 ercot-game-batch run \
   --submissions-dir path/to/submissions \
-  --artifact-dir data/processed/texas_dispatch_source_v1_years/2017 \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2017/jan_jun \
   --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
   --year 2017 --round jan_jun \
   --workers 8 \
@@ -83,9 +83,9 @@ Use `--year 2017 --round jul_dec` for July--December. The evaluator derives
 the correct half-year length and source-row offset from the calendar. For
 2016, January--June is 4,368 hours and July--December is 4,416 hours; for
 2017 and 2018, January--June is 4,344 hours and July--December is 4,416
-hours. The 2017/2018 year artifacts are generated from official ERCOT hourly
-weather-zone archives and fixed Zenodo bus `Pd` shares; see
-`data/raw/ercot_hourly_load/README.md`.
+hours. The three-year package uses deterministic bus-level load and
+generator-specific renewable availability recipes over fixed ACTIVSg2000
+topology; see `docs/ACTIVSG2000_SCENARIO_PACKAGE.md`.
 
 If the joint plan is infeasible, the evaluator applies the documented fair
 continuous common service projection before deterministic fallback isolation.
@@ -101,6 +101,6 @@ for the complete CSV, dispatch, projection, scoring, and privacy contract.
 PYTHONPATH=src pytest -q
 ```
 
-The active test suite covers the production Zenodo CSV/DCOPF/scoring path. The
+The active test suite covers the production ACTIVSg2000 CSV/DCOPF/scoring path. The
 previous browser/practice product is preserved only under `archive/legacy/` and
 is not packaged, launched, or used as the current game implementation.

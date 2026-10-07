@@ -1,3 +1,0 @@
-dcline_id,from_bus_id,to_bus_id,status,Pf,Pt,Qf,Qt,Vf,Vt,Pmin,Pmax,QminF,QmaxF,QminT,QmaxT,loss0,loss1,muPmin,muPmax,muQminF,muQmaxF,muQminT,muQmaxT,from_interconnect,to_interconnect
-7,63463,3002054,1,200.0,190.0,0,0,1,1,-200,200,0,0,0,0,0,0,0,0,0,0,0,0,Eastern,Texas
-8,59722,3008126,1,600.0,550.0,0,0,1,1,-600,600,0,0,0,0,0,0,0,0,0,0,0,0,Eastern,Texas

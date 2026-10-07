@@ -1,9 +1,0 @@
-zone_id,zone_name,state,interconnect,time_zone
-301,Far West,Texas,Texas,ETC/GMT+6
-302,North,Texas,Texas,ETC/GMT+6
-303,West,Texas,Texas,ETC/GMT+6
-304,South,Texas,Texas,ETC/GMT+6
-305,North Central,Texas,Texas,ETC/GMT+6
-306,South Central,Texas,Texas,ETC/GMT+6
-307,Coast,Texas,Texas,ETC/GMT+6
-308,East,Texas,Texas,ETC/GMT+6

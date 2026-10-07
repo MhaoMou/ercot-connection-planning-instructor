@@ -106,7 +106,7 @@ not submit a screenshot in place of the CSV.
   \item Submit exactly one complete \code{half-year horizon}. The released calendar determines
   the length: 2016 has 4,368/4,416 hours and 2017--2018 have 4,344/4,416 hours
   for January--June/July--December.
-  \item Use \code{bus IDs} and \code{generator IDs} from the supplied Zenodo artifact.
+  \item Use \code{bus IDs} and \code{generator IDs} from the supplied ACTIVSg2000 scenario block.
   \item Load is nonnegative and is specified directly in \code{MW} for every hour.
   \item \code{Generators} and \code{storage} are private to the submitting team.
   \item The current release has no student-controlled \code{curtailment} decision.
@@ -131,22 +131,20 @@ substitute for validation.
 
 \section{Data and model: what is real and what is instructional}
 
-The dispatch input is the Texas portion of the U.S. Test System dataset released
-on \code{Zenodo} by Xu et al.~\cite{xu2021ustestsystem}. The prepared Texas subset used
-contains approximately \textbf{2,000 buses} and hourly demand
-and network data.
-
-The original Zenodo demand artifact is timestamped 2016. For later released
-rounds, official ERCOT eight-weather-zone hourly load archives are allocated to
-the same Zenodo buses using fixed base-demand shares. All released calendars
-are historical replays for the exercise, not forecasts.
+The dispatch input is the public synthetic Texas ACTIVSg2000 model~\cite{activsg2000}, which
+contains exactly \textbf{2,000 buses}, 3,206 branches, and 544 generator
+records. The fixed topology is combined with a controlled three-year hourly
+scenario package. The scenario provides bus-level load and generator-specific
+wind/solar availability profiles and is validated hour by hour with DCOPF.
+It is an instructional scenario, not historical ERCOT telemetry or an official
+ERCOT operating model.
 
 The conceptual pipeline is:
 \begin{center}
 \fbox{\parbox{0.82\textwidth}{\centering
-Public Zenodo dispatch data + official ERCOT hourly zone loads\\
+Public ACTIVSg2000 topology + controlled hourly operating profiles\\
 $\Downarrow$\\
-Fixed Zenodo buses, branches, generators, costs, and year-specific demand\\
+Fixed ACTIVSg2000 buses, branches, generators, costs, and scenario demand\\
 $\Downarrow$\\
 DCOPF input and teaching scoring scenario\\
 $\Downarrow$\\
@@ -156,10 +154,10 @@ Joint evaluation of student CSV files
 
 The following distinction is important:
 \begin{itemize}[leftmargin=*]
-  \item \textbf{Public data:} \code{bus}, \code{branch}, \code{generator}, \code{demand}, and
-  marginal-cost records from the Zenodo artifact.
+  \item \textbf{Public data:} \code{bus}, \code{branch}, \code{generator}, and
+  marginal-cost records from the ACTIVSg2000 source model.
   \item \textbf{Instructor preparation:} 
-  \code{formatting}, \code{validation}, and the scoring vectors supplied with the round.
+  \code{formatting}, \code{validation}, and the full-horizon economic profiles supplied with the round.
   \item \textbf{Instructional assumptions:} the student-owned investments,
   connection requests, \code{DCOPF} treatment, \code{IT value}, capital-cost coefficients,
   storage-cost coefficients, and the \code{fair continuous projection} policy.
@@ -213,7 +211,7 @@ capacity and normalized profile internally.
 
 \subsection{Private generation}
 
-\code{Generator IDs} refer to records in the Zenodo generator catalog. The evaluator
+\code{Generator IDs} refer to records in the ACTIVSg2000 generator catalog. The evaluator
 uses the catalog's \code{marginal\_cost\_c1\_per\_mwh} value for the generator's
 operating cost. The generator is physically attached to your chosen bus for the
 exercise, but its cost reference comes from the public dataset. For a generator
@@ -224,10 +222,9 @@ with capacity $G_{i,g}$, dispatch satisfies
 The instructor may impose additional catalog or site limits in the round
 configuration.
 
-For the current classroom release, the dispatch evaluator uses the catalog
-\code{nameplate limit} for each selected generator. The prepared Zenodo hourly
-renewable profile files are retained as source metadata but are not imposed as
-hard availability caps in this no-curtailment version of the exercise.
+For the current classroom release, the dispatch evaluator applies the
+validated scenario's generator-specific hourly availability limit, bounded by
+the catalog nameplate capacity.
 
 \subsection{Private storage}
 
@@ -285,7 +282,7 @@ Submit one \code{UTF-8 CSV} file per team. The canonical header is:
 team_id,submission_id,period,bus_id,load_mw,generator_id,generator_capacity_mw,storage_id,storage_power_mw,storage_energy_mwh
 \end{lstlisting}
 
-Each row contains a one-based hour \code{period} and a Zenodo \code{bus\_id}. A \code{generator}
+Each row contains a one-based hour \code{period} and an ACTIVSg2000 \code{bus\_id}. A \code{generator}
 or \code{storage} specification may be repeated on rows for the same team; its
 capacity and attachment must remain consistent. The load for a given
 bus--period must also remain consistent across repeated resource rows.
@@ -314,11 +311,11 @@ pilot file from silently becoming a mostly-zero half-year plan. The released
 checker accepts the horizon implied by the selected year and round.
 
 \textbf{Before submitting, run the provided \code{CSV validator}.} From the project
-root, run (replace the artifact path with the released Zenodo artifact path):
+root, run with the released ACTIVSg2000 scenario-block path:
 \begin{lstlisting}
 PYTHONPATH=src python scripts/check_submission.py \\
   --file team-blue.csv \\
-  --artifact-dir data/processed/texas_dispatch_source_v1_years/2017 \\
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2017/jan_jun \\
   --year 2017 --round jan\_jun
 \end{lstlisting}
 Use \code{--year 2017 --round jul\_dec} for the July--December submission. The \code{checker} is
@@ -345,7 +342,7 @@ submission, this coverage pattern continues through period 4,368 or 4,416.
 \subsection{Checker troubleshooting}
 \begin{itemize}[leftmargin=*]
   \item \textbf{Unknown bus or generator:} copy the ID from the supplied
-  Zenodo catalog; do not invent a new ID.
+  ACTIVSg2000 catalog; do not invent a new ID.
   \item \textbf{Incomplete horizon:} add rows for every missing period on each
   selected bus, using zero load when the bus is idle.
   \item \textbf{Inconsistent resource specification:} repeat the same
@@ -403,10 +400,12 @@ S_i={}V_i^{\mathrm{IT}}-C_i^{\mathrm{energy}}
 
 The components are:
 \begin{itemize}[leftmargin=*]
-  \item $V_i^{\mathrm{IT}}$: cleared load multiplied by the hourly \code{IT value}
-  vector announced for the round;
-  \item $C_i^{\mathrm{energy}}$: grid purchase multiplied by the hourly \code{energy price}
-  price vector;
+  \item $V_i^{\mathrm{IT}}$: cleared load multiplied by the full-horizon hourly
+  \code{IT value} vector announced for the round. The current release uses
+  \USD125/MWh at every hour;
+  \item $C_i^{\mathrm{energy}}$: grid purchase multiplied by the locational
+  hourly \code{energy price} artifact for the selected bus. The final artifact
+  is generated from baseline ACTIVSg2000 DCOPF LMPs;
   \item $C_i^{\mathrm{gen,op}}$: private-generator dispatch multiplied by the
   dataset-derived marginal cost;
   \item $C_i^{\mathrm{gen,cap}}$: submitted generator MW multiplied by the
@@ -431,9 +430,9 @@ Parameter & Provisional value & Basis\\
 \midrule
 Generator capital & \USD85,000/MW & Annualized combustion-turbine anchor from EIA cost data~\cite{eia2024generatorcosts}.\\
 Site cost & \USD50,000/site & Instructional interconnection proxy informed by Berkeley Lab interconnection-cost work~\cite{lbnl2022interconnection}.\\
-Generator operating cost & Dataset value & Zenodo \code{marginal\_cost\_c1\_per\_mwh} record.\\
-Energy price & Round vector & Instructor-selected ERCOT DAM reference series; source documentation is supplied with the round.\\
-IT value & Round vector & Instructional value-of-compute assumption; sensitivity-tested by the instructor.\\
+Generator operating cost & Dataset value & ACTIVSg2000 \code{gencost} C1 record.\\
+Energy price & Baseline LMP artifact & Exogenous ACTIVSg2000 DCOPF price surface, one price per bus and hour.\\
+IT value & \USD125/MWh hourly & Full-horizon instructor-chosen opportunity value; see the profile documentation.\\
 Storage power capital & \USD200,000/MW & Rounded power-capacity component calibrated from NREL/EIA battery benchmarks~\cite{eia2024bess,nrel2024bess}.\\
 Storage energy capital & \USD300,000/MWh & Rounded energy-capacity component; together with power capital gives about \USD1,400/kW for a four-hour system.\\
 Storage operation & \USD8/MWh discharged & Variable O\&M proxy; the reference fixed O\&M value is \USD40/kW-year~\cite{eia2024bess}.\\
@@ -451,13 +450,14 @@ congestion, and capital costs. A generator or storage device can reduce grid
 purchases but still lower the final score if its costs exceed the avoided
 energy cost.
 
-Use the hourly \code{price} and \code{IT-value} vectors supplied with the round when
-estimating a score; do not replace them with a guessed constant price.
+Use the full-horizon \code{IT-value} vector and the locational \code{price}
+artifact supplied with the round when estimating a score. The current IT-value
+vector is constant by policy; the energy price is not a student-chosen value.
 
 \section{Practical workflow}
 \begin{enumerate}[leftmargin=*]
   \item Read the round configuration and identify the horizon.
-  \item Inspect the Zenodo bus and generator tables supplied by the instructor.
+  \item Inspect the ACTIVSg2000 bus and generator tables supplied by the instructor.
   \item Choose one or more buses and build hourly load profiles.
   \item Decide whether private generation or storage improves your score.
   \item Generate the \code{CSV} and run the \code{validator}.
@@ -492,7 +492,7 @@ Before uploading, confirm:
 \section{Troubleshooting and frequently asked questions}
 \begin{description}[style=nextline,leftmargin=0pt]
   \item[Can I invent a generator ID or choose its operating cost?]
-  No. \code{Generator IDs} and operating costs come from the supplied Zenodo catalog.
+  No. \code{Generator IDs} and operating costs come from the supplied ACTIVSg2000 catalog.
   You choose capacity; the evaluator dispatches the generator.
 
   \item[Can my generator or storage serve another team?]

@@ -76,9 +76,9 @@ def test_validator_collects_catalog_and_value_errors(tmp_path):
     assert not report.valid
     messages = "\n".join(issue.message for issue in report.issues)
     assert "period must be in 1..2" in messages
-    assert "unknown Zenodo bus UNKNOWN" in messages
+    assert "unknown scenario bus UNKNOWN" in messages
     assert "load_mw must be non-negative" in messages
-    assert "unknown Zenodo generator NOPE" in messages
+    assert "unknown scenario generator NOPE" in messages
     assert "generator capacity must be non-negative" in messages
 
 

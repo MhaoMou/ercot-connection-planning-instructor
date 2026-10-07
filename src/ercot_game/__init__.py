@@ -1,4 +1,4 @@
-"""Public canonical model for the Zenodo Texas dispatch evaluator."""
+"""Public canonical model for the ACTIVSg2000 dispatch evaluator."""
 
 from .models import (
     ConnectionPlan,

@@ -133,9 +133,10 @@ quantities. A data center can rationally pay more than the wholesale energy
 price to serve a valuable workload, while still choosing locations and local
 generation based on congestion and operating costs.
 
-The current ERCOT energy-price vector is roughly `$18–$68/MWh`. A base IT
-service value around `$1,000/MWh` therefore creates a clear service margin,
-while energy, generator, and capital costs still affect relative rankings.
+The production evaluator uses the hourly, bus-specific ACTIVSg2000 baseline
+DCOPF LMP artifact rather than a six-value ERCOT price vector. A base IT-service
+value of `$125/MWh` is currently used as a transparent instructor-chosen
+opportunity value; the artifact records the exact hourly values and provenance.
 
 If the instructor wants the exercise to represent low-margin commodity cloud
 services instead, use `$500/MWh` and document that choice explicitly. Values

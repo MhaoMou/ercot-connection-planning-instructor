@@ -11,41 +11,23 @@ curtailment.
 
 ### Energy price
 
-Use ERCOT real-time Settlement Point Prices as the market anchor. ERCOT settles
-at 15-minute intervals and reports 2024 real-time Hub average prices of
-`$27.37/MWh`, compared with `$52.48/MWh` in 2023. The released evaluator
-operates on one-hour periods across a complete half-year. Any compact price
-vector is therefore a repeating hourly teaching profile, not a six-period
-submission horizon.
+Use a baseline ACTIVSg2000 DCOPF to generate the released energy-price surface.
+The evaluator operates on one-hour periods across a complete half-year, and the
+final artifact must provide one price for every bus and hour. These are
+instructional model-derived LMPs, not official ERCOT market prices.
 
 Sources:
 
 - [ERCOT 2024 ORDC report](https://www.ercot.com/files/docs/2024/10/31/2024-biennial-ercot-report-on-the-ordc-20241031.pdf)
 - [ERCOT real-time SPP display](https://www.ercot.com/content/cdr/html/20241107_real_time_spp.html)
 
-**Legacy pilot profile:** `dispatch_scoring_rules_v1.json` uses ERCOT Day-Ahead Market
-`HB_HUBAVG` prices for operating day `2026-10-04`, at hour-ending values
-`[1, 6, 11, 13, 20, 23]`:
-
-```text
-[68.02, 39.16, 19.99, 18.42, 53.14, 46.49] $/MWh
-```
-
-This is a reproducible source-backed teaching vector, not a forecast or a
-long-run ERCOT average. The selected hours intentionally include overnight,
-low-price midday, and evening conditions. The source page is the [ERCOT DAM
-Settlement Point Prices display](https://www.ercot.com/content/cdr/html/dam_spp.html);
-the exact operating day and hours are recorded in the JSON provenance block.
-The released half-year files use this six-value profile as a transparent
-repeated instructional profile with `time_step_hours = 1`; the profile is
-repeated over the selected 4,344-, 4,368-, or 4,416-hour calendar. It does not
-replace the complete student submission horizon or claim to reconstruct
-historical ERCOT hourly prices.
+The two active rule files reference the hourly baseline ACTIVSg2000 DCOPF LMP
+artifact. No repeated six-value price vector is used in production scoring.
 
 ### Existing and candidate generator costs
 
-For existing units, use the Zenodo generator-cost records already carried into
-the prepared dispatch artifact. For candidate technologies, calculate a
+For existing units, use the ACTIVSg2000 gencost records carried into the
+validated scenario block. For candidate technologies, calculate a
 marginal cost as:
 
 ```text
@@ -136,18 +118,33 @@ proxy. This is deliberately much smaller than a full generation
 interconnection upgrade and should be revisited after actual student plans are
 available.
 
+## IT-service value profile
+
+The released IT-service value is a complete, deterministic vector:
+
+```text
+IT_value[t] = 125 USD/MWh, for every hour t in the selected block
+```
+
+The January--June rule contains 4,368 values and the July--December rule
+contains 4,416 values. This is an instructor-chosen opportunity value for
+served computational load. It is deliberately constant in the first release;
+it is not a repeated six-hour cycle and is not an electricity price. See
+[`docs/IT_SERVICE_VALUE_PROFILE.md`](IT_SERVICE_VALUE_PROFILE.md) for the
+generation contract and future replacement requirements.
+
 ## Instructional parameters
 
 The following cannot be responsibly inferred as a single market number:
 
 | Parameter | Current decision needed |
 |---|---|
-| IT value of served load | Define it as opportunity value of service, not electricity price. Test `$100–250/MWh` and choose a value that creates strategic separation. |
+| IT value of served load | Released as a full-horizon constant `$125/MWh`; any future trace requires a versioned replacement and documentation. |
 | Infeasible score | Confirm `0`; no partial-service score is used. |
 | Maximum load per site/team | Choose from DCOPF feasibility sweeps so both feasible and infeasible plans exist. |
 | Maximum candidate-generator capacity | Set relative to site peak load. |
 | Number of sites/generators | Decide whether assets are unlimited or bounded. |
-| Period horizon and selected source hours | The submission horizon is the complete released half-year; confirm the selected hourly price/profile source separately. |
+| Period horizon and price artifact | The submission horizon is the complete released half-year; final energy prices must come from the validated hourly LMP artifact. |
 | Weekly submission aggregation | Decide replace-versus-accumulate policy before student release. |
 | Tie breaking | Confirm deterministic team-ID ordering or choose an explicit secondary metric. |
 
@@ -164,8 +161,7 @@ Before publishing the student rules:
 2. select and document candidate generator technologies;
 3. review the annualized combustion-turbine anchor and horizon weighting;
 4. review the `$50,000/site` instructional proxy and storage coefficients;
-5. replace the repeated compact teaching profile with an approved hourly
-   price/value series if one is available;
+5. generate and validate the complete baseline ACTIVSg2000 LMP artifact;
 6. run a parameter sweep over IT value, price, generator cost, CAPEX, storage
    cost, site cost,
    and load limits;

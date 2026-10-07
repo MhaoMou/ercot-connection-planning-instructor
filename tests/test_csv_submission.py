@@ -5,7 +5,7 @@ import pytest
 from ercot_game.csv_submission import (
     CSV_COLUMNS,
     load_generator_costs,
-    load_zenodo_bus_ids,
+    load_bus_ids,
     read_student_csv,
 )
 
@@ -14,7 +14,7 @@ def _write(path, rows: str) -> None:
     path.write_text(",".join(CSV_COLUMNS) + "\n" + rows, encoding="utf-8")
 
 
-def test_load_zenodo_bus_ids_accepts_full_prepared_bus_table(tmp_path):
+def test_load_bus_ids_accepts_full_prepared_bus_table(tmp_path):
     artifact = tmp_path / "artifact"
     artifact.mkdir()
     (artifact / "bus.csv").write_text(
@@ -27,7 +27,7 @@ def test_load_zenodo_bus_ids_accepts_full_prepared_bus_table(tmp_path):
         encoding="utf-8",
     )
 
-    assert load_zenodo_bus_ids(artifact) == frozenset({"3001001", "3001002"})
+    assert load_bus_ids(artifact) == frozenset({"3001001", "3001002"})
 
 
 @pytest.mark.parametrize(
@@ -39,16 +39,16 @@ def test_load_zenodo_bus_ids_accepts_full_prepared_bus_table(tmp_path):
     ),
     ids=("missing-column", "empty-only-id", "empty-id-row"),
 )
-def test_load_zenodo_bus_ids_rejects_missing_or_empty_ids(tmp_path, catalog, message):
+def test_load_bus_ids_rejects_missing_or_empty_ids(tmp_path, catalog, message):
     artifact = tmp_path / "artifact"
     artifact.mkdir()
     (artifact / "bus.csv").write_text(catalog, encoding="utf-8")
 
     with pytest.raises(ValueError, match=message):
-        load_zenodo_bus_ids(artifact)
+        load_bus_ids(artifact)
 
 
-def test_csv_submission_uses_zenodo_bus_ids_and_reconstructs_profile(tmp_path):
+def test_csv_submission_uses_source_bus_ids_and_reconstructs_profile(tmp_path):
     path = tmp_path / "team.csv"
     _write(
         path,
@@ -100,7 +100,7 @@ def test_csv_submission_can_require_complete_horizon(tmp_path):
 def test_csv_submission_rejects_unknown_bus_and_duplicate_key(tmp_path):
     path = tmp_path / "team.csv"
     _write(path, "team_1,week_1,1,UNKNOWN,40,,,,,\n")
-    with pytest.raises(ValueError, match="unknown Zenodo bus"):
+    with pytest.raises(ValueError, match="unknown scenario bus"):
         read_student_csv(path, bus_ids={"3002041"}, horizon=1)
 
     _write(

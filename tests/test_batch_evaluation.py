@@ -19,9 +19,12 @@ from ercot_game.batch_evaluation import (
     collect_csv_submissions,
     evaluate_csv_batch,
     write_batch_outputs,
+    load_scoring_rules,
 )
 from ercot_game.csv_submission import CSV_COLUMNS, read_student_csv
 from ercot_game.batch_evaluation import DCOPFInfeasible
+from ercot_game.economic_profiles import load_economic_profiles
+from ercot_game.models import ConnectionPlan, TeamPlan
 
 
 def _write_submission(
@@ -714,6 +717,75 @@ def test_batch_scoring_rules_normalizes_vectors_to_tuples():
     assert rules.it_value_per_mwh == (200.0,)
     assert isinstance(rules.it_value_per_mwh, tuple)
     assert isinstance(rules.energy_price_per_mwh, tuple)
+
+
+def test_scoring_settles_grid_purchase_at_each_site_bus():
+    profiles = load_economic_profiles(
+        {
+            "horizon_hours": 1,
+            "energy_price_per_mwh_by_bus": {"B1": [10.0], "B2": [20.0]},
+            "it_value_per_mwh": [100.0],
+            "currency_year": "2026",
+            "price_source": "test baseline",
+            "profile_version": "test-v1",
+        }
+    )
+    rules = BatchScoringRules(
+        rules_version="test-v1",
+        it_value_per_mwh=(),
+        energy_price_per_mwh=(),
+        economic_profiles=profiles,
+    )
+    dispatch = SimpleNamespace(
+        periods=(
+            SimpleNamespace(
+                period_index=0,
+                submitted_load_mw_by_team={"team-a": 2.0, "team-b": 2.0},
+                generator_dispatch_mw_by_team={"team-a": {}, "team-b": {}},
+                grid_purchase_mw_by_team={"team-a": 2.0, "team-b": 2.0},
+                grid_purchase_mw_by_team_by_bus={
+                    "team-a": {"B1": 2.0},
+                    "team-b": {"B2": 2.0},
+                },
+                storage_discharge_mw_by_team={},
+            ),
+        ),
+    )
+    plan_a = TeamPlan("team-a", (ConnectionPlan("site-a", "B1", 2.0, (1.0,)),))
+    plan_b = TeamPlan("team-b", (ConnectionPlan("site-b", "B2", 2.0, (1.0,)),))
+
+    score_a = _score_team(plan_a, dispatch, rules)
+    score_b = _score_team(plan_b, dispatch, rules)
+
+    assert score_a.energy_cost == 20.0
+    assert score_b.energy_cost == 40.0
+
+
+def test_load_scoring_rules_replaces_legacy_vectors_with_artifact(tmp_path):
+    artifact = tmp_path / "artifact"
+    artifact.mkdir()
+    (artifact / "bus.csv").write_text("bus_id\nB1\n", encoding="utf-8")
+    npz_path = artifact / "economic_profiles.npz"
+    import numpy as np
+    np.savez(npz_path, lmp_per_mwh=np.ones((4368, 1)))
+    digest = hashlib.sha256(npz_path.read_bytes()).hexdigest()
+    (artifact / "economic_profile_manifest.json").write_text(
+        json.dumps({"profile_version": "lmp-v1", "horizon_hours": 4368, "bus_ids": ["B1"], "artifact_sha256": digest, "price_source": "test"}),
+        encoding="utf-8",
+    )
+    (artifact / "economic_profile.json").write_text(
+        json.dumps({"it_value_per_mwh": [100.0] * 4368, "it_value_provenance": {"horizon_hours": 4368}}),
+        encoding="utf-8",
+    )
+    rules_path = tmp_path / "rules.json"
+    rules_path.write_text(json.dumps({"rules_version": "test-v1", "it_value_per_mwh": [200.0] * 4368, "energy_price_per_mwh": [50.0] * 4368}), encoding="utf-8")
+
+    rules = load_scoring_rules(rules_path, artifact_dir=artifact, horizon=4368)
+
+    assert rules.economic_profiles is not None
+    assert rules.economic_profiles.price_for_bus("B1", 0) == 1.0
+    assert rules.it_value_per_mwh == ()
+    assert rules.energy_price_per_mwh == ()
 
 
 def test_evaluate_csv_batch_rejects_explicit_empty_period_indices():

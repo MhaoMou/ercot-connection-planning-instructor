@@ -24,8 +24,8 @@ CSV_COLUMNS = (
 BUS_CSV_COLUMNS = tuple("bus_id" if column == "site_id" else column for column in CSV_COLUMNS)
 
 
-def load_zenodo_bus_ids(artifact_dir: str | Path) -> frozenset[str]:
-    """Load valid source bus IDs from a prepared Zenodo artifact."""
+def load_bus_ids(artifact_dir: str | Path) -> frozenset[str]:
+    """Load valid source bus IDs from a validated scenario block."""
     with (Path(artifact_dir) / "bus.csv").open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle, strict=True)
         try:
@@ -47,7 +47,7 @@ def load_zenodo_bus_ids(artifact_dir: str | Path) -> frozenset[str]:
 
 
 def load_generator_costs(artifact_dir: str | Path) -> dict[str, float]:
-    """Load dataset marginal generation costs keyed by Zenodo generator ID."""
+    """Load dataset marginal generation costs keyed by generator ID."""
     with (Path(artifact_dir) / "generator_limits.csv").open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle, strict=True)
         try:
@@ -153,10 +153,10 @@ def read_student_csv(
     default_generator_cost_per_mwh: float | None = None,
     require_complete_horizon: bool = False,
 ) -> CSVSubmission:
-    """Read one canonical student CSV using Zenodo source bus IDs.
+    """Read one canonical student CSV using scenario source bus IDs.
 
     ``region_to_source_bus`` is retained only as a deprecated compatibility
-    alias for older tests/fixtures. New submissions must identify a Zenodo bus
+    alias for older tests/fixtures. New submissions must identify a source bus
     directly. Generator operating costs are inherited from the dataset catalog;
     a default cost is accepted only for legacy callers that omit the catalog.
     """
@@ -224,7 +224,7 @@ def read_student_csv(
         if not 1 <= period <= horizon:
             raise ValueError(f"row {row_number}: period must be in 1..{horizon}")
         if bus_ids is not None and bus_id not in bus_ids:
-            raise ValueError(f"row {row_number}: unknown Zenodo bus {bus_id}")
+            raise ValueError(f"row {row_number}: unknown scenario bus {bus_id}")
         load = _number(row, "load_mw", row_number)
         if load < 0:
             raise ValueError(f"row {row_number}: load_mw must be non-negative")
@@ -255,7 +255,7 @@ def read_student_csv(
             if capacity < 0:
                 raise ValueError(f"row {row_number}: generator capacity must be non-negative")
             if generator_cost_by_id is not None and generator_id not in generator_cost_by_id:
-                raise ValueError(f"row {row_number}: unknown Zenodo generator {generator_id}")
+                raise ValueError(f"row {row_number}: unknown scenario generator {generator_id}")
             existing = generator_specs.get(generator_id)
             spec = (bus_id, capacity)
             if existing is not None and existing != spec:

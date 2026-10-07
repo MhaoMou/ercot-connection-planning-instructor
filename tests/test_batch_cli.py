@@ -338,3 +338,19 @@ def test_invalid_generator_catalog_is_reported_as_input_error(tmp_path, capsys):
 
     captured = capsys.readouterr()
     assert "production generator catalog" in captured.err
+
+
+def test_half_year_cli_requires_economic_profile_artifact(tmp_path, capsys):
+    submissions_dir, artifact_dir, rules_path, region_map_path = _write_inputs(tmp_path)
+    assert main(
+        [
+            "run",
+            "--submissions-dir", str(submissions_dir),
+            "--artifact-dir", str(artifact_dir),
+            "--rules", str(rules_path),
+            "--output-dir", str(tmp_path / "output"),
+            "--horizon", "4368",
+        ]
+    ) == 2
+
+    assert "economic profile" in capsys.readouterr().err
