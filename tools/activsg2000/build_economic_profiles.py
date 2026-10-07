@@ -113,7 +113,11 @@ def build_baseline_lmp_profile(
     artifact_dir: str | Path,
     output_dir: str | Path,
     *,
-    epsilon_mw: float = 1e-4,
+    # A 1e-4 MW perturbation is below the useful numerical resolution of the
+    # large ACTIVSg2000 LP and can make a correct dual appear inconsistent.
+    # 1e-2 MW remains negligible for the dispatch while producing a stable
+    # finite-difference sign check.
+    epsilon_mw: float = 1e-2,
     require_validated: bool = True,
 ) -> dict[str, Any]:
     """Generate a deterministic hourly baseline LMP artifact for one block.

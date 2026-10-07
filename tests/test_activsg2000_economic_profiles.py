@@ -77,3 +77,4 @@ def test_lmp_builder_writes_deterministic_full_horizon_artifact(tmp_path: Path, 
     assert payload["raw_balance_dual"].shape == (2, 3)
     assert payload["lmp_per_mwh"].min() >= 0.0
     assert manifest_a["dual_sign_validation"]["sign"] == "positive"
+    assert manifest_a["dual_sign_validation"]["epsilon"] == 1e-2
