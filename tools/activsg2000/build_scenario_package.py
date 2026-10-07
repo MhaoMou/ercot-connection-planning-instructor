@@ -134,12 +134,13 @@ def build_package(
     for index, (generator, cost) in enumerate(zip(generators, costs), start=1):
         generator_id = f"g{index:04d}"
         capacity = float(generator["PMAX"])
-        if index % 10 == 0 and capacity > 0:
-            profile_type = "solar"
-        elif index % 7 == 0 and capacity > 0:
-            profile_type = "wind"
-        else:
-            profile_type = "thermal"
+        # ACTIVSg2000 provides static generator status, PMIN, and PMAX, but
+        # does not provide technology labels or hourly availability data.
+        # Do not invent renewable deratings here: they can make an otherwise
+        # feasible source network physically infeasible.  A future package
+        # with explicit time-varying availability may opt into wind/solar
+        # profiles through a separate, versioned input.
+        profile_type = "thermal"
         generator_catalog.append(
             {
                 "generator_id": generator_id,
@@ -168,7 +169,14 @@ def build_package(
         generator_catalog,
     )
     profile_parameters = {
-        "profile_version": "controlled-three-year-v1",
+        "profile_version": "controlled-three-year-v2-static-generator-limits",
+        "generator_type_source": "ACTIVSg2000 generator table",
+        "availability_model": "static status and nameplate limits",
+        "availability_note": (
+            "ACTIVSg2000 does not provide generator technology labels or "
+            "hourly availability; dispatch uses the source status, PMIN, "
+            "and PMAX values without synthetic derating."
+        ),
         "load_model": {
             "seasonal_amplitude": 0.08,
             "daily_amplitude": 0.06,

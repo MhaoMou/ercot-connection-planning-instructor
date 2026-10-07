@@ -48,3 +48,15 @@ def test_builder_writes_deterministic_scenario_recipe(tmp_path: Path) -> None:
         assert len(list(csv.DictReader(handle))) == 2
     profiles = json.loads((output / "profile_parameters.json").read_text(encoding="utf-8"))
     assert len(profiles["generators"]) == 2
+
+
+def test_builder_uses_dataset_static_generator_limits_when_source_has_no_availability_data(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "package"
+    build_package(_source_fixture(tmp_path / "source"), output, enforce_activsg2000_size=False)
+    profiles = json.loads((output / "profile_parameters.json").read_text(encoding="utf-8"))
+
+    assert profiles["generator_type_source"] == "ACTIVSg2000 generator table"
+    assert profiles["availability_model"] == "static status and nameplate limits"
+    assert all(row["profile_type"] == "thermal" for row in profiles["generators"])
