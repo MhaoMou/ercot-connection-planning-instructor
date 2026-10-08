@@ -465,6 +465,7 @@ def _score_team(
     *,
     submission_key: str | None = None,
     capital_cost_scope: CapitalCostScope | None = None,
+    site_cost_connection_count_by_team: Mapping[str, int] | None = None,
 ) -> TeamScore:
     period_indices = tuple(period.period_index for period in dispatch.periods)
     if len(set(period_indices)) != len(period_indices):
@@ -544,7 +545,12 @@ def _score_team(
             if storage_ids_for_capital is None or storage.storage_id in storage_ids_for_capital
         ) * rules.storage_capital_cost_per_mwh
     )
-    site_cost = len(plan.connections) * rules.site_cost_per_site
+    site_count = (
+        len(plan.connections)
+        if site_cost_connection_count_by_team is None
+        else site_cost_connection_count_by_team.get(team_id, len(plan.connections))
+    )
+    site_cost = site_count * rules.site_cost_per_site
     score = it_value - energy_cost - generator_cost - generator_capital - storage_capital - storage_operating_cost - site_cost
     return TeamScore(
         team_id=team_id,
@@ -917,6 +923,30 @@ def _validate_capital_cost_scope(
             )
 
 
+def _validate_site_cost_scope(
+    scope: Mapping[str, int] | None,
+    plans: Sequence[TeamPlan],
+) -> None:
+    if scope is None:
+        return
+    if not isinstance(scope, Mapping):
+        raise ValueError("site_cost_connection_count_by_team must be a mapping")
+    known_teams = {plan.team_id for plan in plans}
+    for team_id, connection_count in scope.items():
+        if team_id not in known_teams:
+            raise ValueError(
+                f"site cost scope contains unknown team {team_id!r}"
+            )
+        if (
+            not isinstance(connection_count, int)
+            or isinstance(connection_count, bool)
+            or connection_count < 0
+        ):
+            raise ValueError(
+                "site cost connection counts must be non-negative integers"
+            )
+
+
 def evaluate_csv_batch(
     csv_paths: Sequence[str | Path] | str | Path,
     *,
@@ -933,6 +963,7 @@ def evaluate_csv_batch(
     projection_iterations: int = 10,
     plan_overrides: Mapping[str, TeamPlan] | None = None,
     capital_cost_scope: CapitalCostScope | None = None,
+    site_cost_connection_count_by_team: Mapping[str, int] | None = None,
 ) -> BatchEvaluation:
     """Collect and score valid submissions with deterministic failure isolation.
 
@@ -940,7 +971,10 @@ def evaluate_csv_batch(
     dispatch and operational scoring. CSV parsing, accepted/rejected records,
     and input hashes remain based on the submitted files. ``capital_cost_scope``
     optionally limits one-time generator/storage construction charges; when it
-    is omitted, all assets in each evaluator-facing plan are charged.
+    is omitted, all assets in each evaluator-facing plan are charged. The
+    optional site-cost scope lets a multi-round coordinator charge only the
+    current submission's connection sites; direct callers default to all plan
+    connections.
     """
     generator_cost = (
         rules.default_generator_cost_per_mwh
@@ -997,6 +1031,7 @@ def evaluate_csv_batch(
     accepted = tuple(collection.accepted)
     plans = _evaluation_plans(accepted, plan_overrides)
     _validate_capital_cost_scope(capital_cost_scope, plans)
+    _validate_site_cost_scope(site_cost_connection_count_by_team, plans)
     record_by_team = {record.team_id: record for record in accepted}
     all_records = tuple(
         sorted(
@@ -1093,6 +1128,7 @@ def evaluate_csv_batch(
                             rules,
                             submission_key=record_by_team[original_plan.team_id].submission_key,
                             capital_cost_scope=capital_cost_scope,
+                            site_cost_connection_count_by_team=site_cost_connection_count_by_team,
                         ),
                         competition_scope="joint_projection",
                     )
@@ -1199,6 +1235,7 @@ def evaluate_csv_batch(
                             rules,
                             submission_key=record_by_team[plan.team_id].submission_key,
                             capital_cost_scope=capital_cost_scope,
+                            site_cost_connection_count_by_team=site_cost_connection_count_by_team,
                         ),
                         competition_scope="joint",
                     )
@@ -1277,6 +1314,7 @@ def evaluate_csv_batch(
                                     rules,
                                     submission_key=submission_key,
                                     capital_cost_scope=capital_cost_scope,
+                                    site_cost_connection_count_by_team=site_cost_connection_count_by_team,
                                 ),
                                 competition_scope="individual_fallback",
                             )
@@ -1308,6 +1346,7 @@ def evaluate_csv_batch(
                         rules,
                         submission_key=record_by_team[plan.team_id].submission_key,
                         capital_cost_scope=capital_cost_scope,
+                        site_cost_connection_count_by_team=site_cost_connection_count_by_team,
                     ),
                     competition_scope="joint",
                 )

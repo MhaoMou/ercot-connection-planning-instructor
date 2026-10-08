@@ -123,6 +123,10 @@ def evaluate_round(
             generator_ids_by_team=new_generator_ids,
             storage_ids_by_team=new_storage_ids,
         ),
+        "site_cost_connection_count_by_team": {
+            plan.team_id: len(plan.connections)
+            for plan in plans
+        },
     }
     kwargs.update(_supported_optional_kwargs(evaluator, optional_kwargs))
     evaluation = evaluator(
@@ -136,7 +140,7 @@ def evaluate_round(
     # not prevent valid teams from receiving a result or having their accepted
     # assets committed; only the accepted plans returned by the plan loader
     # enter the ledger.
-    if getattr(evaluation, "dispatch", None) is None:
+    if not _has_period_collection(evaluation):
         raise RoundCoordinatorError(
             "evaluation did not return a usable dispatch result; state was not committed"
         )
@@ -147,6 +151,24 @@ def evaluate_round(
         prior_state=prior_state,
         state=advanced_state,
     )
+
+
+def _has_period_collection(evaluation: Any) -> bool:
+    """Accept real and lightweight dispatch objects with a period collection."""
+    dispatch = getattr(evaluation, "dispatch", None)
+    if dispatch is None:
+        return False
+    try:
+        periods = dispatch.periods
+    except AttributeError:
+        return False
+    if periods is None or isinstance(periods, (str, bytes)):
+        return False
+    try:
+        iter(periods)
+    except TypeError:
+        return False
+    return True
 
 
 def _supported_optional_kwargs(

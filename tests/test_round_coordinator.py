@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 
 import pytest
@@ -32,9 +32,14 @@ def _asset_plan(team_id: str = "team-a") -> TeamPlan:
 
 
 @dataclass(frozen=True)
+class _MinimalDispatch:
+    periods: tuple = ()
+
+
+@dataclass(frozen=True)
 class _UsableEvaluation:
     rejected_submissions: tuple = ()
-    dispatch: object = object()
+    dispatch: object = field(default_factory=_MinimalDispatch)
 
 
 def _loader(plans):
@@ -155,6 +160,26 @@ def test_rejected_result_does_not_commit_state(tmp_path) -> None:
     assert not state_path.exists()
 
 
+@pytest.mark.parametrize("dispatch", (object(), SimpleNamespace(periods=None)))
+def test_evaluation_without_period_collection_does_not_commit_state(tmp_path, dispatch) -> None:
+    state_path = tmp_path / "state.json"
+    evaluation = _UsableEvaluation(dispatch=dispatch)
+
+    with pytest.raises(RoundCoordinatorError, match="usable dispatch"):
+        evaluate_round(
+            state_path=state_path,
+            round_key="2027_jan_jun",
+            submissions=tmp_path / "submissions",
+            artifact_dir=tmp_path / "artifacts",
+            horizon=1,
+            rules=object(),
+            plan_loader=_loader((_plan(),)),
+            evaluator=lambda *args, **kwargs: evaluation,
+        )
+
+    assert not state_path.exists()
+
+
 def test_valid_teams_commit_when_rejected_team_is_isolated(tmp_path) -> None:
     state_path = tmp_path / "state.json"
     evaluation = _UsableEvaluation(rejected_submissions=(object(),))
@@ -256,6 +281,7 @@ def test_later_round_materializes_prior_assets_and_scopes_new_capital_costs(tmp_
         generator_ids_by_team={"team-a": {"gen-new"}},
         storage_ids_by_team={"team-a": {"store-new"}},
     )
+    assert seen["site_cost_connection_count_by_team"] == {"team-a": 1}
     assert set(result.state.asset_ledger.team("team-a").generators) == {
         "gen-new",
         "gen-old",

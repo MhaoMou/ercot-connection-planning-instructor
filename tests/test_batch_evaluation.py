@@ -441,6 +441,7 @@ def test_evaluate_csv_batch_uses_materialized_plan_and_charges_only_new_assets(
         it_value_per_mwh=(200.0,),
         energy_price_per_mwh=(50.0,),
         generator_capital_cost_per_mw=10.0,
+        site_cost_per_site=7.0,
         storage_capital_cost_per_mw=3.0,
         storage_capital_cost_per_mwh=4.0,
         storage_operating_cost_per_mwh=2.0,
@@ -457,6 +458,7 @@ def test_evaluate_csv_batch_uses_materialized_plan_and_charges_only_new_assets(
             generator_ids_by_team={"team-a": {"gen-new"}},
             storage_ids_by_team={"team-a": {"store-new"}},
         ),
+        site_cost_connection_count_by_team={"team-a": 1},
     )
 
     score = result.team_scores[0]
@@ -466,6 +468,63 @@ def test_evaluate_csv_batch_uses_materialized_plan_and_charges_only_new_assets(
     assert score.storage_capital_cost == 46.0
     assert score.generator_operating_cost == 39.0
     assert score.storage_operating_cost == 4.0
+    assert score.site_cost == 7.0
+
+
+def test_direct_batch_evaluation_keeps_default_materialized_connection_site_cost(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "team-a.csv"
+    plan = TeamPlan(
+        "team-a",
+        (
+            ConnectionPlan("site-1", "b0001", 1.0, (1.0,)),
+            ConnectionPlan("site-2", "b0001", 0.0, (0.0,)),
+        ),
+    )
+    record = SubmissionRecord(
+        path=path,
+        team_id="team-a",
+        submission_id="round-1",
+        submission=CSVSubmission("team-a", "round-1", plan, "sha"),
+        valid=True,
+        failure_reason=None,
+        input_sha256="sha",
+    )
+    monkeypatch.setattr(
+        batch_evaluation,
+        "_collect_evaluation_inputs",
+        lambda *args, **kwargs: BatchCollection((record,), ()),
+    )
+    monkeypatch.setattr(
+        batch_evaluation,
+        "_dispatch_plans",
+        lambda *args, **kwargs: SimpleNamespace(
+            team_ids=("team-a",),
+            periods=(
+                SimpleNamespace(
+                    period_index=0,
+                    submitted_load_mw_by_team={"team-a": 1.0},
+                    generator_dispatch_mw_by_team={"team-a": {}},
+                ),
+            ),
+        ),
+    )
+
+    result = evaluate_csv_batch(
+        path,
+        artifact_dir=tmp_path,
+        bus_ids={"b0001"},
+        horizon=1,
+        rules=BatchScoringRules(
+            rules_version="test-v1",
+            it_value_per_mwh=(1.0,),
+            energy_price_per_mwh=(0.0,),
+            site_cost_per_site=7.0,
+        ),
+    )
+
+    assert result.team_scores[0].site_cost == 14.0
 
 
 def test_evaluate_csv_batch_rejects_unknown_capital_scope_asset(tmp_path, monkeypatch):
