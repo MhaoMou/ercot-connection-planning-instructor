@@ -50,3 +50,12 @@ new state. The transition is rejected if a round is skipped, repeated, moved
 backward, or outside the released `2027`--`2029` package. The state can be
 saved and restored with `to_dict()` and `from_dict()`; later evaluator stages
 will use this boundary to load the prior round's team assets before dispatch.
+
+## Stage 3: durable state store
+
+`GameStateStore(path)` persists a `GameState` as deterministic UTF-8 JSON.
+Saving writes to a temporary file in the target file's directory, flushes it,
+and atomically replaces the requested path. A failed write cleans up the
+temporary file and leaves the previous target intact. Loading a missing file
+raises `FileNotFoundError`; malformed JSON or an unsupported/invalid state is
+reported as `GameStateStoreError`.
