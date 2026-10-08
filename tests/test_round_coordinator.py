@@ -8,10 +8,15 @@ import pytest
 from ercot_game.asset_state import AssetStateError
 from ercot_game.game_state import GameState
 from ercot_game.game_state_store import GameStateStore
-from ercot_game.batch_evaluation import CapitalCostScope, ProjectionDiagnostics
+from ercot_game.batch_evaluation import CapitalCostScope, ProjectionDiagnostics, TeamScore
 from ercot_game.models import ConnectionPlan, GeneratorPlan, SitePlan, StoragePlan, TeamPlan
 from ercot_game import round_coordinator
-from ercot_game.round_coordinator import RoundCoordinatorError, evaluate_round
+from ercot_game.round_coordinator import (
+    ClassroomRoundInput,
+    RoundCoordinatorError,
+    evaluate_classroom,
+    evaluate_round,
+)
 
 
 def _plan(team_id: str = "team-a", bus_id: str = "b0001") -> TeamPlan:
@@ -41,6 +46,24 @@ class _UsableEvaluation:
     rejected_submissions: tuple = ()
     dispatch: object = field(default_factory=_MinimalDispatch)
     projection_diagnostics: ProjectionDiagnostics | None = None
+    team_scores: tuple = field(
+        default_factory=lambda: (
+            TeamScore(
+                team_id="team-a",
+                rank=1,
+                valid=True,
+                feasible=True,
+                score=10.0,
+                served_load_mwh=1.0,
+                it_value=10.0,
+                energy_cost=0.0,
+                generator_operating_cost=0.0,
+                generator_capital_cost=0.0,
+                site_cost=0.0,
+                competition_scope="joint",
+            ),
+        )
+    )
 
 
 def _loader(plans):
@@ -837,3 +860,177 @@ def test_materialization_evaluation_failure_leaves_existing_state_unchanged(tmp_
 
     assert state_path.read_bytes() == before
     assert store.load().current_round_key == "2027_jan_jun"
+
+
+def test_classroom_coordinator_evaluates_all_six_rounds_and_ranks_only_scored_weeks(tmp_path) -> None:
+    state_path = tmp_path / "classroom-state.json"
+    rounds = tuple(
+        ClassroomRoundInput(
+            round_key=round_key,
+            submissions=tmp_path / round_key,
+            artifact_dir=tmp_path / "artifacts",
+            horizon=1,
+            rules=object(),
+        )
+        for round_key in (
+            "2027_jan_jun",
+            "2027_jul_dec",
+            "2028_jan_jun",
+            "2028_jul_dec",
+            "2029_jan_jun",
+            "2029_jul_dec",
+        )
+    )
+
+    def evaluator(*args, **kwargs):
+        return _UsableEvaluation()
+
+    result = evaluate_classroom(
+        state_path=state_path,
+        rounds=rounds,
+        plan_loader=_loader((_plan(),)),
+        evaluator=evaluator,
+    )
+
+    assert [(item.week_id, item.submission_number) for item in result.submissions] == [
+        ("week-1", 1),
+        ("week-1", 2),
+        ("week-2", 1),
+        ("week-2", 2),
+        ("week-3", 1),
+        ("week-3", 2),
+    ]
+    assert [item.feedback_only for item in result.submissions] == [True, True, False, False, False, False]
+    assert [item.ledger_reset for item in result.submissions] == [False, False, True, False, True, False]
+    assert [ranking.week_id for ranking in result.weekly_rankings] == ["week-1", "week-2", "week-3"]
+    assert result.weekly_rankings[0].rankings == ()
+    assert result.weekly_rankings[0].practice_feedback[0].team_id == "team-a"
+    assert all(ranking.rankings for ranking in result.weekly_rankings[1:])
+    assert {score.team_id for score in result.final_rankings} == {"team-a"}
+    assert result.final_rankings[0].rank == 1
+    assert result.state.next_round_key is None
+
+
+def test_classroom_capital_scope_charges_assets_once_per_weekly_match(tmp_path) -> None:
+    state_path = tmp_path / "classroom-state.json"
+    round_keys = (
+        "2027_jan_jun",
+        "2027_jul_dec",
+        "2028_jan_jun",
+        "2028_jul_dec",
+        "2029_jan_jun",
+        "2029_jul_dec",
+    )
+    rounds = tuple(
+        ClassroomRoundInput(
+            round_key=round_key,
+            submissions=tmp_path / round_key,
+            artifact_dir=tmp_path / "artifacts",
+            horizon=1,
+            rules=object(),
+        )
+        for round_key in round_keys
+    )
+    scopes = []
+
+    def evaluator(*args, **kwargs):
+        scopes.append(kwargs["capital_cost_scope"])
+        plan = kwargs["plan_overrides"]["team-a"]
+        return _UsableEvaluation(
+            dispatch=SimpleNamespace(
+                periods=(
+                    SimpleNamespace(
+                        storage_soc_mwh_by_team={
+                            "team-a": {
+                                storage.storage_id: storage.energy_mwh * 0.5
+                                for storage in plan.storages
+                            }
+                        }
+                    ),
+                )
+            )
+        )
+
+    evaluate_classroom(
+        state_path=state_path,
+        rounds=rounds,
+        plan_loader=_loader((_asset_plan(),)),
+        evaluator=evaluator,
+    )
+
+    assert [scope.generator_ids_by_team for scope in scopes] == [
+        {"team-a": {"gen-old"}},
+        {},
+        {"team-a": {"gen-old"}},
+        {},
+        {"team-a": {"gen-old"}},
+        {},
+    ]
+    assert [scope.storage_ids_by_team for scope in scopes] == [
+        {"team-a": {"store-old"}},
+        {},
+        {"team-a": {"store-old"}},
+        {},
+        {"team-a": {"store-old"}},
+        {},
+    ]
+
+
+def test_second_submission_is_rejected_before_loading_or_evaluating_without_predecessor(tmp_path) -> None:
+    called = {"loader": False, "evaluator": False}
+
+    def loader(*args, **kwargs):
+        called["loader"] = True
+        return (_plan(),)
+
+    def evaluator(*args, **kwargs):
+        called["evaluator"] = True
+        return _UsableEvaluation()
+
+    with pytest.raises(RoundCoordinatorError, match="submission 1.*week-1"):
+        evaluate_round(
+            state_path=tmp_path / "missing-state.json",
+            round_key="2027_jul_dec",
+            submissions=tmp_path / "submissions",
+            artifact_dir=tmp_path / "artifacts",
+            horizon=1,
+            rules=object(),
+            plan_loader=loader,
+            evaluator=evaluator,
+        )
+
+    assert called == {"loader": False, "evaluator": False}
+
+
+def test_classroom_output_summary_contains_only_team_scores_and_not_other_team_plans(tmp_path) -> None:
+    state_path = tmp_path / "classroom-state.json"
+    rounds = (
+        ClassroomRoundInput(
+            round_key="2027_jan_jun",
+            submissions=tmp_path / "round-1",
+            artifact_dir=tmp_path / "artifacts",
+            horizon=1,
+            rules=object(),
+        ),
+        ClassroomRoundInput(
+            round_key="2027_jul_dec",
+            submissions=tmp_path / "round-2",
+            artifact_dir=tmp_path / "artifacts",
+            horizon=1,
+            rules=object(),
+        ),
+    )
+
+    result = evaluate_classroom(
+        state_path=state_path,
+        rounds=rounds,
+        plan_loader=_loader((_plan("team-a"), _plan("team-b"))),
+        evaluator=lambda *args, **kwargs: _UsableEvaluation(),
+    )
+
+    payload = result.to_public_dict()
+    assert payload["submissions"][0]["team_results"]
+    assert "plans" not in payload["submissions"][0]
+    assert {item["team_id"] for item in payload["submissions"][0]["team_results"]} == {"team-a"}
+    assert "submission_key" not in payload["submissions"][0]["team_results"][0]
+    assert "week-1" in payload["weekly_rankings"]

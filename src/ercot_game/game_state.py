@@ -77,6 +77,13 @@ class GameState:
         return match.round_keys.index(self.current_round_key) + 1
 
     @property
+    def current_feedback_only(self) -> bool | None:
+        """Whether the current submission belongs to the unranked practice week."""
+        if self.current_round_key is None:
+            return None
+        return weekly_match_for(self.current_round_key).feedback_only
+
+    @property
     def next_week_id(self) -> str | None:
         """The weekly match containing the next round, if any."""
         if self.next_round_key is None:
@@ -90,6 +97,13 @@ class GameState:
             return None
         match = weekly_match_for(self.next_round_key)
         return match.round_keys.index(self.next_round_key) + 1
+
+    @property
+    def next_feedback_only(self) -> bool | None:
+        """Whether the next submission belongs to the unranked practice week."""
+        if self.next_round_key is None:
+            return None
+        return weekly_match_for(self.next_round_key).feedback_only
 
     def advance(self, round_key: str, plans: Iterable[TeamPlan]) -> "GameState":
         """Commit one half-year's team plans and advance exactly one round."""
@@ -127,6 +141,9 @@ class GameState:
         return {
             "state_version": self.state_version,
             "current_round_key": self.current_round_key,
+            "current_week_id": self.current_week_id,
+            "current_submission_number": self.current_submission_number,
+            "current_feedback_only": self.current_feedback_only,
             "completed_rounds": list(self.completed_rounds),
             "asset_ledger": self.asset_ledger.to_dict(),
         }
@@ -141,12 +158,23 @@ class GameState:
         ledger_payload = payload.get("asset_ledger")
         if not isinstance(ledger_payload, Mapping):
             raise RoundTransitionError("asset_ledger must be an object")
-        return cls(
+        state = cls(
             state_version=payload.get("state_version"),
             current_round_key=payload.get("current_round_key"),
             completed_rounds=tuple(completed),
             asset_ledger=AssetLedger.from_dict(ledger_payload),
         )
+        serialized_metadata = {
+            "current_week_id": state.current_week_id,
+            "current_submission_number": state.current_submission_number,
+            "current_feedback_only": state.current_feedback_only,
+        }
+        for field_name, expected in serialized_metadata.items():
+            if field_name in payload and payload[field_name] != expected:
+                raise RoundTransitionError(
+                    f"{field_name} does not match current_round_key"
+                )
+        return state
 
 
 def _validate_round_key(round_key: str) -> None:

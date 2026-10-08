@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import importlib.metadata
 import json
 from collections.abc import Mapping
@@ -17,6 +18,7 @@ from .batch_evaluation import (
     write_batch_outputs,
 )
 from .calendars import half_year_calendar
+from .round_coordinator import ClassroomRoundInput, evaluate_classroom
 
 
 class _ParserExit(Exception):
@@ -175,7 +177,115 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="deprecated legacy region map; new submissions use artifact bus IDs directly",
     )
+    classroom_parser = subparsers.add_parser(
+        "classroom",
+        help="evaluate the three weekly two-submission classroom schedule",
+    )
+    classroom_parser.add_argument("--manifest", required=True, type=Path)
+    classroom_parser.add_argument("--state-path", required=False, type=Path)
+    classroom_parser.add_argument("--output-dir", required=True, type=Path)
     return parser
+
+
+def _manifest_path(raw_value: object, *, base_dir: Path, label: str) -> Path:
+    if not isinstance(raw_value, str) or not raw_value:
+        raise ValueError(f"classroom manifest {label} must be a non-empty path")
+    path = Path(raw_value)
+    return path if path.is_absolute() else base_dir / path
+
+
+def _classroom_round_inputs(manifest_path: Path) -> tuple[ClassroomRoundInput, ...]:
+    payload = _read_json(manifest_path, "classroom manifest")
+    if isinstance(payload, Mapping):
+        raw_rounds = payload.get("rounds")
+    else:
+        raw_rounds = payload
+    if not isinstance(raw_rounds, list) or len(raw_rounds) != 6:
+        raise ValueError("classroom manifest must contain exactly six rounds")
+
+    base_dir = manifest_path.parent
+    inputs: list[ClassroomRoundInput] = []
+    for index, raw_round in enumerate(raw_rounds, start=1):
+        if not isinstance(raw_round, Mapping):
+            raise ValueError(f"classroom manifest round {index} must be an object")
+        round_key = raw_round.get("round_key")
+        if not isinstance(round_key, str) or not round_key:
+            raise ValueError(f"classroom manifest round {index} must provide round_key")
+        artifact_dir = _manifest_path(
+            raw_round.get("artifact_dir"),
+            base_dir=base_dir,
+            label=f"round {index} artifact_dir",
+        )
+        rules_path = _manifest_path(
+            raw_round.get("rules"),
+            base_dir=base_dir,
+            label=f"round {index} rules",
+        )
+        if "horizon" in raw_round:
+            horizon = _positive_int(str(raw_round["horizon"]))
+        else:
+            year, round_name = round_key.split("_", 1)
+            horizon = half_year_calendar(int(year), round_name).horizon
+        rules = load_scoring_rules(rules_path, artifact_dir=artifact_dir, horizon=horizon)
+        inputs.append(
+            ClassroomRoundInput(
+                round_key=round_key,
+                submissions=_manifest_path(
+                    raw_round.get("submissions_dir"),
+                    base_dir=base_dir,
+                    label=f"round {index} submissions_dir",
+                ),
+                artifact_dir=artifact_dir,
+                horizon=horizon,
+                rules=rules,
+            )
+        )
+    return tuple(inputs)
+
+
+def _run_classroom(args: argparse.Namespace) -> int:
+    manifest_path = args.manifest.resolve()
+    round_inputs = _classroom_round_inputs(manifest_path)
+    output_dir = args.output_dir
+    state_path = args.state_path or output_dir / "classroom_state.json"
+    result = evaluate_classroom(
+        state_path=state_path,
+        rounds=round_inputs,
+    )
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    round_output_dirs: list[str] = []
+    for round_input, round_result in zip(round_inputs, result.submissions):
+        dispatch = getattr(round_result.evaluation, "dispatch", None)
+        periods = tuple(getattr(dispatch, "periods", ())) if dispatch is not None else ()
+        period_indices = tuple(
+            period.period_index for period in periods
+        ) or tuple(range(round_input.horizon))
+        round_output_dir = output_dir / round_result.week_id / f"submission-{round_result.submission_number}"
+        write_batch_outputs(
+            round_result.evaluation,
+            round_output_dir,
+            scenario_version=Path(round_input.artifact_dir).name,
+            evaluator_version=_evaluator_version(),
+            period_indices=period_indices,
+            source_period_indices=(
+                getattr(round_result.evaluation, "source_period_indices", None) or None
+            ),
+        )
+        round_output_dirs.append(round_output_dir.relative_to(output_dir).as_posix())
+
+    public_payload = result.to_public_dict()
+    public_payload["round_output_dirs"] = round_output_dirs
+    serialized = json.dumps(public_payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    evaluation_path = output_dir / "classroom_evaluation.json"
+    evaluation_path.write_text(serialized, encoding="utf-8")
+    (output_dir / "classroom_evaluation_sha256.txt").write_text(
+        hashlib.sha256(serialized.encode("utf-8")).hexdigest() + "\n",
+        encoding="utf-8",
+    )
+    print(f"output directory: {output_dir.resolve()}")
+    print("summary: 6 half-year submissions")
+    return 0
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -250,6 +360,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     try:
         args = parser.parse_args(argv)
+        if args.command == "classroom":
+            return _run_classroom(args)
         if args.command != "run":
             parser.error("a command is required")
         return _run(args)

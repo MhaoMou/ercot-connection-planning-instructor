@@ -418,6 +418,86 @@ def test_missing_artifact_is_reported_as_input_error(tmp_path, capsys):
     assert "error:" in capsys.readouterr().err
 
 
+def test_classroom_command_runs_all_six_rounds_and_writes_public_summary(
+    tmp_path, monkeypatch, capsys
+):
+    manifest_path = tmp_path / "classroom.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "rounds": [
+                    {
+                        "round_key": round_key,
+                        "submissions_dir": f"submissions/{index}",
+                        "artifact_dir": f"artifacts/{index}",
+                        "rules": f"rules/{index}.json",
+                        "horizon": 1,
+                    }
+                    for index, round_key in enumerate(
+                        (
+                            "2027_jan_jun",
+                            "2027_jul_dec",
+                            "2028_jan_jun",
+                            "2028_jul_dec",
+                            "2029_jan_jun",
+                            "2029_jul_dec",
+                        )
+                    )
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    seen = {}
+
+    class _Result:
+        submissions = ()
+
+        def to_public_dict(self):
+            return {
+                "submissions": [{"round_key": "2027_jan_jun", "team_results": []}],
+                "weekly_rankings": {},
+                "final_rankings": [],
+                "state_metadata": {},
+            }
+
+    def fake_evaluate_classroom(*, rounds, **kwargs):
+        seen["rounds"] = tuple(rounds)
+        return _Result()
+
+    monkeypatch.setattr(
+        batch_cli,
+        "load_scoring_rules",
+        lambda *args, **kwargs: SimpleNamespace(),
+    )
+    monkeypatch.setattr(batch_cli, "evaluate_classroom", fake_evaluate_classroom)
+    output_dir = tmp_path / "classroom-output"
+    assert main(
+        [
+            "classroom",
+            "--manifest",
+            str(manifest_path),
+            "--state-path",
+            str(tmp_path / "state.json"),
+            "--output-dir",
+            str(output_dir),
+        ]
+    ) == 0
+
+    assert [item.round_key for item in seen["rounds"]] == [
+        "2027_jan_jun",
+        "2027_jul_dec",
+        "2028_jan_jun",
+        "2028_jul_dec",
+        "2029_jan_jun",
+        "2029_jul_dec",
+    ]
+    payload = json.loads((output_dir / "classroom_evaluation.json").read_text(encoding="utf-8"))
+    assert payload["submissions"][0]["round_key"] == "2027_jan_jun"
+    assert "plans" not in payload
+    assert "summary: 6 half-year submissions" in capsys.readouterr().out
+
+
 def test_batch_does_not_use_generator_catalog_as_submission_registry(tmp_path, capsys):
     submissions_dir, artifact_dir, rules_path, region_map_path = _write_inputs(tmp_path)
     _write_submission(submissions_dir / "team-a.csv", "team-a")

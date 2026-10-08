@@ -21,6 +21,10 @@ _LAZY_EXPORTS = {
     "GameStateStoreError": (".game_state_store", "GameStateStoreError"),
     "RoundCoordinatorError": (".round_coordinator", "RoundCoordinatorError"),
     "RoundEvaluationResult": (".round_coordinator", "RoundEvaluationResult"),
+    "ClassroomRoundInput": (".round_coordinator", "ClassroomRoundInput"),
+    "ClassroomEvaluationResult": (".round_coordinator", "ClassroomEvaluationResult"),
+    "WeeklyRanking": (".round_coordinator", "WeeklyRanking"),
+    "evaluate_classroom": (".round_coordinator", "evaluate_classroom"),
     "evaluate_round": (".round_coordinator", "evaluate_round"),
     "CapitalCostScope": (".batch_evaluation", "CapitalCostScope"),
 }
@@ -56,6 +60,10 @@ __all__ = [
     "GameStateStoreError",
     "RoundCoordinatorError",
     "RoundEvaluationResult",
+    "ClassroomRoundInput",
+    "ClassroomEvaluationResult",
+    "WeeklyRanking",
+    "evaluate_classroom",
     "evaluate_round",
     "CapitalCostScope",
 ]

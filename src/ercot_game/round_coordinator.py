@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import replace
+from dataclasses import asdict, dataclass, replace
 import inspect
 import math
 from pathlib import Path
@@ -13,6 +13,7 @@ from .batch_evaluation import (
     BatchEvaluation,
     BatchScoringRules,
     CapitalCostScope,
+    TeamScore,
     _collect_evaluation_inputs,
     evaluate_csv_batch,
 )
@@ -23,7 +24,7 @@ from .asset_state import (
 )
 from .calendars import weekly_match_for
 from .csv_submission import load_bus_ids
-from .game_state import GameState
+from .game_state import RELEASED_ROUND_SEQUENCE, GameState
 from .game_state_store import GameStateStore
 from .models import TeamPlan
 
@@ -102,10 +103,37 @@ def evaluate_round(
     """
     store = GameStateStore(state_path)
     try:
-        prior_state = store.load() if Path(state_path).exists() else GameState.new()
+        loaded_state = store.load() if Path(state_path).exists() else GameState.new()
     except FileNotFoundError:
-        prior_state = GameState.new()
-    prior_state = _state_for_round(prior_state, round_key)
+        loaded_state = GameState.new()
+
+    try:
+        match = weekly_match_for(round_key)
+    except ValueError as exc:
+        raise RoundCoordinatorError(str(exc)) from exc
+    expected_round = loaded_state.next_round_key
+    if expected_round != round_key:
+        if (
+            match.round_keys[1] == round_key
+            and loaded_state.current_round_key != match.round_keys[0]
+        ):
+            raise RoundCoordinatorError(
+                f"submission 1 for {match.week_id} must be successfully committed "
+                f"before submission 2 ({match.round_keys[0]})"
+            )
+        raise RoundCoordinatorError(
+            f"round transition expected {expected_round}, received {round_key}"
+        )
+
+    ledger_reset = (
+        loaded_state.current_round_key is not None
+        and loaded_state.current_week_id != match.week_id
+    )
+    preserves_prior_submission = (
+        loaded_state.current_week_id == match.week_id
+        and match.round_keys[1] == round_key
+    )
+    prior_state = _state_for_round(loaded_state, round_key)
 
     loader = plan_loader or _default_plan_loader
     plans = tuple(
@@ -221,7 +249,182 @@ def evaluate_round(
         evaluation=evaluation,
         prior_state=prior_state,
         state=updated_state,
+        ledger_reset=ledger_reset,
+        preserves_prior_submission=preserves_prior_submission,
     )
+
+
+@dataclass(frozen=True)
+class ClassroomRoundInput:
+    """Inputs for one half-year in the released classroom schedule."""
+
+    round_key: str
+    submissions: Sequence[str | Path] | str | Path
+    artifact_dir: str | Path
+    horizon: int
+    rules: BatchScoringRules
+
+
+@dataclass(frozen=True)
+class WeeklyRanking:
+    """Practice feedback and the scored ranking for one weekly match."""
+
+    week_id: str
+    feedback_only: bool
+    rankings: tuple[TeamScore, ...] = ()
+    practice_feedback: tuple[TeamScore, ...] = ()
+
+
+@dataclass(frozen=True)
+class ClassroomEvaluationResult:
+    """Public result for a sequential classroom evaluation."""
+
+    submissions: tuple["RoundEvaluationResult", ...]
+    weekly_rankings: tuple[WeeklyRanking, ...]
+    final_rankings: tuple[TeamScore, ...]
+    state: GameState
+
+    def to_public_dict(self) -> dict[str, Any]:
+        """Return score-only output safe to publish to classroom consumers."""
+        return {
+            "submissions": [submission.to_public_dict() for submission in self.submissions],
+            "weekly_rankings": {
+                ranking.week_id: {
+                    "feedback_only": ranking.feedback_only,
+                    "practice_feedback": [
+                        _public_score_dict(score) for score in ranking.practice_feedback
+                    ],
+                    "rankings": [_public_score_dict(score) for score in ranking.rankings],
+                }
+                for ranking in self.weekly_rankings
+            },
+            "final_rankings": [_public_score_dict(score) for score in self.final_rankings],
+            "state_metadata": {
+                "current_round_key": self.state.current_round_key,
+                "next_round_key": self.state.next_round_key,
+                "completed_rounds": list(self.state.completed_rounds),
+            },
+        }
+
+
+def evaluate_classroom(
+    *,
+    state_path: str | Path,
+    rounds: Sequence[ClassroomRoundInput],
+    plan_loader: PlanLoader | None = None,
+    evaluator: Evaluator = evaluate_csv_batch,
+    evaluator_kwargs: Mapping[str, Any] | None = None,
+) -> ClassroomEvaluationResult:
+    """Evaluate a contiguous classroom schedule prefix transactionally.
+
+    A caller may supply all six rounds or a prefix when resuming an interrupted
+    classroom run.  Each round is committed through :func:`evaluate_round`,
+    so a failed round cannot advance the state or expose a partial ranking.
+    """
+    round_inputs = tuple(rounds)
+    if not round_inputs or len(round_inputs) > len(RELEASED_ROUND_SEQUENCE):
+        raise RoundCoordinatorError("classroom rounds must contain a non-empty released schedule prefix")
+    expected_rounds = RELEASED_ROUND_SEQUENCE[: len(round_inputs)]
+    actual_rounds = tuple(item.round_key for item in round_inputs)
+    if actual_rounds != expected_rounds:
+        raise RoundCoordinatorError(
+            "classroom rounds must be a contiguous prefix of the released six-round schedule"
+        )
+
+    results: list[RoundEvaluationResult] = []
+    for item in round_inputs:
+        results.append(
+            evaluate_round(
+                state_path=state_path,
+                round_key=item.round_key,
+                submissions=item.submissions,
+                artifact_dir=item.artifact_dir,
+                horizon=item.horizon,
+                rules=item.rules,
+                plan_loader=plan_loader,
+                evaluator=evaluator,
+                evaluator_kwargs=evaluator_kwargs,
+            )
+        )
+
+    weekly_rankings: list[WeeklyRanking] = []
+    final_scores: list[TeamScore] = []
+    for week_id, week_results in _group_week_results(results):
+        first = week_results[0]
+        practice_feedback = tuple(getattr(first.evaluation, "team_scores", ()))
+        if first.feedback_only:
+            rankings: tuple[TeamScore, ...] = ()
+        elif len(week_results) < 2:
+            rankings = ()
+        else:
+            rankings = _rank_scores(getattr(week_results[1].evaluation, "team_scores", ()))
+            final_scores.extend(score for score in rankings if score.valid)
+        weekly_rankings.append(
+            WeeklyRanking(
+                week_id=week_id,
+                feedback_only=first.feedback_only,
+                rankings=rankings,
+                practice_feedback=practice_feedback,
+            )
+        )
+
+    aggregate_by_team: dict[str, TeamScore] = {}
+    for score in final_scores:
+        previous = aggregate_by_team.get(score.team_id)
+        if previous is None:
+            aggregate_by_team[score.team_id] = score
+        else:
+            aggregate_by_team[score.team_id] = replace(
+                previous,
+                score=previous.score + score.score,
+                served_load_mwh=previous.served_load_mwh + score.served_load_mwh,
+                it_value=previous.it_value + score.it_value,
+                energy_cost=previous.energy_cost + score.energy_cost,
+                generator_operating_cost=(
+                    previous.generator_operating_cost + score.generator_operating_cost
+                ),
+                generator_capital_cost=(
+                    previous.generator_capital_cost + score.generator_capital_cost
+                ),
+                site_cost=previous.site_cost + score.site_cost,
+                storage_capital_cost=(
+                    previous.storage_capital_cost + score.storage_capital_cost
+                ),
+            )
+    final_rankings = _rank_scores(tuple(aggregate_by_team.values()))
+    return ClassroomEvaluationResult(
+        submissions=tuple(results),
+        weekly_rankings=tuple(weekly_rankings),
+        final_rankings=final_rankings,
+        state=results[-1].state,
+    )
+
+
+def _group_week_results(
+    results: Sequence["RoundEvaluationResult"],
+) -> tuple[tuple[str, tuple["RoundEvaluationResult", ...]], ...]:
+    grouped: dict[str, list[RoundEvaluationResult]] = {}
+    for result in results:
+        grouped.setdefault(result.week_id, []).append(result)
+    return tuple((week_id, tuple(grouped[week_id])) for week_id in grouped)
+
+
+def _rank_scores(scores: Sequence[TeamScore]) -> tuple[TeamScore, ...]:
+    ordered = sorted(
+        scores,
+        key=lambda item: (
+            0 if item.valid and item.feasible else 1 if item.valid else 2,
+            -item.score,
+            item.team_id,
+        ),
+    )
+    return tuple(replace(score, rank=index) for index, score in enumerate(ordered, start=1))
+
+
+def _public_score_dict(score: Any) -> dict[str, Any]:
+    payload = asdict(score)
+    payload.pop("submission_key", None)
+    return payload
 
 
 def _validate_projection_team_isolation(
@@ -393,8 +596,55 @@ class RoundEvaluationResult:
         evaluation: BatchEvaluation,
         prior_state: GameState,
         state: GameState,
+        ledger_reset: bool = False,
+        preserves_prior_submission: bool = False,
     ) -> None:
         self.round_key = round_key
         self.evaluation = evaluation
         self.prior_state = prior_state
         self.state = state
+        self.ledger_reset = ledger_reset
+        self.preserves_prior_submission = preserves_prior_submission
+
+    @property
+    def week_id(self) -> str:
+        return weekly_match_for(self.round_key).week_id
+
+    @property
+    def submission_number(self) -> int:
+        match = weekly_match_for(self.round_key)
+        return match.round_keys.index(self.round_key) + 1
+
+    @property
+    def feedback_only(self) -> bool:
+        return weekly_match_for(self.round_key).feedback_only
+
+    @property
+    def scored(self) -> bool:
+        return not self.feedback_only and self.submission_number == 2
+
+    @property
+    def predecessor_round_key(self) -> str | None:
+        return (
+            weekly_match_for(self.round_key).round_keys[0]
+            if self.submission_number == 2
+            else None
+        )
+
+    @property
+    def team_results(self) -> tuple[TeamScore, ...]:
+        return tuple(getattr(self.evaluation, "team_scores", ()))
+
+    def to_public_dict(self) -> dict[str, Any]:
+        """Serialize metadata and score feedback without exposing submitted plans."""
+        return {
+            "round_key": self.round_key,
+            "week_id": self.week_id,
+            "submission_number": self.submission_number,
+            "feedback_only": self.feedback_only,
+            "scored": self.scored,
+            "ledger_reset": self.ledger_reset,
+            "preserves_prior_submission": self.preserves_prior_submission,
+            "predecessor_round_key": self.predecessor_round_key,
+            "team_results": [_public_score_dict(score) for score in self.team_results],
+        }
