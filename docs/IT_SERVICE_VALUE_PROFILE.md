@@ -22,7 +22,7 @@ IT_value[t] = 125.00 USD/MWh,  for every hour t
 The vector is intentionally constant rather than a six-hour pattern. A
 constant vector is easier for students to audit, avoids unexplained periodicity,
 and makes strategic time variation come from the network operating state, load,
-renewable availability, and the eventual hourly energy-price surface.
+the validated hourly scenario and the released hourly energy-price surface.
 
 ## Provenance and reproducibility
 

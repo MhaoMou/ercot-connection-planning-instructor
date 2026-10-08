@@ -1,6 +1,6 @@
 {
   "package_version": "activsg2000-scenarios-v1",
-  "validation_status": "partial",
+  "validation_status": "passed",
   "source": {
     "name": "ACTIVSg2000",
     "repository": "https://github.com/caseformat/ACTIVSg2000",
@@ -25,7 +25,7 @@
       "network/case.csv": "c6b8f4320e9ea1598688eda3e9269d32e29d9384b99273465b4a66d1d75db306",
       "network/gen.csv": "8493a9ae77a787272af2b48fead18c8bc830a432a143bf80ea284b7a010a1831",
       "network/gencost.csv": "7091ccec317e12f5202db9e26df67befb9afee05580469c9c43a09064f63c05a",
-      "network/generator_catalog.csv": "2d24ed544d95d3445b6fa0c5e4655d2466a70ce0d1fc7b1c8362077ae720623b"
+      "network/generator_catalog.csv": "d9ccbb55f129cd6e0b00c4bfb54a2c5da9a366cecf773360c26fbf939d976787"
     }
   },
   "blocks": {
@@ -35,8 +35,8 @@
       "horizon": 4368,
       "time_step_hours": 1,
       "profile_recipe_hash": "577a2747881a6656286e4ddb504a025660fcc10e73b672bdcaaa5e50089af982",
-      "sha256": "dacd3b6e3d17745ee9a8d9c34b39de87d134002e911f8ac225028e197b035398",
-      "validated_state_hash": "a667fcf54cb09b30a398a84a8b9c2ee48e93e04c980e768baec94813bc7d471a"
+      "sha256": "d09f50706fb3b884c55dc019e1a3ce90d3d59617a74e11c9b10f094dcdd69dbf",
+      "validated_state_hash": "13487b48787d1db52bb2fb1d4f0bf3e6a4d18d60c4ad39aa122d2339beac8c56"
     },
     "2016-jul_dec": {
       "year": 2016,
@@ -44,7 +44,8 @@
       "horizon": 4416,
       "time_step_hours": 1,
       "profile_recipe_hash": "5ad519570971723fea6587865f62110181cd188cae2c72f25f27e14902301e63",
-      "sha256": "8f1fcb3f8be150b72f2b92762a662b1c1c44805a480ea98982de9b59d4d0b68f"
+      "sha256": "91cd498ef0127041250f1a57d6481034c1195922a65fb4bc47d659b2377f524b",
+      "validated_state_hash": "e5b0e6e9530620067b5e237cd7534749b46dda121770ddc7056c4fe032d79a0a"
     },
     "2017-jan_jun": {
       "year": 2017,
@@ -52,7 +53,8 @@
       "horizon": 4344,
       "time_step_hours": 1,
       "profile_recipe_hash": "f5277a04e08bc1ca5f34c09b4681fbfc70a2b9bcef751b366663838170dfbc17",
-      "sha256": "789f998b899300fac26ed5f7ad06628925511bd4ffd448018b191ff428b0e864"
+      "sha256": "7595a933a807c777cc8c68a5632917ce671165380a13ae1fda6b9a7f852957d1",
+      "validated_state_hash": "4049d182c3299c0a4841775c9c8604c637fbe0400bc14616d5d8906cc5e15b39"
     },
     "2017-jul_dec": {
       "year": 2017,
@@ -60,7 +62,8 @@
       "horizon": 4416,
       "time_step_hours": 1,
       "profile_recipe_hash": "ca1e83c1979481434cfbe8f800ca2bd00ea397c502e1818ba717c77691b9b534",
-      "sha256": "c97e40a917801f03853d53cfbeb7822306ea0a4a3261acd2fc9be258912c9351"
+      "sha256": "6767e6c1f828c026d7f894a94a9ddbbb4cce214e7e152c6c6e49fb0f44e0f09c",
+      "validated_state_hash": "af717e6c5fccb7e762d54c3cf087f044097cf51d997648b5b66b2be8487912c1"
     },
     "2018-jan_jun": {
       "year": 2018,
@@ -68,7 +71,8 @@
       "horizon": 4344,
       "time_step_hours": 1,
       "profile_recipe_hash": "35fe6398eb28d02c4813554c854998566e545741f64c6fe8410d346add741031",
-      "sha256": "ff858790903af0aeb74e2d34c054ddee7f398858c31bbebd0955ea70756bfe26"
+      "sha256": "90b218ed0de9784d2b51f8b8099a58f8d5a2b26449e6aa23332c88afa10d19bb",
+      "validated_state_hash": "4049d182c3299c0a4841775c9c8604c637fbe0400bc14616d5d8906cc5e15b39"
     },
     "2018-jul_dec": {
       "year": 2018,
@@ -76,13 +80,14 @@
       "horizon": 4416,
       "time_step_hours": 1,
       "profile_recipe_hash": "5a0b1db3a6a1ac33f0f5da20e2dda1225313b594a819c7943d777fd6f73ef7d0",
-      "sha256": "2b36dc5b06fead82b5459f981f24e6ff618a29f2f5b3222387a395ff60e7559b"
+      "sha256": "51ff2d862dd198a19cd968892fb5f6cf6c2ff942389ea1d1d271ddf726973826",
+      "validated_state_hash": "af717e6c5fccb7e762d54c3cf087f044097cf51d997648b5b66b2be8487912c1"
     }
   },
   "validation": {
-    "hour_count": 1,
+    "hour_count": 26304,
     "expected_hour_count": 26304,
-    "passed_hour_count": 1,
+    "passed_hour_count": 26304,
     "failed_hour_count": 0,
     "failures": []
   }

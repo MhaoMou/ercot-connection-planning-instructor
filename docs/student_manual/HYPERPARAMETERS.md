@@ -172,7 +172,7 @@ the batch output identifies the projection scope.
 | Solver | HiGHS through the DCOPF adapter | **INSTRUCTOR-CHOSEN** | Record solver/version for reproducibility |
 | Active source generators | status == 1 | **DATASET-SPECIFIED** | Inactive units excluded |
 | Active source branches | status == 1 and nonzero reactance | **DATASET-SPECIFIED** | Inactive/invalid branches excluded |
-| Renewable hard availability cap | Applied hourly from generator-specific profiles | **INSTRUCTOR-CHOSEN** | Availability is bounded by dataset nameplate |
+| Generator availability | Static dataset status, PMIN, and PMAX limits | **DATASET-SPECIFIED** | ACTIVSg2000 has no technology labels or hourly availability fields; no synthetic derating is applied |
 | CSV identity | One team and one submission per file | **INSTRUCTOR-CHOSEN** | Batch collector is authoritative |
 | Storage period continuity | Required for storage-enabled evaluation | **INSTRUCTOR-CHOSEN** | Prevents ambiguous state transitions |
 
@@ -189,14 +189,13 @@ scoring coefficients.
   instructor_review_required.
 - IT-service value is now a complete constant full-horizon vector; it is not a
   repeated six-hour profile.
-- Energy-price settlement is staged for replacement by immutable baseline
-  ACTIVSg2000 DCOPF LMP artifacts; the current compatibility vector is not the
-  final locational-price release.
+- Energy-price settlement uses the immutable baseline ACTIVSg2000 DCOPF LMP
+  artifacts included in each released half-year block.
 - The canonical ACTIVSg2000 source is the fixed network source; the three-year
   operating package is a controlled generated scenario, not historical ERCOT
   operation.
-- Generator-specific wind and solar profiles are hard hourly availability caps
-  in the validated scenario evaluator.
+- The active package does not apply synthetic wind/solar availability caps;
+  generator status, PMIN, and PMAX are taken directly from ACTIVSg2000.
 - Fixed storage O&M of approximately $40/kW-year is a reference benchmark only;
   the $8/MWh variable proxy is the charged operating cost.
 

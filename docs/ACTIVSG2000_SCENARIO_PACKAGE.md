@@ -26,18 +26,18 @@ It contains:
 
 The source topology is fixed at 2,000 buses, 3,206 branches, and 544
 generators. Each block exposes the catalog files required by the CSV checker.
-Hourly demand and renewable availability are generated deterministically from
-the profile recipe, so the repository does not need to store hundreds of
-millions of repeated CSV cells.
+Hourly demand is generated deterministically from the profile recipe, so the
+repository does not need to store hundreds of millions of repeated CSV cells.
+The active release uses the dataset's static generator status, PMIN, and PMAX
+limits. ACTIVSg2000 does not provide generator technology labels or hourly
+availability data, so no synthetic wind/solar derating is applied.
 
 ## Scenario construction
 
 Bus demand starts from the ACTIVSg2000 bus PD values and uses a bounded
-calendar-aware seasonal, daily, and weekly multiplier. Wind and solar
-availability is generated separately for every catalog generator and is bounded
-by its nameplate capacity. Thermal generators remain available at their
-catalog capacity. Generator marginal costs and branch limits are copied from
-the public ACTIVSg2000 files.
+calendar-aware seasonal, daily, and weekly multiplier. Active generators use
+their catalog status, PMIN, and PMAX values in every hour. Generator marginal
+costs and branch limits are copied from the public ACTIVSg2000 files.
 
 This is a controlled instructional scenario package. It is not historical
 ERCOT telemetry, an official ERCOT model, or a forecast.
@@ -63,4 +63,3 @@ a usable production manifest.
 - [ACTIVSg2000 source model](https://github.com/caseformat/ACTIVSg2000)
 - Birchfield et al., “Grid Structural Characteristics as Validation Criteria
   for Synthetic Networks,” IEEE Transactions on Power Systems, 2017.
-

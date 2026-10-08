@@ -1,5 +1,8 @@
 {
-  "profile_version": "controlled-three-year-v1",
+  "profile_version": "controlled-three-year-v2-static-generator-limits",
+  "generator_type_source": "ACTIVSg2000 generator table",
+  "availability_model": "static status and nameplate limits",
+  "availability_note": "ACTIVSg2000 does not provide generator technology labels or hourly availability; dispatch uses the source status, PMIN, and PMAX values without synthetic derating.",
   "load_model": {
     "seasonal_amplitude": 0.08,
     "daily_amplitude": 0.06,
@@ -52,9 +55,9 @@
     },
     {
       "generator_id": "g0007",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 55433,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -73,9 +76,9 @@
     },
     {
       "generator_id": "g0010",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 79190,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -101,9 +104,9 @@
     },
     {
       "generator_id": "g0014",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 110866,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -143,16 +146,16 @@
     },
     {
       "generator_id": "g0020",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 158380,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
       "generator_id": "g0021",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 166299,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -199,9 +202,9 @@
     },
     {
       "generator_id": "g0028",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 221732,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -213,9 +216,9 @@
     },
     {
       "generator_id": "g0030",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 237570,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -248,9 +251,9 @@
     },
     {
       "generator_id": "g0035",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 277165,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -283,9 +286,9 @@
     },
     {
       "generator_id": "g0040",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 316760,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -297,9 +300,9 @@
     },
     {
       "generator_id": "g0042",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 332598,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -346,16 +349,16 @@
     },
     {
       "generator_id": "g0049",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 388031,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
       "generator_id": "g0050",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 395950,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -395,9 +398,9 @@
     },
     {
       "generator_id": "g0056",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 443464,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -423,9 +426,9 @@
     },
     {
       "generator_id": "g0060",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 475140,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -444,9 +447,9 @@
     },
     {
       "generator_id": "g0063",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 498897,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -493,9 +496,9 @@
     },
     {
       "generator_id": "g0070",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 554330,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -542,9 +545,9 @@
     },
     {
       "generator_id": "g0077",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 609763,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -563,9 +566,9 @@
     },
     {
       "generator_id": "g0080",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 633520,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -591,9 +594,9 @@
     },
     {
       "generator_id": "g0084",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 665196,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -633,16 +636,16 @@
     },
     {
       "generator_id": "g0090",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 712710,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
       "generator_id": "g0091",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 720629,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -689,9 +692,9 @@
     },
     {
       "generator_id": "g0098",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 776062,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -703,9 +706,9 @@
     },
     {
       "generator_id": "g0100",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 791900,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -738,9 +741,9 @@
     },
     {
       "generator_id": "g0105",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 831495,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -773,9 +776,9 @@
     },
     {
       "generator_id": "g0110",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 871090,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -787,9 +790,9 @@
     },
     {
       "generator_id": "g0112",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 886928,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -836,16 +839,16 @@
     },
     {
       "generator_id": "g0119",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 942361,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
       "generator_id": "g0120",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 950280,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -885,9 +888,9 @@
     },
     {
       "generator_id": "g0126",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 997794,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -913,9 +916,9 @@
     },
     {
       "generator_id": "g0130",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 1029470,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -934,9 +937,9 @@
     },
     {
       "generator_id": "g0133",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 1053227,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -983,9 +986,9 @@
     },
     {
       "generator_id": "g0140",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 1108660,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1032,9 +1035,9 @@
     },
     {
       "generator_id": "g0147",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 1164093,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1053,9 +1056,9 @@
     },
     {
       "generator_id": "g0150",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 1187850,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1081,9 +1084,9 @@
     },
     {
       "generator_id": "g0154",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 1219526,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1123,16 +1126,16 @@
     },
     {
       "generator_id": "g0160",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 1267040,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
       "generator_id": "g0161",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 1274959,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1179,9 +1182,9 @@
     },
     {
       "generator_id": "g0168",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 1330392,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1193,9 +1196,9 @@
     },
     {
       "generator_id": "g0170",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 1346230,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1228,9 +1231,9 @@
     },
     {
       "generator_id": "g0175",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 1385825,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1263,9 +1266,9 @@
     },
     {
       "generator_id": "g0180",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 1425420,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1277,9 +1280,9 @@
     },
     {
       "generator_id": "g0182",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 1441258,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1326,16 +1329,16 @@
     },
     {
       "generator_id": "g0189",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 1496691,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
       "generator_id": "g0190",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 1504610,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1375,9 +1378,9 @@
     },
     {
       "generator_id": "g0196",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 1552124,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1403,9 +1406,9 @@
     },
     {
       "generator_id": "g0200",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 1583800,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1424,9 +1427,9 @@
     },
     {
       "generator_id": "g0203",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 1607557,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1473,9 +1476,9 @@
     },
     {
       "generator_id": "g0210",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 1662990,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1522,9 +1525,9 @@
     },
     {
       "generator_id": "g0217",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 1718423,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1543,9 +1546,9 @@
     },
     {
       "generator_id": "g0220",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 1742180,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1571,9 +1574,9 @@
     },
     {
       "generator_id": "g0224",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 1773856,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1613,16 +1616,16 @@
     },
     {
       "generator_id": "g0230",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 1821370,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
       "generator_id": "g0231",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 1829289,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1669,9 +1672,9 @@
     },
     {
       "generator_id": "g0238",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 1884722,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1683,9 +1686,9 @@
     },
     {
       "generator_id": "g0240",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 1900560,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1718,9 +1721,9 @@
     },
     {
       "generator_id": "g0245",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 1940155,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1753,9 +1756,9 @@
     },
     {
       "generator_id": "g0250",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 1979750,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1767,9 +1770,9 @@
     },
     {
       "generator_id": "g0252",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 1995588,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1816,16 +1819,16 @@
     },
     {
       "generator_id": "g0259",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 2051021,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
       "generator_id": "g0260",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 2058940,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1865,9 +1868,9 @@
     },
     {
       "generator_id": "g0266",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 2106454,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1893,9 +1896,9 @@
     },
     {
       "generator_id": "g0270",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 2138130,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1914,9 +1917,9 @@
     },
     {
       "generator_id": "g0273",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 2161887,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -1963,9 +1966,9 @@
     },
     {
       "generator_id": "g0280",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 2217320,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2012,9 +2015,9 @@
     },
     {
       "generator_id": "g0287",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 2272753,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2033,9 +2036,9 @@
     },
     {
       "generator_id": "g0290",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 2296510,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2061,9 +2064,9 @@
     },
     {
       "generator_id": "g0294",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 2328186,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2103,16 +2106,16 @@
     },
     {
       "generator_id": "g0300",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 2375700,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
       "generator_id": "g0301",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 2383619,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2159,9 +2162,9 @@
     },
     {
       "generator_id": "g0308",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 2439052,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2173,9 +2176,9 @@
     },
     {
       "generator_id": "g0310",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 2454890,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2208,9 +2211,9 @@
     },
     {
       "generator_id": "g0315",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 2494485,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2243,9 +2246,9 @@
     },
     {
       "generator_id": "g0320",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 2534080,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2257,9 +2260,9 @@
     },
     {
       "generator_id": "g0322",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 2549918,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2306,16 +2309,16 @@
     },
     {
       "generator_id": "g0329",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 2605351,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
       "generator_id": "g0330",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 2613270,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2355,9 +2358,9 @@
     },
     {
       "generator_id": "g0336",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 2660784,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2383,9 +2386,9 @@
     },
     {
       "generator_id": "g0340",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 2692460,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2404,9 +2407,9 @@
     },
     {
       "generator_id": "g0343",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 2716217,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2453,9 +2456,9 @@
     },
     {
       "generator_id": "g0350",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 2771650,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2502,9 +2505,9 @@
     },
     {
       "generator_id": "g0357",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 2827083,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2523,9 +2526,9 @@
     },
     {
       "generator_id": "g0360",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 2850840,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2551,9 +2554,9 @@
     },
     {
       "generator_id": "g0364",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 2882516,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2593,16 +2596,16 @@
     },
     {
       "generator_id": "g0370",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 2930030,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
       "generator_id": "g0371",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 2937949,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2649,9 +2652,9 @@
     },
     {
       "generator_id": "g0378",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 2993382,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2663,9 +2666,9 @@
     },
     {
       "generator_id": "g0380",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 3009220,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2698,9 +2701,9 @@
     },
     {
       "generator_id": "g0385",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 3048815,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2733,9 +2736,9 @@
     },
     {
       "generator_id": "g0390",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 3088410,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2747,9 +2750,9 @@
     },
     {
       "generator_id": "g0392",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 3104248,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2796,16 +2799,16 @@
     },
     {
       "generator_id": "g0399",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 3159681,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
       "generator_id": "g0400",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 3167600,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2845,9 +2848,9 @@
     },
     {
       "generator_id": "g0406",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 3215114,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2873,9 +2876,9 @@
     },
     {
       "generator_id": "g0410",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 3246790,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2894,9 +2897,9 @@
     },
     {
       "generator_id": "g0413",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 3270547,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2943,9 +2946,9 @@
     },
     {
       "generator_id": "g0420",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 3325980,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -2992,9 +2995,9 @@
     },
     {
       "generator_id": "g0427",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 3381413,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3013,9 +3016,9 @@
     },
     {
       "generator_id": "g0430",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 3405170,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3041,9 +3044,9 @@
     },
     {
       "generator_id": "g0434",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 3436846,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3083,16 +3086,16 @@
     },
     {
       "generator_id": "g0440",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 3484360,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
       "generator_id": "g0441",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 3492279,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3139,9 +3142,9 @@
     },
     {
       "generator_id": "g0448",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 3547712,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3153,9 +3156,9 @@
     },
     {
       "generator_id": "g0450",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 3563550,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3188,9 +3191,9 @@
     },
     {
       "generator_id": "g0455",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 3603145,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3223,9 +3226,9 @@
     },
     {
       "generator_id": "g0460",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 3642740,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3237,9 +3240,9 @@
     },
     {
       "generator_id": "g0462",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 3658578,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3286,16 +3289,16 @@
     },
     {
       "generator_id": "g0469",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 3714011,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
       "generator_id": "g0470",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 3721930,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3335,9 +3338,9 @@
     },
     {
       "generator_id": "g0476",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 3769444,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3363,9 +3366,9 @@
     },
     {
       "generator_id": "g0480",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 3801120,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3384,9 +3387,9 @@
     },
     {
       "generator_id": "g0483",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 3824877,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3433,9 +3436,9 @@
     },
     {
       "generator_id": "g0490",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 3880310,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3482,9 +3485,9 @@
     },
     {
       "generator_id": "g0497",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 3935743,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3503,9 +3506,9 @@
     },
     {
       "generator_id": "g0500",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 3959500,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3531,9 +3534,9 @@
     },
     {
       "generator_id": "g0504",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 3991176,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3573,16 +3576,16 @@
     },
     {
       "generator_id": "g0510",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 4038690,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
       "generator_id": "g0511",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 4046609,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3629,9 +3632,9 @@
     },
     {
       "generator_id": "g0518",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 4102042,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3643,9 +3646,9 @@
     },
     {
       "generator_id": "g0520",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 4117880,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3678,9 +3681,9 @@
     },
     {
       "generator_id": "g0525",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 4157475,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3713,9 +3716,9 @@
     },
     {
       "generator_id": "g0530",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 4197070,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3727,9 +3730,9 @@
     },
     {
       "generator_id": "g0532",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 4212908,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
@@ -3776,16 +3779,16 @@
     },
     {
       "generator_id": "g0539",
-      "profile_type": "wind",
+      "profile_type": "thermal",
       "seed": 4268341,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {
       "generator_id": "g0540",
-      "profile_type": "solar",
+      "profile_type": "thermal",
       "seed": 4276260,
-      "availability_floor": 0.0,
+      "availability_floor": 1.0,
       "availability_ceiling": 1.0
     },
     {

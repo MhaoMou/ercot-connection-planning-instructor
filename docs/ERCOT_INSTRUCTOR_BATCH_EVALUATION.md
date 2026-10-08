@@ -11,9 +11,10 @@ IDs from its `generator_limits.csv`. This guide describes the only supported
 production evaluation path.
 
 The ACTIVSg2000 topology and generator catalog are fixed. The three-year
-scenario package uses deterministic bus-level load and generator-specific
-wind/solar availability recipes. These are controlled instructional scenarios,
-not historical ERCOT replays or official ERCOT operating forecasts.
+scenario package uses deterministic bus-level load and the static generator
+status, PMIN, and PMAX values supplied by ACTIVSg2000. These are controlled
+instructional scenarios, not historical ERCOT replays or official ERCOT
+operating forecasts.
 
 | Released year | January--June | July--December |
 |---|---:|---:|
@@ -95,9 +96,10 @@ another team. Storage is scheduled continuously with power and energy limits,
 no simultaneous charge/discharge, initial and terminal state of charge at least
 `0.5 B`, and one-hour energy transitions.
 
-For the current classroom release, source generators use the nameplate
-`p_max_mw` values from the ACTIVSg2000 generator catalog, constrained by the
-validated scenario's hourly generator-specific availability profiles.
+For the current classroom release, source generators use the status, `p_min_mw`,
+and nameplate `p_max_mw` values from the ACTIVSg2000 generator catalog in every
+hour. The source dataset does not provide hourly technology-specific
+availability, so the release does not apply synthetic renewable deratings.
 
 ## Evaluation behavior
 

@@ -83,9 +83,11 @@ Use `--year 2017 --round jul_dec` for July--December. The evaluator derives
 the correct half-year length and source-row offset from the calendar. For
 2016, January--June is 4,368 hours and July--December is 4,416 hours; for
 2017 and 2018, January--June is 4,344 hours and July--December is 4,416
-hours. The three-year package uses deterministic bus-level load and
-generator-specific renewable availability recipes over fixed ACTIVSg2000
-topology; see `docs/ACTIVSG2000_SCENARIO_PACKAGE.md`.
+hours. The three-year package uses deterministic bus-level load over fixed
+ACTIVSg2000 topology. Generator status, PMIN, PMAX, and marginal costs come
+from the dataset; because ACTIVSg2000 does not provide technology labels or
+hourly availability data, the active release uses static generator limits.
+See `docs/ACTIVSG2000_SCENARIO_PACKAGE.md`.
 
 If the joint plan is infeasible, the evaluator applies the documented fair
 continuous common service projection before deterministic fallback isolation.

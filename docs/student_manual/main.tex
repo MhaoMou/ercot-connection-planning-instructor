@@ -134,8 +134,11 @@ substitute for validation.
 The dispatch input is the public synthetic Texas ACTIVSg2000 model~\cite{activsg2000}, which
 contains exactly \textbf{2,000 buses}, 3,206 branches, and 544 generator
 records. The fixed topology is combined with a controlled three-year hourly
-scenario package. The scenario provides bus-level load and generator-specific
-wind/solar availability profiles and is validated hour by hour with DCOPF.
+scenario package. The scenario provides deterministic bus-level load; active
+generator status, PMIN, and PMAX values come directly from the dataset. Because
+ACTIVSg2000 does not provide technology labels or hourly availability data, the
+active release does not apply synthetic wind/solar deratings. Each block is
+validated hour by hour with DCOPF.
 It is an instructional scenario, not historical ERCOT telemetry or an official
 ERCOT operating model.
 
@@ -223,8 +226,8 @@ The instructor may impose additional catalog or site limits in the round
 configuration.
 
 For the current classroom release, the dispatch evaluator applies the
-validated scenario's generator-specific hourly availability limit, bounded by
-the catalog nameplate capacity.
+generator status, PMIN, and PMAX values from the ACTIVSg2000 catalog in every
+hour. No synthetic technology-specific availability limit is applied.
 
 \subsection{Private storage}
 
