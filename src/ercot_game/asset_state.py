@@ -21,9 +21,13 @@ class AssetStateError(ValueError):
     """Raised when a plan conflicts with previously persisted team assets."""
 
 
-def _canonical_asset_key(team_id: str, connection_id: str, kind: str) -> str:
+def canonical_asset_key(team_id: str, connection_id: str, kind: str) -> str:
     """Return the stable ledger identity for one team/site asset kind."""
     return f"{kind}:{team_id}:{connection_id}"
+
+
+def _canonical_asset_key(team_id: str, connection_id: str, kind: str) -> str:
+    return canonical_asset_key(team_id, connection_id, kind)
 
 
 class _AssetCollection(ABCMapping):
@@ -44,12 +48,13 @@ class _AssetCollection(ABCMapping):
         raise KeyError(key)
 
     def __iter__(self):
-        labels: set[str] = set()
+        label_counts: dict[str, int] = {}
+        for asset in self._assets.values():
+            label = _asset_label(asset)
+            label_counts[label] = label_counts.get(label, 0) + 1
         for asset in sorted(self._assets.values(), key=lambda item: item.asset_key):
             label = _asset_label(asset)
-            key = label if label not in labels else asset.asset_key
-            labels.add(key)
-            yield key
+            yield label if label_counts[label] == 1 else asset.asset_key
 
     def __len__(self) -> int:
         return len(self._assets)

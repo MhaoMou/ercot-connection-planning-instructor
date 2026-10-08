@@ -16,7 +16,8 @@ from .batch_evaluation import (
     _collect_evaluation_inputs,
     evaluate_csv_batch,
 )
-from .asset_state import AssetStateError
+from .asset_state import AssetStateError, canonical_asset_key
+from .calendars import weekly_match_for
 from .csv_submission import load_bus_ids
 from .game_state import GameState
 from .game_state_store import GameStateStore
@@ -65,6 +66,14 @@ def _default_plan_loader(
     )
 
 
+def _state_for_round(state: GameState, round_key: str) -> GameState:
+    """Apply the weekly reset before plans are materialized or evaluated."""
+    match = weekly_match_for(round_key)
+    if state.current_week_id == match.week_id:
+        return state
+    return replace(state, asset_ledger=state.asset_ledger.reset())
+
+
 def evaluate_round(
     *,
     state_path: str | Path,
@@ -90,6 +99,7 @@ def evaluate_round(
         prior_state = store.load() if Path(state_path).exists() else GameState.new()
     except FileNotFoundError:
         prior_state = GameState.new()
+    prior_state = _state_for_round(prior_state, round_key)
 
     loader = plan_loader or _default_plan_loader
     plans = tuple(
@@ -109,14 +119,32 @@ def evaluate_round(
             horizon=horizon,
         )
         prior_team = prior_state.asset_ledger.teams.get(plan.team_id)
-        prior_generator_ids = frozenset(prior_team.generators) if prior_team is not None else frozenset()
-        prior_storage_ids = frozenset(prior_team.storages) if prior_team is not None else frozenset()
-        new_generator_ids[plan.team_id] = frozenset(
-            generator.generator_id for generator in plan.generators
-        ) - prior_generator_ids
-        new_storage_ids[plan.team_id] = frozenset(
-            storage.storage_id for storage in plan.storages
-        ) - prior_storage_ids
+        prior_generator_keys = (
+            frozenset(asset.asset_key for asset in prior_team.generators.values())
+            if prior_team is not None
+            else frozenset()
+        )
+        prior_storage_keys = (
+            frozenset(asset.asset_key for asset in prior_team.storages.values())
+            if prior_team is not None
+            else frozenset()
+        )
+        new_generators = frozenset(
+            generator.generator_id
+            for generator in plan.generators
+            if canonical_asset_key(plan.team_id, generator.connection_id, "generator")
+            not in prior_generator_keys
+        )
+        new_storages = frozenset(
+            storage.storage_id
+            for storage in plan.storages
+            if canonical_asset_key(plan.team_id, storage.connection_id, "storage")
+            not in prior_storage_keys
+        )
+        if new_generators:
+            new_generator_ids[plan.team_id] = new_generators
+        if new_storages:
+            new_storage_ids[plan.team_id] = new_storages
 
     kwargs = dict(evaluator_kwargs or {})
     if any(name in kwargs for name in _STAGE6_EVALUATOR_KWARGS):

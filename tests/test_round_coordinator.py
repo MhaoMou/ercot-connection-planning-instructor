@@ -482,6 +482,166 @@ def test_later_round_materializes_prior_assets_and_scopes_new_capital_costs(tmp_
     }
 
 
+def test_label_rename_at_same_site_does_not_recharge_capital_cost(tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    prior = GameState.new().advance("2027_jan_jun", (_asset_plan(),))
+    GameStateStore(state_path).save(prior)
+    current = TeamPlan(
+        team_id="team-a",
+        connections=(ConnectionPlan("site-old", "b0001", 40.0, (1.0,)),),
+        generators=(GeneratorPlan("gen-renamed", "site-old", 10.0, 16.0),),
+        storages=(StoragePlan("store-renamed", "site-old", 5.0, 20.0),),
+    )
+    seen: dict[str, object] = {}
+
+    def evaluator(*args, **kwargs):
+        seen.update(kwargs)
+        return _UsableEvaluation(
+            dispatch=SimpleNamespace(
+                periods=(
+                    SimpleNamespace(
+                        storage_soc_mwh_by_team={"team-a": {"store-renamed": 10.0}},
+                    ),
+                ),
+            ),
+        )
+
+    result = evaluate_round(
+        state_path=state_path,
+        round_key="2027_jul_dec",
+        submissions=tmp_path / "submissions",
+        artifact_dir=tmp_path / "artifacts",
+        horizon=1,
+        rules=object(),
+        plan_loader=_loader((current,)),
+        evaluator=evaluator,
+    )
+
+    assert seen["capital_cost_scope"] == CapitalCostScope(
+        generator_ids_by_team={},
+        storage_ids_by_team={},
+    )
+    assert seen["plan_overrides"]["team-a"].generators[0].generator_id == "gen-renamed"
+    assert result.state.asset_ledger.team("team-a").generators["gen-renamed"].asset_key == (
+        "generator:team-a:site-old"
+    )
+
+
+def test_reusing_label_at_new_site_charges_capital_cost_for_new_asset(tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    prior = GameState.new().advance(
+        "2027_jan_jun",
+        (
+            TeamPlan(
+                team_id="team-a",
+                connections=(ConnectionPlan("site-old", "b0001", 40.0, (1.0,)),),
+                generators=(GeneratorPlan("gen-old", "site-old", 10.0, 16.0),),
+            ),
+        ),
+    )
+    GameStateStore(state_path).save(prior)
+    current = TeamPlan(
+        team_id="team-a",
+        connections=(ConnectionPlan("site-new", "b0002", 30.0, (1.0,)),),
+        generators=(GeneratorPlan("gen-old", "site-new", 8.0, 16.0),),
+        storages=(StoragePlan("store-old", "site-new", 4.0, 16.0),),
+    )
+    seen: dict[str, object] = {}
+
+    def evaluator(*args, **kwargs):
+        seen.update(kwargs)
+        return _UsableEvaluation(
+            dispatch=SimpleNamespace(
+                periods=(
+                    SimpleNamespace(
+                        storage_soc_mwh_by_team={"team-a": {"store-old": 8.0}},
+                    ),
+                ),
+            ),
+        )
+
+    evaluate_round(
+        state_path=state_path,
+        round_key="2027_jul_dec",
+        submissions=tmp_path / "submissions",
+        artifact_dir=tmp_path / "artifacts",
+        horizon=1,
+        rules=object(),
+        plan_loader=_loader((current,)),
+        evaluator=evaluator,
+    )
+
+    assert seen["capital_cost_scope"] == CapitalCostScope(
+        generator_ids_by_team={"team-a": {"gen-old"}},
+        storage_ids_by_team={"team-a": {"store-old"}},
+    )
+
+
+@pytest.mark.parametrize(
+    ("round_key", "prior_rounds"),
+    (
+        ("2028_jan_jun", ("2027_jan_jun", "2027_jul_dec")),
+        (
+            "2029_jan_jun",
+            ("2027_jan_jun", "2027_jul_dec", "2028_jan_jun", "2028_jul_dec"),
+        ),
+    ),
+)
+def test_first_round_of_new_week_resets_before_materialization_and_soc_write(
+    tmp_path,
+    round_key,
+    prior_rounds,
+) -> None:
+    state_path = tmp_path / "state.json"
+    prior = GameState.new()
+    for index, previous_round_key in enumerate(prior_rounds):
+        plans = (_asset_plan(),) if index % 2 == 0 else (TeamPlan("team-a", connections=()),)
+        prior = prior.advance(previous_round_key, plans)
+    prior = replace(
+        prior,
+        asset_ledger=prior.asset_ledger.update_storage_soc(
+            {"team-a": {"store-old": 15.0}},
+        ),
+    )
+    GameStateStore(state_path).save(prior)
+    current = TeamPlan(
+        team_id="team-a",
+        connections=(ConnectionPlan("site-new", "b0002", 30.0, (1.0,)),),
+        storages=(StoragePlan("store-new", "site-new", 4.0, 16.0),),
+    )
+    seen: dict[str, object] = {}
+
+    def evaluator(*args, **kwargs):
+        seen.update(kwargs)
+        return _UsableEvaluation(
+            dispatch=SimpleNamespace(
+                periods=(
+                    SimpleNamespace(
+                        storage_soc_mwh_by_team={"team-a": {"store-new": 8.0}},
+                    ),
+                ),
+            ),
+        )
+
+    result = evaluate_round(
+        state_path=state_path,
+        round_key=round_key,
+        submissions=tmp_path / "submissions",
+        artifact_dir=tmp_path / "artifacts",
+        horizon=1,
+        rules=object(),
+        plan_loader=_loader((current,)),
+        evaluator=evaluator,
+    )
+
+    materialized = seen["plan_overrides"]["team-a"]
+    assert [storage.storage_id for storage in materialized.storages] == ["store-new"]
+    assert result.prior_state.asset_ledger.team_ids() == ()
+    assert result.state.asset_ledger.team("team-a").storages["store-new"].state_of_charge_mwh == 8.0
+    with pytest.raises(KeyError):
+        result.state.asset_ledger.team("team-a").storages["store-old"]
+
+
 def test_rejected_team_is_not_materialized_or_registered(tmp_path) -> None:
     state_path = tmp_path / "state.json"
     valid_plan = _plan("team-valid")
