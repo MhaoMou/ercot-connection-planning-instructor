@@ -80,3 +80,33 @@ rejected submissions remain isolated by the existing batch evaluator; valid
 teams can still be evaluated and their accepted assets committed. The
 existing `evaluate_csv_batch()` API remains unchanged; this coordinator is an
 opt-in multi-round wrapper.
+
+## Stage 5: active-portfolio materialization
+
+`AssetLedger.materialize_plan(plan, horizon=...)` builds the evaluator-facing
+portfolio for one team without changing the single-round evaluator. The current
+submission remains the source of truth for its declared connection-site
+metadata and for newly declared generator/storage specifications. The method
+then restores every generator and storage asset already persisted for that
+team, even when the current CSV omits those assets.
+
+When a persisted asset's connection site is omitted from the current plan, the
+method adds a deterministic placeholder connection using the asset's persisted
+source bus, zero connection capacity, and an all-zero profile of the requested
+horizon. This keeps the owned asset visible to the evaluator without inventing
+new demand. If the site is present, its current connection metadata is retained;
+the persisted source bus must still match the asset's immutable record.
+
+Materialization also:
+
+- accepts an exact re-declaration of an existing asset;
+- raises `AssetStateError` for an immutable-specification conflict, a missing
+  current asset connection, duplicate current connection IDs, or a non-positive
+  horizon; and
+- returns connections, generators, and storages in deterministic ID order.
+
+The API is pure from the caller's perspective: it does not mutate the ledger,
+commit a round, run DCOPF, or compute scores. It is an input-building boundary
+for a later multi-round evaluator integration. Stage 5 does not change
+`evaluate_csv_batch()`, CSV parsing semantics, storage state-of-charge, capital
+cost accounting, or scoring.
