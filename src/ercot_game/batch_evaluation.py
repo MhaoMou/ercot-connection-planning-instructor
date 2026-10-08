@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, replace
 import csv
+import heapq
 import hashlib
 import json
 from copy import copy
 from pathlib import Path
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
-from itertools import permutations
 import math
 from typing import Any, TYPE_CHECKING, NoReturn
 
@@ -817,6 +817,7 @@ def _scaled_plan(plan: TeamPlan, alpha: float) -> TeamPlan:
         connections=connections,
         generators=plan.generators,
         storages=plan.storages,
+        sites=plan.sites,
     )
 
 
@@ -862,7 +863,7 @@ _FAIR_PROJECTION_TOLERANCE = 1e-6
 _FAIR_PROJECTION_TOTAL_LOAD_TOLERANCE = 1e-6
 _FAIR_PROJECTION_SITE_CAPACITY_MW = 100.0
 _FAIR_PROJECTION_MAX_TEAM_CAPACITY_MW = 500.0
-_FAIR_PROJECTION_MAX_TEAM_REQUEST_SHARE = 0.5
+_FAIR_PROJECTION_MAX_TEAM_TO_MIN_REQUEST_RATIO = 1.0
 
 
 def _projection_capped_plans(
@@ -891,15 +892,20 @@ def _projection_capped_plans(
         prelim[plan.team_id] = capped_plan
         prelim_capacity[plan.team_id] = sum(connection.capacity_mw for connection in connections)
 
-    total_prelim_capacity = sum(prelim_capacity.values())
+    positive_capacities = tuple(
+        capacity for capacity in prelim_capacity.values() if capacity > 0.0
+    )
+    minimum_positive_capacity = min(positive_capacities, default=0.0)
+    equalized_request_cap = (
+        _FAIR_PROJECTION_MAX_TEAM_TO_MIN_REQUEST_RATIO * minimum_positive_capacity
+        if len(positive_capacities) > 1
+        else float("inf")
+    )
     capped_capacity: dict[str, float] = {}
     for team_id, capacity in prelim_capacity.items():
         team_cap = min(capacity, _FAIR_PROJECTION_MAX_TEAM_CAPACITY_MW)
-        if len(plans) > 1:
-            team_cap = min(
-                team_cap,
-                _FAIR_PROJECTION_MAX_TEAM_REQUEST_SHARE * total_prelim_capacity,
-            )
+        if len(positive_capacities) > 1:
+            team_cap = min(team_cap, equalized_request_cap)
         capped_capacity[team_id] = team_cap
 
     capped_plans: list[TeamPlan] = []
@@ -913,6 +919,7 @@ def _projection_capped_plans(
 def _projection_requested_load_mwh(
     plan: TeamPlan,
     period_indices: tuple[int, ...],
+    time_step_hours: float = 1.0,
 ) -> float:
     total = 0.0
     for connection in plan.connections:
@@ -922,7 +929,7 @@ def _projection_requested_load_mwh(
                 if not connection.profile
                 else connection.profile[period_index]
             )
-            total += connection.capacity_mw * profile_value
+            total += connection.capacity_mw * profile_value * time_step_hours
     return total
 
 
@@ -933,26 +940,13 @@ def _projection_utility(
 ) -> float:
     utility = 0.0
     for index, team_id in enumerate(team_ids):
+        if requested_load_mwh_by_team[team_id] <= 0.0:
+            continue
         load = requested_load_mwh_by_team[team_id] * alphas[index]
         if load <= 0.0:
             return -math.inf
         utility += math.log(load)
     return utility
-
-
-def _projection_orders(
-    team_ids: tuple[str, ...],
-    weights: Mapping[str, float],
-) -> tuple[tuple[int, ...], ...]:
-    indices = tuple(range(len(team_ids)))
-    if len(indices) <= 4:
-        return tuple(permutations(indices))
-    descending = tuple(sorted(indices, key=lambda index: (-weights[team_ids[index]], team_ids[index])))
-    ascending = tuple(reversed(descending))
-    orders = [descending, ascending]
-    for index in indices:
-        orders.append((index,) + tuple(item for item in descending if item != index))
-    return tuple(dict.fromkeys(orders))
 
 
 def _fair_continuous_projection(
@@ -962,26 +956,37 @@ def _fair_continuous_projection(
     source_period_indices: tuple[int, ...],
     *,
     projection_iterations: int = 10,
+    time_step_hours: float = 1.0,
 ) -> FairProjectionResult | None:
     """Project valid plans continuously using total-load then PF objectives.
 
     Feasibility is supplied by the existing fixed-load DCOPF adapter.  The
     projection searches only continuous team fractions; no integer
-    curtailment variables or team-removal ordering are introduced.
+    curtailment variables or team-removal ordering are introduced.  The
+    optimizer relies on the adapter's coordinatewise downward-closed and
+    convex feasibility region: multi-team cases use certified box bounds and
+    two-team cases use a certified upper-boundary reduction.  Results are
+    optimal to the explicit numeric tolerance; pathological black-box oracles
+    can require exponential refinement.
     """
     if projection_iterations <= 0:
         raise ValueError("projection_iterations must be positive")
+    if not math.isfinite(time_step_hours) or time_step_hours <= 0:
+        raise ValueError("time_step_hours must be finite and positive")
     if not plans or not (Path(artifact_dir) / "bus.csv").is_file():
         return None
 
     capped_plans, capped_capacity = _projection_capped_plans(plans)
     team_ids = tuple(plan.team_id for plan in capped_plans)
     requested_loads = {
-        plan.team_id: _projection_requested_load_mwh(plan, period_indices)
+        plan.team_id: _projection_requested_load_mwh(
+            plan,
+            period_indices,
+            time_step_hours=time_step_hours,
+        )
         for plan in capped_plans
     }
     weights = requested_loads
-    search_iterations = max(projection_iterations, 20)
     cache: dict[tuple[float, ...], tuple[BatchDispatchResult, tuple[TeamPlan, ...]] | None] = {}
 
     def evaluate(alphas: Sequence[float]):
@@ -1007,130 +1012,306 @@ def _fair_continuous_projection(
         cache[normalized] = result
         return result
 
+    def total_load(alphas: Sequence[float]) -> float:
+        return sum(weights[team_id] * alphas[index] for index, team_id in enumerate(team_ids))
+
     zero = tuple(0.0 for _ in team_ids)
     zero_result = evaluate(zero)
     if zero_result is None:
         return None
 
-    def max_component(base: Sequence[float], index: int) -> float:
-        candidate = list(base)
-        candidate[index] = 1.0
-        if evaluate(candidate) is not None:
-            return 1.0
-        low, high = 0.0, 1.0
-        for _ in range(search_iterations):
-            midpoint = (low + high) / 2.0
-            candidate[index] = midpoint
-            if evaluate(candidate) is None:
+    ray_iterations = max(projection_iterations, 32)
+
+    def ray_maximum(
+        lower: tuple[float, ...],
+        upper: tuple[float, ...],
+    ) -> tuple[tuple[float, ...], tuple[BatchDispatchResult, tuple[TeamPlan, ...]]] | None:
+        """Find the feasible endpoint on a monotone segment by bisection."""
+        lower_result = evaluate(lower)
+        if lower_result is None:
+            return None
+        upper_result = evaluate(upper)
+        if upper_result is not None:
+            return upper, upper_result
+        low = lower
+        high = upper
+        low_result = lower_result
+        for _ in range(ray_iterations):
+            midpoint = tuple((left + right) / 2.0 for left, right in zip(low, high))
+            midpoint_result = evaluate(midpoint)
+            if midpoint_result is None:
                 high = midpoint
             else:
                 low = midpoint
+                low_result = midpoint_result
+            if max(right - left for left, right in zip(low, high)) <= _FAIR_PROJECTION_TOLERANCE:
+                break
+        return low, low_result
+
+    def run_box_search(
+        *,
+        initial_candidates: Sequence[
+            tuple[tuple[float, ...], tuple[BatchDispatchResult, tuple[TeamPlan, ...]]]
+        ],
+        score,
+        upper_bound,
+        acceptable,
+        tolerance,
+        minimum_total: float | None = None,
+    ):
+        """Optimize a monotone objective with certified box upper bounds."""
+        best_vector: tuple[float, ...] | None = None
+        best_result: tuple[BatchDispatchResult, tuple[TeamPlan, ...]] | None = None
+        best_score = -math.inf
+        serial = 0
+        queue: list[tuple[float, int, tuple[float, ...], tuple[float, ...]]] = []
+
+        def update(vector, result) -> None:
+            nonlocal best_vector, best_result, best_score
+            if not acceptable(vector):
+                return
+            candidate_score = score(vector)
+            if candidate_score > best_score + 1e-12 or (
+                math.isclose(candidate_score, best_score, abs_tol=1e-12)
+                and (best_vector is None or vector < best_vector)
+            ):
+                best_vector = tuple(vector)
+                best_result = result
+                best_score = candidate_score
+
+        for vector, result in initial_candidates:
+            update(vector, result)
+
+        def inspect(lower, upper) -> None:
+            nonlocal serial
+            lower_result = evaluate(lower)
+            if lower_result is None:
+                return
+            upper_total = total_load(upper)
+            if minimum_total is not None and upper_total < minimum_total:
+                return
+            upper_result = evaluate(upper)
+            if upper_result is not None:
+                update(upper, upper_result)
+                return
+            ray_result = ray_maximum(lower, upper)
+            if ray_result is not None:
+                ray_vector, ray_dispatch = ray_result
+                update(ray_vector, ray_dispatch)
+            bound = upper_bound(upper)
+            if bound <= best_score + tolerance:
+                return
+            serial += 1
+            heapq.heappush(queue, (-bound, serial, tuple(lower), tuple(upper)))
+
+        root_lower = zero
+        root_upper = tuple(1.0 for _ in team_ids)
+        inspect(root_lower, root_upper)
+        while queue:
+            negative_bound, _serial, lower, upper = heapq.heappop(queue)
+            bound = -negative_bound
+            if bound <= best_score + tolerance:
+                break
+            split_index = min(
+                range(len(team_ids)),
+                key=lambda index: (
+                    -(upper[index] - lower[index]),
+                    -weights[team_ids[index]],
+                    team_ids[index],
+                ),
+            )
+            midpoint = (lower[split_index] + upper[split_index]) / 2.0
+            left_upper = list(upper)
+            left_upper[split_index] = midpoint
+            right_lower = list(lower)
+            right_lower[split_index] = midpoint
+            inspect(lower, tuple(left_upper))
+            inspect(tuple(right_lower), upper)
+        return best_vector, best_result
+
+    def initial_rays():
+        candidates = [(zero, zero_result)]
+        for index in range(len(team_ids)):
+            upper = [0.0] * len(team_ids)
+            upper[index] = 1.0
+            result = ray_maximum(zero, tuple(upper))
+            if result is not None:
+                candidates.append(result)
+        common = ray_maximum(zero, tuple(1.0 for _ in team_ids))
+        if common is not None:
+            candidates.append(common)
+        return candidates
+
+    total_candidates = initial_rays()
+    two_team_search = len(team_ids) == 2 and not any(
+        plan.storages for plan in capped_plans
+    )
+    two_team_boundary_candidates: list[
+        tuple[tuple[float, ...], tuple[BatchDispatchResult, tuple[TeamPlan, ...]]]
+    ] = []
+
+    def two_team_boundary(first_alpha: float):
+        """Return the largest feasible second fraction at a fixed first fraction."""
+        lower = (first_alpha, 0.0)
+        lower_result = evaluate(lower)
+        if lower_result is None:
+            return None
+        upper = (first_alpha, 1.0)
+        upper_result = evaluate(upper)
+        if upper_result is not None:
+            return upper, upper_result
+        low, high = 0.0, 1.0
+        best = lower_result
+        for _ in range(ray_iterations):
+            midpoint = (low + high) / 2.0
+            midpoint_result = evaluate((first_alpha, midpoint))
+            if midpoint_result is None:
+                high = midpoint
+            else:
+                low = midpoint
+                best = midpoint_result
             if high - low <= _FAIR_PROJECTION_TOLERANCE:
                 break
-        return low
+        return (first_alpha, low), best
 
-    def total_load(alphas: Sequence[float]) -> float:
-        return sum(weights[team_id] * alphas[index] for index, team_id in enumerate(team_ids))
-
-    candidate_vectors: list[tuple[float, ...]] = [zero]
-    for order in _projection_orders(team_ids, weights):
-        current = [0.0] * len(team_ids)
-        for index in order:
-            current[index] = max_component(current, index)
-        candidate_vectors.append(tuple(current))
-
-    # A two-team continuous boundary search captures interior optima that are
-    # not exposed by a greedy vertex order; larger batches use the same
-    # deterministic order set to keep DCOPF call counts bounded.
-    if len(team_ids) == 2:
-        first, second = 0, 1
-        upper = max_component(zero, first)
-
-        def boundary_value(first_alpha: float):
-            current = [0.0, 0.0]
-            current[first] = first_alpha
-            current[second] = max_component(current, second)
-            result = evaluate(current)
-            return total_load(current), tuple(current), result
-
-        low, high = 0.0, upper
-        for _ in range(max(12, projection_iterations)):
-            left = low + (high - low) / 3.0
-            right = high - (high - low) / 3.0
-            left_value = boundary_value(left)
-            right_value = boundary_value(right)
-            candidate_vectors.extend((left_value[1], right_value[1]))
-            if left_value[0] < right_value[0]:
-                low = left
+    if two_team_search:
+        first_axis = max(
+            (vector[0] for vector, _result in total_candidates if vector[1] == 0.0),
+            default=0.0,
+        )
+        lower_first, upper_first = 0.0, first_axis
+        for endpoint in (lower_first, upper_first):
+            boundary = two_team_boundary(endpoint)
+            if boundary is not None:
+                two_team_boundary_candidates.append(boundary)
+        for _ in range(max(ray_iterations, 40)):
+            left = lower_first + (upper_first - lower_first) / 3.0
+            right = upper_first - (upper_first - lower_first) / 3.0
+            left_boundary = two_team_boundary(left)
+            right_boundary = two_team_boundary(right)
+            if left_boundary is not None:
+                two_team_boundary_candidates.append(left_boundary)
+            if right_boundary is not None:
+                two_team_boundary_candidates.append(right_boundary)
+            left_value = (
+                total_load(left_boundary[0]) if left_boundary is not None else -math.inf
+            )
+            right_value = (
+                total_load(right_boundary[0]) if right_boundary is not None else -math.inf
+            )
+            if left_value < right_value:
+                lower_first = left
             else:
-                high = right
-
-    feasible_candidates = [
-        (vector, evaluate(vector))
-        for vector in candidate_vectors
-        if evaluate(vector) is not None
-    ]
-    if not feasible_candidates:
+                upper_first = right
+            if upper_first - lower_first <= _FAIR_PROJECTION_TOLERANCE:
+                break
+        total_candidates.extend(two_team_boundary_candidates)
+    has_positive_coordinate = any(
+        vector[index] >= _FAIR_PROJECTION_MIN_SERVICE_FRACTION
+        for vector, _result in total_candidates
+        for index, team_id in enumerate(team_ids)
+        if weights[team_id] > 0.0
+    )
+    if has_positive_coordinate and not two_team_search:
+        best_vector, best_result = run_box_search(
+            initial_candidates=total_candidates,
+            score=total_load,
+            upper_bound=total_load,
+            acceptable=lambda _vector: True,
+            tolerance=_FAIR_PROJECTION_TOTAL_LOAD_TOLERANCE,
+        )
+    elif has_positive_coordinate:
+        best_vector, best_result = max(
+            total_candidates,
+            key=lambda item: (total_load(item[0]), tuple(-value for value in item[0])),
+        )
+    else:
+        best_vector, best_result = zero, zero_result
+    if best_vector is None or best_result is None:
         return None
-    best_total = max(total_load(vector) for vector, _result in feasible_candidates)
+
+    best_total = total_load(best_vector)
     total_tolerance = max(
         _FAIR_PROJECTION_TOTAL_LOAD_TOLERANCE,
         best_total * _FAIR_PROJECTION_TOTAL_LOAD_TOLERANCE,
     )
-    total_optimal = [
-        (vector, result)
-        for vector, result in feasible_candidates
-        if best_total - total_load(vector) <= total_tolerance
-    ]
-    best_vector, best_result = max(
-        total_optimal,
-        key=lambda item: _projection_utility(item[0], requested_loads, team_ids),
+    total_optimal_floor = best_total - total_tolerance
+    eligible_indices = tuple(
+        index for index, team_id in enumerate(team_ids) if weights[team_id] > 0.0
     )
 
-    # Pairwise block updates maximize the log-load utility while preserving
-    # the total-load optimum.  For the network feasibility sets used here,
-    # this is a deterministic proportional-fair tie-break over continuous
-    # fractions rather than a common-alpha rule.
-    if len(team_ids) > 1 and all(weights.values()):
-        current = list(best_vector)
-        current_utility = _projection_utility(current, requested_loads, team_ids)
-        for _ in range(2):
-            changed = False
-            for first in range(len(team_ids)):
-                for second in range(first + 1, len(team_ids)):
-                    base = list(current)
-                    base[first] = 0.0
-                    base[second] = 0.0
-                    upper = max_component(base, first)
-                    if upper <= 0.0:
-                        continue
-                    grid_count = max(24, min(48, projection_iterations * 2))
-                    step = upper / grid_count
-                    pair_best = None
-                    for grid_index in range(grid_count + 1):
-                        first_alpha = step * grid_index
-                        candidate = list(base)
-                        candidate[first] = first_alpha
-                        candidate[second] = max_component(candidate, second)
-                        candidate_result = evaluate(candidate)
-                        if candidate_result is None:
-                            continue
-                        candidate_total = total_load(candidate)
-                        if best_total - candidate_total > total_tolerance:
-                            continue
-                        utility = _projection_utility(candidate, requested_loads, team_ids)
-                        if pair_best is None or utility > pair_best[0]:
-                            pair_best = (utility, tuple(candidate))
-                    if pair_best is not None and pair_best[0] > current_utility + 1e-9:
-                        current = list(pair_best[1])
-                        current_utility = pair_best[0]
-                        changed = True
-            if not changed:
+    def pf_acceptable(vector) -> bool:
+        return (
+            total_load(vector) >= total_optimal_floor
+            and all(
+                vector[index] >= _FAIR_PROJECTION_MIN_SERVICE_FRACTION
+                for index in eligible_indices
+            )
+        )
+
+    def pf_upper_bound(vector) -> float:
+        if total_load(vector) < total_optimal_floor:
+            return -math.inf
+        if any(
+            vector[index] < _FAIR_PROJECTION_MIN_SERVICE_FRACTION
+            for index in eligible_indices
+        ):
+            return -math.inf
+        return _projection_utility(vector, requested_loads, team_ids)
+
+    if two_team_search:
+        pf_vector = None
+        pf_result = None
+        pf_score = -math.inf
+        for vector, result in total_candidates + [(best_vector, best_result)]:
+            if not pf_acceptable(vector):
+                continue
+            score = _projection_utility(vector, requested_loads, team_ids)
+            if score > pf_score:
+                pf_vector, pf_result, pf_score = vector, result, score
+        first_low = min(vector[0] for vector, _result in two_team_boundary_candidates)
+        first_high = max(vector[0] for vector, _result in two_team_boundary_candidates)
+        for _ in range(max(ray_iterations, 40)):
+            left = first_low + (first_high - first_low) / 3.0
+            right = first_high - (first_high - first_low) / 3.0
+            left_boundary = two_team_boundary(left)
+            right_boundary = two_team_boundary(right)
+            left_score = (
+                _projection_utility(left_boundary[0], requested_loads, team_ids)
+                if left_boundary is not None and pf_acceptable(left_boundary[0])
+                else -math.inf
+            )
+            right_score = (
+                _projection_utility(right_boundary[0], requested_loads, team_ids)
+                if right_boundary is not None and pf_acceptable(right_boundary[0])
+                else -math.inf
+            )
+            for boundary in (left_boundary, right_boundary):
+                if boundary is None:
+                    continue
+                vector, result = boundary
+                if pf_acceptable(vector):
+                    score = _projection_utility(vector, requested_loads, team_ids)
+                    if score > pf_score:
+                        pf_vector, pf_result, pf_score = vector, result, score
+            if left_score < right_score:
+                first_low = left
+            else:
+                first_high = right
+            if first_high - first_low <= _FAIR_PROJECTION_TOLERANCE:
                 break
-        final_result = evaluate(current)
-        if final_result is not None and best_total - total_load(current) <= total_tolerance:
-            best_vector = tuple(current)
-            best_result = final_result
+        pf_candidates = (pf_vector, pf_result)
+    else:
+        pf_candidates = run_box_search(
+            initial_candidates=total_candidates + [(best_vector, best_result)],
+            score=lambda vector: _projection_utility(vector, requested_loads, team_ids),
+            upper_bound=pf_upper_bound,
+            acceptable=pf_acceptable,
+            tolerance=_FAIR_PROJECTION_TOLERANCE,
+            minimum_total=total_optimal_floor,
+        )
+    if pf_candidates[0] is not None and pf_candidates[1] is not None:
+        best_vector, best_result = pf_candidates
 
     dispatch, projected_plans = best_result
     projected_capacity = {
@@ -1151,13 +1332,17 @@ def _fair_continuous_projection(
         total_requested_load_mwh=sum(requested_loads.values()),
         total_projected_load_mwh=sum(projected_loads.values()),
         proportional_fair_utility=(
-            proportional_fair_utility if math.isfinite(proportional_fair_utility) else 0.0
+            proportional_fair_utility
         ),
         total_load_tolerance_mwh=total_tolerance,
         cap_policy={
             "site_capacity_mw": _FAIR_PROJECTION_SITE_CAPACITY_MW,
             "max_team_capacity_mw": _FAIR_PROJECTION_MAX_TEAM_CAPACITY_MW,
-            "max_team_request_share": _FAIR_PROJECTION_MAX_TEAM_REQUEST_SHARE,
+            "max_team_to_min_request_ratio": _FAIR_PROJECTION_MAX_TEAM_TO_MIN_REQUEST_RATIO,
+            "minimum_positive_request_capacity_mw": min(
+                (capacity for capacity in capped_capacity.values() if capacity > 0.0),
+                default=0.0,
+            ),
         },
     )
     try:
@@ -1484,6 +1669,7 @@ def evaluate_csv_batch(
                 selected_periods,
                 selected_source_periods,
                 projection_iterations=projection_iterations,
+                time_step_hours=rules.time_step_hours,
             )
             if projection is not None:
                 dispatch = projection.dispatch
@@ -1868,9 +2054,22 @@ _SUBMISSION_MANIFEST_FIELDS = (
 
 
 def _canonical_json_bytes(payload: Any) -> bytes:
+    def json_safe(value: Any) -> Any:
+        if isinstance(value, float):
+            if math.isnan(value):
+                return "nan"
+            if math.isinf(value):
+                return "-inf" if value < 0 else "inf"
+            return value
+        if isinstance(value, Mapping):
+            return {key: json_safe(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [json_safe(item) for item in value]
+        return value
+
     return (
         json.dumps(
-            payload,
+            json_safe(payload),
             allow_nan=False,
             ensure_ascii=False,
             separators=(",", ":"),

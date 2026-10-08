@@ -35,8 +35,9 @@
 **Files:**
 - Modify: `src/ercot_game/batch_evaluation.py`
 
-- [ ] Replace `_projection_orders`, `max_component`, the two-team ternary search, and pairwise grid updates with a cached oracle evaluator and a deterministic box queue.
+- [ ] Replace `_projection_orders`, `max_component`, and pairwise grid updates with a cached oracle evaluator and deterministic search boundaries.
 - [ ] Use lower/upper corner certification from coordinatewise downward closure, objective upper bounds, deterministic widest-dimension splitting, and the explicit absolute/relative total-load tolerance.
+- [ ] Use the exact two-team monotone upper-boundary reduction (nested bisection plus ternary refinement) before the general multi-team box search.
 - [ ] Seed the incumbent with zero and a positive common-service bisection when available, while returning `None` only when the zero endpoint itself is unavailable.
 - [ ] Preserve continuous alpha scaling and keep every oracle dispatch free of integer or binary curtailment.
 
@@ -68,4 +69,3 @@
 - [ ] Run `git diff --check` and inspect `git diff -- src/ercot_game/batch_evaluation.py tests/test_batch_evaluation.py docs/superpowers/specs/2026-10-08-task-6-fair-projection-repair-design.md docs/superpowers/plans/2026-10-08-task-6-fair-projection-repair.md`.
 - [ ] Confirm pre-existing instructor-manual edits remain untouched and commit only the Task 6 repair files.
 - [ ] Report the exact branch-and-bound algorithm, downward-closure/tolerance limitation, cap policy, test commands, and commit hash.
-

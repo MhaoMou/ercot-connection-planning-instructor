@@ -52,6 +52,16 @@ sampling, or integer curtailment. Its worst-case cost is exponential in the
 number of teams and can be high for a pathological oracle; this is preferable
 to silently returning an uncertified candidate.
 
+For exactly two teams, the same monotone/convex oracle contract reduces the
+search to a one-dimensional upper-boundary function: for each first fraction,
+the largest feasible second fraction is found by bisection, and deterministic
+ternary refinement maximizes the resulting concave total-load function. The
+proportional-fair pass uses the same boundary parameterization and log utility.
+This avoids unnecessary high-dimensional box refinement while retaining the
+same tolerance guarantee for the two-team linear/convex constraints used by
+the no-storage dispatch model. Two-team storage cases use the general
+branch-and-bound path because their binary operating-mode oracle is not convex.
+
 The second pass retains only boxes that can reach the total-load-optimal band
 and applies the same certified search to the strictly increasing utility
 `sum(log(requested_load_mwh_i * alpha_i))`. A positive common-service seed is
@@ -80,4 +90,3 @@ Task 6 tests will cover:
 - 10,000-versus-1 MW anti-manipulation requests;
 - `time_step_hours` conversion to MWh;
 - valid-team isolation and unchanged no-integer-curtailment semantics.
-
