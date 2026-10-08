@@ -182,3 +182,60 @@ def test_storage_never_reports_simultaneous_charge_and_discharge() -> None:
         charge = period.storage_charge_mw["store-a"]
         discharge = period.storage_discharge_mw["store-a"]
         assert not (charge > 1e-8 and discharge > 1e-8)
+
+
+def test_storage_discharge_availability_uses_mw_to_mwh_time_step_conversion() -> None:
+    result = solve_dcopf_horizon(
+        periods=(_single_bus_period(100.0), _single_bus_period(1.0)),
+        storage_assets=(
+            StorageDispatchAsset("store-a", "team-a", "B1", 5.0, 8.0, 4.0),
+        ),
+        owner_load_mw_by_team={
+            "team-a": ({"B1": 5.0}, {"B1": 5.0}),
+        },
+        time_step_hours=0.5,
+    )
+
+    first, second = result.periods
+    assert first.storage_discharge_mw["store-a"] == pytest.approx(5.0)
+    assert first.storage_discharge_mw["store-a"] * 0.5 <= 4.0 + 1e-8
+    assert first.storage_soc_mwh["store-a"] == pytest.approx(1.5)
+    assert second.storage_soc_mwh["store-a"] == pytest.approx(
+        first.storage_soc_mwh["store-a"]
+        + second.storage_charge_mw["store-a"] * 0.5
+        - second.storage_discharge_mw["store-a"] * 0.5
+    )
+
+
+def test_same_team_same_bus_storage_uses_one_aggregate_discharge_cap() -> None:
+    result = solve_dcopf_horizon(
+        periods=(_single_bus_period(100.0), _single_bus_period(1.0)),
+        storage_assets=(
+            StorageDispatchAsset("store-a", "team-a", "B1", 5.0, 10.0, 10.0),
+            StorageDispatchAsset("store-b", "team-a", "B1", 5.0, 10.0, 10.0),
+        ),
+        owner_load_mw_by_team={
+            "team-a": ({"B1": 3.0}, {"B1": 3.0}),
+        },
+    )
+
+    first = result.periods[0]
+    assert sum(first.storage_discharge_mw.values()) == pytest.approx(3.0)
+
+
+def test_storage_cannot_use_another_teams_load_at_the_same_bus() -> None:
+    result = solve_dcopf_horizon(
+        periods=(_single_bus_period(100.0), _single_bus_period(1.0)),
+        storage_assets=(
+            StorageDispatchAsset("store-a", "team-a", "B1", 5.0, 10.0, 10.0),
+            StorageDispatchAsset("store-b", "team-b", "B1", 5.0, 10.0, 10.0),
+        ),
+        owner_load_mw_by_team={
+            "team-a": ({"B1": 0.0}, {"B1": 0.0}),
+            "team-b": ({"B1": 5.0}, {"B1": 5.0}),
+        },
+    )
+
+    first = result.periods[0]
+    assert first.storage_discharge_mw["store-a"] == pytest.approx(0.0)
+    assert first.storage_discharge_mw["store-b"] == pytest.approx(5.0)

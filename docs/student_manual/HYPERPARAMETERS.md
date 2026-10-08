@@ -96,7 +96,7 @@ Hourly quantities are multiplied by the one-hour time step.
 | Storage energy capital cost | $300,000/MWh | **ONLINE-SOURCE CALIBRATED** | One-time cost for storage energy capacity |
 | Storage operating cost | $8/MWh discharged | **ONLINE-SOURCE CALIBRATED** | Variable operating cost |
 | Infeasible score | 0 | **INSTRUCTOR-CHOSEN** | Score when no feasible projected/fallback dispatch exists |
-| Curtailed energy | Not used | **INSTRUCTOR-CHOSEN** | No curtailment or integer recourse in this release |
+| Curtailed energy | Not used | **INSTRUCTOR-CHOSEN** | No load-shedding or curtailment recourse; centralized storage still uses binary operating-mode variables |
 
 The generator-capital coefficient is an instructional rounded value anchored to
 EIA construction costs and a capital-recovery calculation. The storage split
@@ -133,18 +133,22 @@ manual and in scripts/check_submission.py.
 ## Storage operating constraints
 
 Storage is ideal: charging and discharging have 100% efficiency. Students
-submit capacities; the evaluator constructs a deterministic continuous
-peak-shaving schedule.
+submit capacities. In prepared-artifact evaluation, the evaluator solves one
+centralized multi-period binary MIP with HiGHS: each storage asset has a binary
+operating-mode variable that prevents simultaneous positive charging and
+discharging. The legacy compatibility path without a prepared artifact uses a
+deterministic continuous peak-shaving schedule instead; that path is not the
+centralized classroom dispatch model.
 
 For asset j, with power P, energy B, state e, charging c, and discharging d:
 
     0 <= c[t] <= P
     0 <= d[t] <= P
-    e[t+1] = e[t] + (c[t] - d[t]) * 1 hour
+    e[t+1] = e[t] + (c[t] - d[t]) * time_step_hours
     0 <= e[t] <= B
     e[0] = 0.5 * B
     e[T] >= 0.5 * B
-    d[t] <= e[t] / 1 hour
+    d[t] * time_step_hours <= e[t]
 
 The schedule does not intentionally charge and discharge the same asset in the
 same hour. Discharge reduces only its owner's net load and cannot export to
@@ -174,7 +178,7 @@ the batch output identifies the projection scope.
 | Setting | Current value | Source category | Notes |
 |---|---:|---|---|
 | Batch worker count | CLI default 1; larger values such as 8 allowed | **INSTRUCTOR-CHOSEN** | Runtime only; should not change scores |
-| Solver | HiGHS through the DCOPF adapter | **INSTRUCTOR-CHOSEN** | Record solver/version for reproducibility |
+| Solver | HiGHS through the DCOPF adapter | **INSTRUCTOR-CHOSEN** | Storage-bearing centralized horizons are binary MIPs; record solver/version for reproducibility |
 | Active source generators | status == 1 | **DATASET-SPECIFIED** | Inactive units excluded |
 | Active source branches | status == 1 and nonzero reactance | **DATASET-SPECIFIED** | Inactive/invalid branches excluded |
 | Generator availability | Static dataset status, PMIN, and PMAX limits | **DATASET-SPECIFIED** | ACTIVSg2000 has no technology labels or hourly availability fields; no synthetic derating is applied |

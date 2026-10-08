@@ -64,3 +64,58 @@ def test_storage_solver_requires_owner_load_contract() -> None:
             periods=(_period(),),
             storage_assets=(StorageDispatchAsset("store-a", "team-a", "B1", 2.0, 10.0, 5.0),),
         )
+
+
+def test_horizon_solver_rejects_fixed_injection_dimension_mismatch() -> None:
+    with pytest.raises(ValueError, match="fixed injections must match the number of periods"):
+        solve_dcopf_horizon(
+            periods=(_period(), _period()),
+            fixed_injection_mw_by_period=({},),
+        )
+
+
+def test_horizon_solver_rejects_invalid_period_shape() -> None:
+    with pytest.raises(ValueError, match=r"periods must contain \(buses, generators, branches\) triples"):
+        solve_dcopf_horizon(periods=((_period()[0], _period()[1]),))
+
+
+def test_horizon_solver_rejects_owner_load_dimension_mismatch() -> None:
+    with pytest.raises(ValueError, match="owner load for team-a must match the number of periods"):
+        solve_dcopf_horizon(
+            periods=(_period(), _period()),
+            storage_assets=(StorageDispatchAsset("store-a", "team-a", "B1", 2.0, 10.0, 5.0),),
+            owner_load_mw_by_team={"team-a": ({"B1": 1.0},)},
+        )
+
+
+def test_horizon_solver_rejects_non_mapping_owner_load_period() -> None:
+    with pytest.raises(ValueError, match="owner load for team-a must contain mappings"):
+        solve_dcopf_horizon(
+            periods=(_period(),),
+            storage_assets=(StorageDispatchAsset("store-a", "team-a", "B1", 2.0, 10.0, 5.0),),
+            owner_load_mw_by_team={"team-a": (None,)},
+        )
+
+
+@pytest.mark.parametrize("amount", ["not-a-number", True, float("inf"), float("nan"), -1.0])
+def test_horizon_solver_rejects_invalid_owner_load_values(amount: object) -> None:
+    with pytest.raises(ValueError, match="owner load for team-a must be finite and non-negative"):
+        solve_dcopf_horizon(
+            periods=(_period(),),
+            storage_assets=(StorageDispatchAsset("store-a", "team-a", "B1", 2.0, 10.0, 5.0),),
+            owner_load_mw_by_team={"team-a": ({"B1": amount},)},
+        )
+
+
+def test_horizon_solver_rejects_non_sequence_owner_load_horizon() -> None:
+    with pytest.raises(ValueError, match="owner load for team-a must be a sequence of period mappings"):
+        solve_dcopf_horizon(
+            periods=(_period(),),
+            storage_assets=(StorageDispatchAsset("store-a", "team-a", "B1", 2.0, 10.0, 5.0),),
+            owner_load_mw_by_team={"team-a": None},
+        )
+
+
+def test_horizon_solver_rejects_non_numeric_time_step() -> None:
+    with pytest.raises(ValueError, match="time_step_hours must be finite and positive"):
+        solve_dcopf_horizon(periods=(_period(),), time_step_hours="one hour")

@@ -99,9 +99,13 @@ aliases to the same tuple.
 
 The dispatch model uses fixed submitted load and does not model curtailment.
 Student generators and storage are team-owned local resources and cannot serve
-another team. Storage is scheduled continuously with power and energy limits,
-no simultaneous charge/discharge, initial and terminal state of charge at least
-`0.5 B`, and one-hour energy transitions.
+another team. In prepared-artifact evaluation, storage is dispatched in one
+centralized HiGHS binary MIP: each asset has power and energy limits, a binary
+operating mode prevents simultaneous charge/discharge, and initial and
+terminal state of charge are at least `0.5 B`. Charge and discharge are MW,
+SOC is MWh, and each transition uses `time_step_hours` (one hour in the
+released scenario blocks). The legacy no-artifact compatibility path is a
+separate deterministic continuous peak-shaving schedule.
 
 For the current classroom release, source generators use the status, `p_min_mw`,
 and nameplate `p_max_mw` values from the ACTIVSg2000 generator catalog in every

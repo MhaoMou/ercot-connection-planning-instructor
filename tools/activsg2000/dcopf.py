@@ -13,6 +13,7 @@ import math
 from pathlib import Path
 import csv
 from collections.abc import Mapping, Sequence
+from numbers import Real
 from types import MappingProxyType
 
 
@@ -95,6 +96,10 @@ class DCOPFInfeasible(ValueError):
 
 class DCOPFUnresolved(RuntimeError):
     """Raised when HiGHS cannot resolve the DCOPF model status."""
+
+
+def _is_finite_real(value: object) -> bool:
+    return isinstance(value, Real) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def extract_lmp_by_bus(result: DCOPFResult, *, clip_negative: bool = False) -> dict[str, float]:
@@ -518,19 +523,30 @@ def solve_dcopf_horizon(
     """
     if not periods:
         raise ValueError("periods must not be empty")
-    if not math.isfinite(time_step_hours) or time_step_hours <= 0:
+    if not _is_finite_real(time_step_hours) or time_step_hours <= 0:
         raise ValueError("time_step_hours must be finite and positive")
-    if not math.isfinite(base_mva) or base_mva <= 0:
+    if not _is_finite_real(base_mva) or base_mva <= 0:
         raise ValueError("base_mva must be finite and positive")
 
-    period_data = tuple(periods)
+    try:
+        period_data = tuple(periods)
+    except TypeError as exc:
+        raise ValueError("periods must be a sequence of (buses, generators, branches) triples") from exc
     period_count = len(period_data)
+    for period in period_data:
+        if isinstance(period, (str, bytes)) or not isinstance(period, Sequence) or len(period) != 3:
+            raise ValueError("periods must contain (buses, generators, branches) triples")
     if fixed_injection_mw_by_period is None:
         fixed_injections = ({},) * period_count
     else:
-        fixed_injections = tuple(fixed_injection_mw_by_period)
+        try:
+            fixed_injections = tuple(fixed_injection_mw_by_period)
+        except TypeError as exc:
+            raise ValueError("fixed injections must be a sequence of period mappings") from exc
         if len(fixed_injections) != period_count:
             raise ValueError("fixed injections must match the number of periods")
+        if any(not isinstance(injections, Mapping) for injections in fixed_injections):
+            raise ValueError("fixed injections must contain mappings")
 
     storage_assets = tuple(storage_assets)
     if storage_assets and owner_load_mw_by_team is None:
@@ -562,8 +578,19 @@ def solve_dcopf_horizon(
 
     owner_loads: dict[str, tuple[Mapping[str, float], ...]] = {}
     if owner_load_mw_by_team is not None:
+        if not isinstance(owner_load_mw_by_team, Mapping):
+            raise ValueError("owner_load_mw_by_team must be a mapping")
         for team_id, values in owner_load_mw_by_team.items():
-            values = tuple(values)
+            if not isinstance(team_id, str) or not team_id:
+                raise ValueError("owner load team IDs must be non-empty strings")
+            if values is None or isinstance(values, (str, bytes)):
+                raise ValueError(f"owner load for {team_id} must be a sequence of period mappings")
+            try:
+                values = tuple(values)
+            except TypeError as exc:
+                raise ValueError(
+                    f"owner load for {team_id} must be a sequence of period mappings"
+                ) from exc
             if len(values) != period_count:
                 raise ValueError(f"owner load for {team_id} must match the number of periods")
             normalized: list[Mapping[str, float]] = []
@@ -572,7 +599,7 @@ def solve_dcopf_horizon(
                     raise ValueError(f"owner load for {team_id} must contain mappings")
                 checked: dict[str, float] = {}
                 for bus_id, amount in period_load.items():
-                    if not isinstance(bus_id, str) or not math.isfinite(amount) or amount < 0:
+                    if not isinstance(bus_id, str) or not _is_finite_real(amount) or amount < 0:
                         raise ValueError(f"owner load for {team_id} must be finite and non-negative")
                     checked[bus_id] = float(amount)
                 normalized.append(checked)
@@ -591,7 +618,7 @@ def solve_dcopf_horizon(
         injections = dict(fixed_injections[period_index])
         if set(injections) - set(bus_by_id):
             raise ValueError("fixed injection references an unknown bus")
-        if any(not math.isfinite(value) for value in injections.values()):
+        if any(not _is_finite_real(value) for value in injections.values()):
             raise ValueError("fixed injections must be finite")
         for storage in storage_assets:
             if storage.bus_id not in bus_by_id:
@@ -743,7 +770,7 @@ def solve_dcopf_horizon(
             highs.addRow(rhs_lower, rhs_upper, len(coefficients), list(coefficients), list(coefficients.values()))
 
             discharge_coefficients = {
-                int(discharge_columns[(period_index, storage.storage_id)].index): 1.0,
+                int(discharge_columns[(period_index, storage.storage_id)].index): time_step_hours,
             }
             if period_index > 0:
                 add_coefficient(discharge_coefficients, soc_columns[(period_index - 1, storage.storage_id)], -1.0)
