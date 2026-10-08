@@ -21,25 +21,27 @@ and discharge can serve only its owning team's load at the same bus.
 
 ## Formulation
 
-The existing implementation uses HiGHS as a linear-programming DCOPF path. It
-will keep that path and replace each internal pair `(charge, discharge)` with a
-single signed continuous storage-power variable `net_storage_mw`:
+The existing implementation uses HiGHS, whose installed project dependency
+supports mixed-integer variables. It will keep the same DCOPF path and add one
+binary operating-mode variable per storage asset and period:
 
-- `net_storage_mw > 0` means discharge;
-- `net_storage_mw < 0` means charge;
-- `-P <= net_storage_mw <= P`;
-- `soc[t] = soc[t-1] - net_storage_mw[t] * Δt` (or the persisted initial SOC
-  for the first period);
-- `net_storage_mw[t] <= soc[t-1] / Δt` (or initial SOC divided by Δt) enforces
-  discharge availability;
+- `mode[t] = 1` permits discharge and `mode[t] = 0` permits charge;
+- `charge[t] <= P * (1 - mode[t])`;
+- `discharge[t] <= P * mode[t]`;
+- `soc[t] = soc[t-1] + (charge[t] - discharge[t]) * Δt` (or the persisted
+  initial SOC for the first period);
+- `discharge[t] * Δt <= soc[t-1]` (or initial SOC) enforces discharge
+  availability;
 - the final SOC variable has lower bound `0.5B`, while every SOC remains at
   most `B` and at least `0`.
 
-This is a safe continuous representation because the positive and negative
-parts of one scalar cannot both be positive. The public result still exposes
-the existing nonnegative charge and discharge maps by splitting the solved
-signed value, so downstream contracts remain compatible. A binary mode is not
-needed and would turn this large network LP into a MIP.
+This is an exact mixed-integer linear formulation: the mode constraints make
+simultaneous positive charge and discharge impossible, including when multiple
+assets share a site. The public result continues to expose the existing
+nonnegative charge and discharge maps, so downstream contracts remain
+compatible. The solver limitation is that storage-bearing horizons are MIPs;
+they require the declared `highspy` dependency and can be slower than the
+former LP.
 
 For team dedication, group storage assets by `(team_id, bus_id)` and add one
 row per group and period:

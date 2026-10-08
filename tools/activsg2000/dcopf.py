@@ -66,6 +66,16 @@ class StorageDispatchAsset:
     initial_soc_mwh: float
 
 
+def _group_storage_by_owner_bus(
+    storage_assets: Sequence[StorageDispatchAsset],
+) -> dict[tuple[str, str], tuple[StorageDispatchAsset, ...]]:
+    """Partition storage assets by the team and bus that own them."""
+    grouped: dict[tuple[str, str], list[StorageDispatchAsset]] = {}
+    for storage in storage_assets:
+        grouped.setdefault((storage.team_id, storage.bus_id), []).append(storage)
+    return {key: tuple(values) for key, values in grouped.items()}
+
+
 @dataclass(frozen=True)
 class DCOPFHorizonResult:
     """One coupled multi-period DCOPF solve with intertemporal storage state."""
@@ -301,12 +311,12 @@ load_prepared_artifact.cache_clear = clear_prepared_artifact_cache  # type: igno
 
 def _highs():
     try:
-        from highspy import Highs, HighsModelStatus, kHighsInf
+        from highspy import Highs, HighsModelStatus, HighsVarType, kHighsInf
     except ImportError as exc:
         raise RuntimeError(
             "DCOPF requires the optional project dependency 'highspy'; install the project dependencies first"
         ) from exc
-    return Highs, HighsModelStatus, kHighsInf
+    return Highs, HighsModelStatus, HighsVarType, kHighsInf
 
 
 def _validate(
@@ -363,7 +373,7 @@ def solve_dcopf(
     network limits cannot serve it, ``DCOPFInfeasible`` is raised; the solver
     does not introduce load-shedding or curtailment variables.
     """
-    Highs, HighsModelStatus, highs_inf = _highs()
+    Highs, HighsModelStatus, _HighsVarType, highs_inf = _highs()
     bus_by_id, reference = _validate(buses, generators, branches)
     injections = fixed_injection_mw_by_bus or {}
     if set(injections) - set(bus_by_id):
@@ -497,11 +507,14 @@ def solve_dcopf_horizon(
 
     The network and generator constraints are the same linear DCOPF used by
     :func:`solve_dcopf`.  Storage charge/discharge and SOC variables are added
-    to that single LP, so the optimizer can move energy between periods while
-    respecting each asset's persisted initial state and terminal half-full
-    requirement.  When ``owner_load_mw_by_team`` is supplied, each team's
-    total discharge is capped by that team's load in the same period; this is
-    the ownership boundary that prevents storage from serving another team.
+    to one coupled HiGHS model, with a binary operating-mode variable per
+    asset/period.  This makes storage-bearing horizons mixed-integer models,
+    but exactly prevents simultaneous positive charge and discharge while
+    preserving the existing result maps.  Persisted initial SOC and terminal
+    SOC are both constrained to the half-full-to-full interval.  Owner load is
+    required for storage-bearing solves, and each team's total discharge is
+    capped separately at each owned storage bus by that team's load at that
+    same bus and period.
     """
     if not periods:
         raise ValueError("periods must not be empty")
@@ -520,6 +533,8 @@ def solve_dcopf_horizon(
             raise ValueError("fixed injections must match the number of periods")
 
     storage_assets = tuple(storage_assets)
+    if storage_assets and owner_load_mw_by_team is None:
+        raise ValueError("owner load is required when storage assets are present")
     storage_by_id: dict[str, StorageDispatchAsset] = {}
     for storage in storage_assets:
         if not isinstance(storage, StorageDispatchAsset):
@@ -539,7 +554,7 @@ def solve_dcopf_horizon(
             )
             or storage.power_mw <= 0
             or storage.energy_mwh <= 0
-            or storage.initial_soc_mwh < 0
+            or storage.initial_soc_mwh < storage.energy_mwh * 0.5
             or storage.initial_soc_mwh > storage.energy_mwh
         ):
             raise ValueError(f"invalid storage dimensions or initial SOC: {storage.storage_id}")
@@ -570,7 +585,6 @@ def solve_dcopf_horizon(
                 "owner load is required for storage teams: " + ", ".join(missing_owners)
             )
 
-    Highs, HighsModelStatus, highs_inf = _highs()
     model_inputs: list[tuple[dict[str, Bus], str, tuple[Generator, ...], tuple[Branch, ...], dict[str, float]]] = []
     for period_index, (buses, generators, branches) in enumerate(period_data):
         bus_by_id, reference = _validate(buses, generators, branches)
@@ -588,6 +602,7 @@ def solve_dcopf_horizon(
                     raise ValueError(f"owner load for {team_id} references an unknown bus")
         model_inputs.append((bus_by_id, reference, tuple(generators), tuple(branches), injections))
 
+    Highs, HighsModelStatus, HighsVarType, highs_inf = _highs()
     highs = Highs()
     highs.setOptionValue("output_flag", False)
     highs.setOptionValue("presolve", "on")
@@ -597,6 +612,7 @@ def solve_dcopf_horizon(
     angle_columns: dict[tuple[int, str], object] = {}
     charge_columns: dict[tuple[int, str], object] = {}
     discharge_columns: dict[tuple[int, str], object] = {}
+    mode_columns: dict[tuple[int, str], object] = {}
     soc_columns: dict[tuple[int, str], object] = {}
     balance_row_indices: dict[tuple[int, str], int] = {}
 
@@ -635,8 +651,16 @@ def solve_dcopf_horizon(
                 obj=0.0,
                 name=f"storage-discharge:{period_index}:{storage.storage_id}",
             )
-            soc_columns[(period_index, storage.storage_id)] = highs.addVariable(
+            mode_columns[(period_index, storage.storage_id)] = highs.addVariable(
+                # HiGHS integer variables plus [0, 1] bounds provide a binary
+                # mode without changing the public charge/discharge contract.
                 lb=0.0,
+                ub=1.0,
+                type=HighsVarType.kInteger,
+                name=f"storage-mode:{period_index}:{storage.storage_id}",
+            )
+            soc_columns[(period_index, storage.storage_id)] = highs.addVariable(
+                lb=storage.energy_mwh * 0.5 if period_index == period_count - 1 else 0.0,
                 ub=storage.energy_mwh,
                 obj=0.0,
                 name=f"storage-soc:{period_index}:{storage.storage_id}",
@@ -683,6 +707,29 @@ def solve_dcopf_horizon(
             highs.addRow(-branch.thermal_limit_mw, branch.thermal_limit_mw, len(coefficients), list(coefficients), list(coefficients.values()))
 
         for storage in storage_assets:
+            mode = mode_columns[(period_index, storage.storage_id)]
+            charge_mode_coefficients = {
+                int(charge_columns[(period_index, storage.storage_id)].index): 1.0,
+                int(mode.index): storage.power_mw,
+            }
+            highs.addRow(
+                -highs_inf,
+                storage.power_mw,
+                len(charge_mode_coefficients),
+                list(charge_mode_coefficients),
+                list(charge_mode_coefficients.values()),
+            )
+            discharge_mode_coefficients = {
+                int(discharge_columns[(period_index, storage.storage_id)].index): 1.0,
+                int(mode.index): -storage.power_mw,
+            }
+            highs.addRow(
+                -highs_inf,
+                0.0,
+                len(discharge_mode_coefficients),
+                list(discharge_mode_coefficients),
+                list(discharge_mode_coefficients.values()),
+            )
             coefficients = {
                 int(soc_columns[(period_index, storage.storage_id)].index): 1.0,
                 int(charge_columns[(period_index, storage.storage_id)].index): -time_step_hours,
@@ -705,17 +752,13 @@ def solve_dcopf_horizon(
                 discharge_rhs = storage.initial_soc_mwh
             highs.addRow(-highs_inf, discharge_rhs, len(discharge_coefficients), list(discharge_coefficients), list(discharge_coefficients.values()))
 
-        if owner_load_mw_by_team is not None:
-            for team_id in owner_loads:
-                team_storages = tuple(storage for storage in storage_assets if storage.team_id == team_id)
-                if not team_storages:
-                    continue
-                coefficients = {
-                    int(discharge_columns[(period_index, storage.storage_id)].index): 1.0
-                    for storage in team_storages
-                }
-                owner_load = sum(owner_loads[team_id][period_index].values())
-                highs.addRow(-highs_inf, owner_load, len(coefficients), list(coefficients), list(coefficients.values()))
+        for (team_id, bus_id), team_bus_storages in _group_storage_by_owner_bus(storage_assets).items():
+            coefficients = {
+                int(discharge_columns[(period_index, storage.storage_id)].index): 1.0
+                for storage in team_bus_storages
+            }
+            owner_load = owner_loads[team_id][period_index].get(bus_id, 0.0)
+            highs.addRow(-highs_inf, owner_load, len(coefficients), list(coefficients), list(coefficients.values()))
 
     highs.run()
     model_status = highs.getModelStatus()

@@ -76,3 +76,64 @@ def test_same_bus_storage_is_limited_to_its_own_team_load() -> None:
             previous_soc[storage_id] = soc
     assert result.final_soc_mwh_by_storage["store-a"] >= 5.0
     assert result.final_soc_mwh_by_storage["store-b"] >= 5.0
+
+
+def test_terminal_soc_stays_at_least_half_full_under_discharge_pressure() -> None:
+    result = solve_dcopf_horizon(
+        periods=(
+            _single_bus_period(100.0, demand=5.0),
+            _single_bus_period(1.0, demand=5.0),
+        ),
+        storage_assets=(
+            StorageDispatchAsset("store-a", "team-a", "B1", 5.0, 10.0, 8.0),
+        ),
+        owner_load_mw_by_team={"team-a": ({"B1": 5.0}, {"B1": 5.0})},
+    )
+
+    assert result.final_soc_mwh_by_storage["store-a"] >= 5.0 - 1e-8
+
+
+def test_storage_discharge_cannot_cross_team_or_bus_boundary() -> None:
+    result = solve_dcopf_horizon(
+        periods=(
+            (
+                (Bus("B1", 5.0, reference=True), Bus("B2", 5.0)),
+                (
+                    Generator("grid-b1", "B1", 0.0, 100.0, 100.0),
+                    Generator("grid-b2", "B2", 0.0, 100.0, 1.0),
+                ),
+                (),
+            ),
+            (
+                (Bus("B1", 5.0, reference=True), Bus("B2", 5.0)),
+                (
+                    Generator("grid-b1", "B1", 0.0, 100.0, 1.0),
+                    Generator("grid-b2", "B2", 0.0, 100.0, 1.0),
+                ),
+                (),
+            ),
+        ),
+        storage_assets=(
+            StorageDispatchAsset("store-a", "team-a", "B1", 5.0, 10.0, 10.0),
+        ),
+        owner_load_mw_by_team={
+            "team-a": ({"B2": 5.0}, {"B2": 5.0}),
+        },
+    )
+
+    assert result.periods[0].storage_discharge_mw["store-a"] == pytest.approx(0.0)
+
+
+def test_storage_never_reports_simultaneous_charge_and_discharge() -> None:
+    result = solve_dcopf_horizon(
+        periods=(_single_bus_period(100.0), _single_bus_period(1.0)),
+        storage_assets=(
+            StorageDispatchAsset("store-a", "team-a", "B1", 5.0, 10.0, 8.0),
+        ),
+        owner_load_mw_by_team={"team-a": ({"B1": 5.0}, {"B1": 5.0})},
+    )
+
+    for period in result.periods:
+        charge = period.storage_charge_mw["store-a"]
+        discharge = period.storage_discharge_mw["store-a"]
+        assert not (charge > 1e-8 and discharge > 1e-8)
