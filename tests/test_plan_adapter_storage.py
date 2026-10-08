@@ -11,6 +11,7 @@ from tools.activsg2000.plan_adapter import (
     _storage_schedule,
     _validate_plan,
     evaluate_plan_with_prepared_dcopf,
+    evaluate_plans_with_prepared_dcopf,
 )
 
 
@@ -252,3 +253,115 @@ def test_site_only_plan_evaluates_constant_capacity_through_plan_adapter(monkeyp
     assert seen == [{"b0001": 40.0}, {"b0001": 40.0}]
     assert materialized.generators[0].generator_id == "generator:team-a:site-1"
     assert materialized.storages[0].storage_id == "storage:team-a:site-1"
+
+
+def test_raw_site_only_plan_evaluates_constant_load_through_public_adapter(monkeypatch) -> None:
+    plan = TeamPlan(
+        team_id="team-a",
+        sites=(SitePlan("site-1", "b0001", 40.0, 2.0, 1.0, 4.0),),
+    )
+    seen = []
+
+    def solve(*args, **kwargs):
+        seen.append(kwargs["additional_demand_mw_by_bus"])
+        return DCOPFResult(
+            status="optimal",
+            objective_cost=0.0,
+            generation_mw={},
+            angle_by_bus={},
+            flow_mw_by_branch={},
+            balance_dual_by_bus={},
+        )
+
+    monkeypatch.setattr(plan_adapter, "solve_prepared_period", solve)
+
+    result = evaluate_plan_with_prepared_dcopf(
+        "unused-artifact",
+        plan,
+        period_indices=(0, 1),
+    )
+
+    assert [period.submitted_load_mw for period in result.periods] == [40.0, 40.0]
+    assert seen == [{"b0001": 40.0}, {"b0001": 40.0}]
+
+
+def test_raw_site_only_plan_rejects_duplicate_site_ids_at_adapter_boundary() -> None:
+    plan = TeamPlan(
+        team_id="team-a",
+        sites=(
+            SitePlan("site-1", "b0001", 40.0),
+            SitePlan("site-1", "b0002", 30.0),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="duplicate site_id: site-1"):
+        evaluate_plan_with_prepared_dcopf(
+            "unused-artifact",
+            plan,
+            period_indices=(0,),
+        )
+
+
+def test_raw_site_only_plan_evaluates_constant_load_through_batch_adapter(monkeypatch) -> None:
+    plan = TeamPlan(
+        team_id="team-a",
+        sites=(SitePlan("site-1", "b0001", 40.0),),
+    )
+    seen = []
+
+    def solve(*args, **kwargs):
+        seen.append(kwargs["additional_demand_mw_by_bus"])
+        return DCOPFResult(
+            status="optimal",
+            objective_cost=0.0,
+            generation_mw={},
+            angle_by_bus={},
+            flow_mw_by_branch={},
+            balance_dual_by_bus={},
+        )
+
+    monkeypatch.setattr(plan_adapter, "solve_prepared_period", solve)
+
+    result = evaluate_plans_with_prepared_dcopf(
+        "unused-artifact",
+        (plan,),
+        period_indices=(0, 1),
+    )
+
+    assert [period.submitted_load_mw_by_team for period in result.periods] == [
+        {"team-a": 40.0},
+        {"team-a": 40.0},
+    ]
+    assert seen == [{"b0001": 40.0}, {"b0001": 40.0}]
+
+
+def test_legacy_generator_and_storage_labels_share_one_connection(monkeypatch) -> None:
+    plan = TeamPlan(
+        team_id="team-a",
+        connections=(ConnectionPlan("legacy-site", "b0001", 40.0, (1.0,)),),
+        generators=(GeneratorPlan("legacy-generator", "legacy-site", 2.0, 16.0),),
+        storages=(StoragePlan("legacy-storage", "legacy-site", 1.0, 4.0),),
+    )
+
+    monkeypatch.setattr(
+        plan_adapter,
+        "solve_prepared_period",
+        lambda *args, **kwargs: DCOPFResult(
+            status="optimal",
+            objective_cost=0.0,
+            generation_mw={},
+            angle_by_bus={},
+            flow_mw_by_branch={},
+            balance_dual_by_bus={},
+        ),
+    )
+
+    result = evaluate_plan_with_prepared_dcopf(
+        "unused-artifact",
+        plan,
+        period_indices=(0,),
+    )
+
+    assert result.periods[0].submitted_load_mw == 40.0
+    assert plan.generators[0].generator_id == "legacy-generator"
+    assert plan.storages[0].storage_id == "legacy-storage"

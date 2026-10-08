@@ -17,6 +17,9 @@ from typing import Any, Mapping
 from .models import ConnectionPlan, GeneratorPlan, StoragePlan, TeamPlan
 
 
+ASSET_LEDGER_SCHEMA_VERSION = 2
+
+
 class AssetStateError(ValueError):
     """Raised when a plan conflicts with previously persisted team assets."""
 
@@ -43,7 +46,14 @@ def _canonical_asset_key(team_id: str, connection_id: str, kind: str) -> str:
 
 
 class _AssetCollection(ABCMapping):
-    """Canonical asset storage with submitted-label lookup compatibility."""
+    """Canonical asset storage with explicit submitted-label aliases.
+
+    Canonical keys are the primary lookup and iteration keys. A submitted
+    label is accepted only as an alias when it matches exactly one asset;
+    ambiguous labels raise ``KeyError`` instead of selecting an arbitrary
+    asset. ``items()`` and serialization therefore always expose canonical
+    identities.
+    """
 
     def __init__(self, assets: Mapping[str, Any] | None = None) -> None:
         values = assets.values() if isinstance(assets, Mapping) else (assets or ())
@@ -161,10 +171,14 @@ class TeamAssetState:
 class AssetLedger:
     """Immutable, serializable ledger of all team-owned built assets."""
 
-    version: int = 1
+    version: int = ASSET_LEDGER_SCHEMA_VERSION
     teams: Mapping[str, TeamAssetState] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if self.version != ASSET_LEDGER_SCHEMA_VERSION:
+            raise AssetStateError(
+                f"asset ledger instances must use schema version {ASSET_LEDGER_SCHEMA_VERSION}"
+            )
         object.__setattr__(self, "teams", dict(self.teams))
 
     @classmethod
@@ -428,28 +442,41 @@ class AssetLedger:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "AssetLedger":
+        if not isinstance(payload, Mapping):
+            raise AssetStateError("asset ledger must be an object")
         version = payload.get("version")
-        if version != 1:
+        if version not in (1, ASSET_LEDGER_SCHEMA_VERSION):
             raise AssetStateError(f"unsupported asset ledger version: {version!r}")
         teams: dict[str, TeamAssetState] = {}
         for team_id, raw_state in _mapping(payload.get("teams"), "teams").items():
+            if not isinstance(team_id, str) or not team_id:
+                raise AssetStateError("asset ledger team IDs must be non-empty strings")
             if not isinstance(raw_state, Mapping):
                 raise AssetStateError(f"team asset state must be an object: {team_id}")
-            generators = {
-                asset_id: GeneratorAsset(**_asset_payload(raw_asset, "generator", asset_id))
-                for asset_id, raw_asset in _mapping(raw_state.get("generators"), "generators").items()
-            }
-            storages = {
-                asset_id: StorageAsset(**_asset_payload(raw_asset, "storage", asset_id))
-                for asset_id, raw_asset in _mapping(raw_state.get("storages"), "storages").items()
-            }
+            state_team_id = raw_state.get("team_id", team_id)
+            if state_team_id != team_id:
+                raise AssetStateError(
+                    f"team asset state identity mismatch: {team_id} vs {state_team_id}"
+                )
+            generators = _deserialize_assets(
+                raw_state.get("generators"),
+                team_id=team_id,
+                kind="generator",
+                version=version,
+            )
+            storages = _deserialize_assets(
+                raw_state.get("storages"),
+                team_id=team_id,
+                kind="storage",
+                version=version,
+            )
             teams[team_id] = TeamAssetState(
-                team_id=str(raw_state.get("team_id", team_id)),
+                team_id=team_id,
                 generators=generators,
                 storages=storages,
                 last_round_key=raw_state.get("last_round_key"),
             )
-        return cls(version=version, teams=teams)
+        return cls(version=ASSET_LEDGER_SCHEMA_VERSION, teams=teams)
 
 
 def _connection_for_asset(connections: Mapping[str, Any], connection_id: str) -> Any:
@@ -466,7 +493,11 @@ def _plan_components(
 ) -> tuple[dict[str, ConnectionPlan], dict[str, GeneratorPlan], dict[str, StoragePlan]]:
     """Normalize legacy connections and site-only plans at the state boundary."""
     connections = _unique_connections(plan.connections)
+    site_ids: set[str] = set()
     for site in plan.sites:
+        if site.site_id in site_ids:
+            raise AssetStateError(f"duplicate site_id: {site.site_id}")
+        site_ids.add(site.site_id)
         site_connection = ConnectionPlan(
             connection_id=site.site_id,
             bus_id=site.bus_id,
@@ -480,7 +511,8 @@ def _plan_components(
             raise AssetStateError(
                 f"site {site.site_id} conflicts with its persisted connection specification"
             )
-        connections.setdefault(site.site_id, site_connection)
+        if previous is None:
+            connections[site.site_id] = site_connection
 
     generators = list(plan.generators)
     storages = list(plan.storages)
@@ -710,6 +742,50 @@ def _mapping(value: Any, name: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise AssetStateError(f"asset ledger field {name} must be an object")
     return value
+
+
+def _deserialize_assets(
+    value: Any,
+    *,
+    team_id: str,
+    kind: str,
+    version: int,
+) -> dict[str, Any]:
+    """Migrate v1 label/canonical keys and validate identities before storage."""
+    raw_assets = _mapping(value, f"{kind}s")
+    parsed: dict[str, Any] = {}
+    for serialized_id, raw_asset in raw_assets.items():
+        if not isinstance(serialized_id, str) or not serialized_id:
+            raise AssetStateError(f"{kind} asset keys must be non-empty strings")
+        payload = _asset_payload(raw_asset, kind, serialized_id)
+        if payload.get("team_id") != team_id:
+            raise AssetStateError(
+                f"{kind} asset {serialized_id} has a mismatched team identity"
+            )
+        connection_id = payload.get("connection_id")
+        canonical_id = canonical_asset_key(team_id, connection_id, kind)
+        label = payload[f"{kind}_id"]
+        if version == ASSET_LEDGER_SCHEMA_VERSION:
+            if serialized_id != canonical_id:
+                raise AssetStateError(
+                    f"version {ASSET_LEDGER_SCHEMA_VERSION} requires canonical {kind} keys: "
+                    f"{serialized_id}"
+                )
+        elif serialized_id != canonical_id and serialized_id != label:
+            raise AssetStateError(
+                f"version 1 {kind} key must be its submitted label or canonical identity: "
+                f"{serialized_id}"
+            )
+        if canonical_id in parsed:
+            raise AssetStateError(
+                f"duplicate canonical {kind} identity: {canonical_id}"
+            )
+        parsed[canonical_id] = (
+            GeneratorAsset(**payload)
+            if kind == "generator"
+            else StorageAsset(**payload)
+        )
+    return parsed
 
 
 def _asset_payload(value: Any, kind: str, asset_id: str) -> dict[str, Any]:

@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "teams": {
+    "team-a": {
+      "team_id": "team-a",
+      "last_round_key": "2027_jan_jun",
+      "generators": {
+        "legacy-generator": {
+          "team_id": "team-a",
+          "generator_id": "legacy-generator",
+          "connection_id": "site-1",
+          "bus_id": "b0001",
+          "capacity_mw": 10.0,
+          "marginal_cost_per_mwh": 16.0,
+          "asset_key": "generator:team-a:site-1"
+        }
+      },
+      "storages": {
+        "legacy-storage": {
+          "team_id": "team-a",
+          "storage_id": "legacy-storage",
+          "connection_id": "site-1",
+          "bus_id": "b0001",
+          "power_mw": 5.0,
+          "energy_mwh": 20.0,
+          "asset_key": "storage:team-a:site-1"
+        }
+      }
+    }
+  }
+}

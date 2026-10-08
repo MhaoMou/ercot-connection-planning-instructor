@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
 from ercot_game.asset_state import AssetLedger, AssetStateError, StorageAsset
-from ercot_game.models import ConnectionPlan, GeneratorPlan, StoragePlan, TeamPlan
+from ercot_game.models import ConnectionPlan, GeneratorPlan, SitePlan, StoragePlan, TeamPlan
 
 
 def _plan(
@@ -50,7 +51,7 @@ def _plan(
 def test_register_plan_persists_team_owned_assets_and_round_metadata() -> None:
     ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
 
-    assert ledger.version == 1
+    assert ledger.version == 2
     assert ledger.team("team-a").generators["gen-1"].bus_id == "b0001"
     assert ledger.team("team-a").generators["gen-1"].capacity_mw == 10.0
     assert ledger.team("team-a").storages["store-1"].energy_mwh == 20.0
@@ -364,3 +365,87 @@ def test_register_plan_rejects_duplicate_ids(
 
     with pytest.raises(AssetStateError, match=message):
         AssetLedger.empty().register_plan(plan, round_key="2027_jan_jun")
+
+
+def test_register_plan_rejects_duplicate_site_only_ids() -> None:
+    plan = TeamPlan(
+        team_id="team-a",
+        sites=(
+            SitePlan("site-1", "b0001", 40.0),
+            SitePlan("site-1", "b0002", 30.0),
+        ),
+    )
+
+    with pytest.raises(AssetStateError, match="duplicate site_id: site-1"):
+        AssetLedger.empty().register_plan(plan, round_key="2027_jan_jun")
+
+
+def test_asset_collection_alias_lookup_is_explicit_and_ambiguous_aliases_are_rejected() -> None:
+    plan = TeamPlan(
+        team_id="team-a",
+        connections=(
+            ConnectionPlan("site-a", "b0001", 40.0, (1.0,)),
+            ConnectionPlan("site-b", "b0002", 30.0, (1.0,)),
+        ),
+        generators=(
+            GeneratorPlan("same-label", "site-a", 10.0, 16.0),
+            GeneratorPlan("same-label", "site-b", 12.0, 22.0),
+        ),
+    )
+    ledger = AssetLedger.empty().register_plan(plan, round_key="2027_jan_jun")
+    generators = ledger.team("team-a").generators
+
+    assert generators["generator:team-a:site-a"].capacity_mw == 10.0
+    with pytest.raises(KeyError, match="ambiguous submitted asset label: same-label"):
+        generators["same-label"]
+
+
+def test_asset_ledger_migrates_genuine_version_one_label_keyed_fixture() -> None:
+    fixture = json.loads(
+        (Path(__file__).parent / "fixtures" / "asset_ledger_v1_label_keyed.json").read_text()
+    )
+
+    restored = AssetLedger.from_dict(fixture)
+
+    assert restored.version == 2
+    assert restored.team("team-a").generators["legacy-generator"].capacity_mw == 10.0
+    assert restored.team("team-a").storages["legacy-storage"].state_of_charge_mwh == 10.0
+    assert set(restored.to_dict()["teams"]["team-a"]["generators"]) == {
+        "generator:team-a:site-1"
+    }
+
+
+def test_asset_ledger_migrates_version_one_canonical_keyed_payload() -> None:
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    payload = ledger.to_dict()
+    payload["version"] = 1
+
+    restored = AssetLedger.from_dict(payload)
+
+    assert restored.version == 2
+    assert restored.to_dict() == ledger.to_dict()
+
+
+def test_asset_ledger_version_two_requires_canonical_keys() -> None:
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    payload = ledger.to_dict()
+    asset = payload["teams"]["team-a"]["generators"].pop(
+        "generator:team-a:site-1"
+    )
+    payload["teams"]["team-a"]["generators"]["legacy-generator"] = asset
+
+    with pytest.raises(AssetStateError, match="version 2 requires canonical generator keys"):
+        AssetLedger.from_dict(payload)
+
+
+def test_asset_ledger_rejects_duplicate_canonical_identity_before_collection_build() -> None:
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    payload = ledger.to_dict()
+    payload["version"] = 1
+    generators = payload["teams"]["team-a"]["generators"]
+    duplicate = dict(generators["generator:team-a:site-1"])
+    duplicate["generator_id"] = "other-label"
+    generators["other-label"] = duplicate
+
+    with pytest.raises(AssetStateError, match="duplicate canonical generator identity"):
+        AssetLedger.from_dict(payload)

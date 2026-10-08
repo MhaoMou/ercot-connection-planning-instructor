@@ -118,6 +118,8 @@ def evaluate_round(
     new_generator_ids: dict[str, frozenset[str]] = {}
     new_storage_ids: dict[str, frozenset[str]] = {}
     for plan in plans:
+        # Materialize before dispatch so custom loaders cannot bypass the
+        # Task 1 state/schema boundary with a raw site-only TeamPlan.
         materialized_plans[plan.team_id] = prior_state.asset_ledger.materialize_plan(
             plan,
             horizon=horizon,

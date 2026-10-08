@@ -22,6 +22,14 @@ Registering a later plan preserves previously recorded assets and adds newly
 declared assets. The ledger is immutable from the caller's perspective and can
 be serialized with `to_dict()` and restored with `from_dict()`.
 
+The serialized `AssetLedger` schema is version 2. Version 2 writes canonical
+team/site/kind keys. `from_dict()` migrates version-1 payloads from either the
+original submitted-label-keyed layout or the intermediate canonical-keyed
+layout, then returns a version-2 ledger. Version-2 payloads must use canonical
+keys. Collection lookup prefers an exact canonical key; a submitted label is
+only an alias when it identifies exactly one asset, and ambiguous aliases are
+rejected.
+
 ## Deliberate non-goals
 
 This stage does not yet:

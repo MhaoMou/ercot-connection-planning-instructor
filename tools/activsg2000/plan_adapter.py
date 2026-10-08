@@ -9,7 +9,7 @@ from pathlib import Path
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 
-from ercot_game.models import ConnectionPlan, GeneratorPlan, TeamPlan
+from ercot_game.models import ConnectionPlan, GeneratorPlan, StoragePlan, TeamPlan
 from ercot_game.csv_submission import TEAM_GENERATOR_COST_CURVE
 
 from .dcopf import DCOPFInfeasible, DCOPFResult, Generator, solve_prepared_period
@@ -73,6 +73,82 @@ def _student_generator_id(*parts: str) -> str:
 
 def _student_generator_segment_id(*parts: str, segment: int) -> str:
     return _student_generator_id(*parts, f"segment-{segment}")
+
+
+def _normalize_plan_for_adapter(plan: TeamPlan) -> TeamPlan:
+    """Expand site-only plans before any adapter validation or evaluation.
+
+    The public adapter accepts both the frozen site schema and the legacy
+    expanded connection schema. Keeping this normalization here makes the
+    adapter boundary safe for direct callers as well as the round coordinator.
+    """
+    if not isinstance(plan, TeamPlan):
+        raise ValueError("plan must be a TeamPlan")
+    if not plan.sites:
+        return plan
+
+    connections = list(plan.connections)
+    connection_by_id: dict[str, ConnectionPlan] = {}
+    for connection in connections:
+        if connection.connection_id in connection_by_id:
+            raise ValueError(f"duplicate connection ID in team {plan.team_id}")
+        connection_by_id[connection.connection_id] = connection
+
+    site_ids: set[str] = set()
+    for site in plan.sites:
+        if site.site_id in site_ids:
+            raise ValueError(f"duplicate site_id: {site.site_id}")
+        site_ids.add(site.site_id)
+        site_connection = ConnectionPlan(
+            connection_id=site.site_id,
+            bus_id=site.bus_id,
+            capacity_mw=site.connection_capacity_mw,
+        )
+        previous = connection_by_id.get(site.site_id)
+        if previous is not None:
+            if (
+                previous.bus_id != site_connection.bus_id
+                or previous.capacity_mw != site_connection.capacity_mw
+            ):
+                raise ValueError(
+                    f"site {site.site_id} conflicts with its connection specification"
+                )
+        else:
+            connections.append(site_connection)
+            connection_by_id[site.site_id] = site_connection
+
+    generators = list(plan.generators)
+    generator_sites = {generator.connection_id for generator in generators}
+    storages = list(plan.storages)
+    storage_sites = {storage.connection_id for storage in storages}
+    for site in plan.sites:
+        if site.site_id not in generator_sites and site.generator_capacity_mw != 0:
+            generators.append(
+                GeneratorPlan(
+                    generator_id=f"generator:{plan.team_id}:{site.site_id}",
+                    connection_id=site.site_id,
+                    capacity_mw=site.generator_capacity_mw,
+                    marginal_cost_per_mwh=0.0,
+                )
+            )
+        if site.site_id not in storage_sites and (
+            site.storage_power_mw != 0 or site.storage_energy_mwh != 0
+        ):
+            storages.append(
+                StoragePlan(
+                    storage_id=f"storage:{plan.team_id}:{site.site_id}",
+                    connection_id=site.site_id,
+                    power_mw=site.storage_power_mw,
+                    energy_mwh=site.storage_energy_mwh,
+                )
+            )
+
+    return TeamPlan(
+        team_id=plan.team_id,
+        connections=tuple(connections),
+        generators=tuple(generators),
+        storages=tuple(storages),
+    )
 
 
 def _validate_plan(
@@ -150,6 +226,7 @@ def evaluate_plan_with_prepared_dcopf(
     does not change the existing browser evaluator's abstract planning-model
     semantics.
     """
+    plan = _normalize_plan_for_adapter(plan)
     _validate_period_indices(period_indices)
     if not math.isfinite(time_step_hours) or time_step_hours <= 0:
         raise ValueError("time_step_hours must be finite and positive")
@@ -219,7 +296,12 @@ def evaluate_plans_with_prepared_dcopf(
     """
     if not plans:
         raise ValueError("at least one team plan is required")
-    ordered_plans = tuple(sorted(plans, key=lambda plan: plan.team_id))
+    ordered_plans = tuple(
+        sorted(
+            (_normalize_plan_for_adapter(plan) for plan in plans),
+            key=lambda plan: plan.team_id,
+        )
+    )
     team_ids = tuple(plan.team_id for plan in ordered_plans)
     if len(set(team_ids)) != len(team_ids):
         raise ValueError("team IDs must be unique")
