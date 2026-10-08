@@ -15,7 +15,7 @@ from typing import Any, TYPE_CHECKING, NoReturn
 
 from .csv_submission import (
     CSVSubmission,
-    load_generator_costs,
+    TEAM_GENERATOR_COST_CURVE,
     load_bus_ids,
     read_student_csv,
     read_submission_identity,
@@ -452,7 +452,13 @@ def _score_team(
                         f"has nonzero amount {amount}"
                     )
                 continue
-            period_generator_cost += amount * generator.marginal_cost_per_mwh
+            remaining = max(0.0, min(float(amount), generator.capacity_mw))
+            for fraction, marginal_cost in TEAM_GENERATOR_COST_CURVE:
+                segment_amount = min(remaining, generator.capacity_mw * fraction)
+                period_generator_cost += segment_amount * marginal_cost
+                remaining -= segment_amount
+                if remaining <= 0:
+                    break
         generator_cost += period_generator_cost * rules.time_step_hours
         storage_discharge_by_team = getattr(period, "storage_discharge_mw_by_team", None)
         if storage_discharge_by_team is not None:
@@ -818,10 +824,9 @@ def evaluate_csv_batch(
             bus_ids = load_bus_ids(artifact_dir)
         except (OSError, ValueError, csv.Error) as exc:
             raise ValueError(f"could not load production bus catalog: {exc}") from exc
-    try:
-        generator_cost_by_id = load_generator_costs(artifact_dir)
-    except (OSError, ValueError, csv.Error) as exc:
-        raise ValueError(f"could not load production generator catalog: {exc}") from exc
+    # Team-built generator IDs are self-defined labels and are priced by the
+    # common classroom curve, not by the public generator catalog.
+    generator_cost_by_id = None
     if rules.economic_profiles is not None:
         if rules.economic_profiles.horizon_hours != horizon:
             raise ValueError(

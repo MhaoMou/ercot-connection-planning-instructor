@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 
 from ercot_game.models import ConnectionPlan, GeneratorPlan, TeamPlan
+from ercot_game.csv_submission import TEAM_GENERATOR_COST_CURVE
 
 from .dcopf import DCOPFInfeasible, DCOPFResult, Generator, solve_prepared_period
 
@@ -63,6 +64,10 @@ def _validate_period_indices(period_indices: tuple[int, ...]) -> None:
 def _student_generator_id(*parts: str) -> str:
     """Encode student generator identity without delimiter collisions."""
     return "student:" + "".join(f"{len(part)}:{part}" for part in parts)
+
+
+def _student_generator_segment_id(*parts: str, segment: int) -> str:
+    return _student_generator_id(*parts, f"segment-{segment}")
 
 
 def _validate_plan(
@@ -262,15 +267,20 @@ def evaluate_plans_with_prepared_dcopf(
             additional_demand_mw_by_bus=aggregate_demand,
             additional_generators=candidates,
         )
-        generator_dispatch_by_team = {
-            plan.team_id: {
-                generator.generator_id: dispatch.generation_mw.get(
-                    _student_generator_id(plan.team_id, generator.generator_id), 0.0
+        generator_dispatch_by_team = {}
+        for plan in ordered_plans:
+            team_dispatch = {}
+            for generator in sorted(plan.generators, key=lambda item: item.generator_id):
+                team_dispatch[generator.generator_id] = sum(
+                    dispatch.generation_mw.get(
+                        _student_generator_segment_id(
+                            plan.team_id, generator.generator_id, segment=segment
+                        ),
+                        0.0,
+                    )
+                    for segment in range(1, len(TEAM_GENERATOR_COST_CURVE) + 1)
                 )
-                for generator in sorted(plan.generators, key=lambda item: item.generator_id)
-            }
-            for plan in ordered_plans
-        }
+            generator_dispatch_by_team[plan.team_id] = team_dispatch
         grid_purchase_by_team_by_bus = {}
         for plan in ordered_plans:
             generator_bus_by_id = {
@@ -369,17 +379,20 @@ def _student_generators(
     for generator in generators:
         connection = connection_by_id[generator.connection_id]
         bus_id = connection.bus_id
-        capacity_mw = min(generator.capacity_mw, remaining_by_bus.get(bus_id, 0.0))
-        remaining_by_bus[bus_id] = max(remaining_by_bus.get(bus_id, 0.0) - capacity_mw, 0.0)
-        candidates.append(
-            Generator(
-                generator_id=_student_generator_id(*id_prefix, generator.generator_id),
-                bus_id=bus_id,
-                p_min_mw=0.0,
-                p_max_mw=capacity_mw,
-                marginal_cost_per_mwh=generator.marginal_cost_per_mwh,
+        remaining = remaining_by_bus.get(bus_id, 0.0)
+        for segment, (fraction, cost) in enumerate(TEAM_GENERATOR_COST_CURVE, start=1):
+            capacity_mw = min(generator.capacity_mw * fraction, remaining)
+            remaining = max(remaining - capacity_mw, 0.0)
+            candidates.append(
+                Generator(
+                    generator_id=_student_generator_segment_id(*id_prefix, generator.generator_id, segment=segment),
+                    bus_id=bus_id,
+                    p_min_mw=0.0,
+                    p_max_mw=capacity_mw,
+                    marginal_cost_per_mwh=cost,
+                )
             )
-        )
+        remaining_by_bus[bus_id] = remaining
     return tuple(candidates)
 
 

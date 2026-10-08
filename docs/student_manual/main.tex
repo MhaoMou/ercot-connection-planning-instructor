@@ -106,7 +106,8 @@ not submit a screenshot in place of the CSV.
   \item Submit exactly one complete \code{half-year horizon}. The released calendar determines
   the length: 2016 has 4,368/4,416 hours and 2017--2018 have 4,344/4,416 hours
   for January--June/July--December.
-  \item Use \code{bus IDs} and \code{generator IDs} from the supplied ACTIVSg2000 scenario block.
+  \item Use \code{bus IDs} from the supplied ACTIVSg2000 scenario block. Team-built
+  generator and storage IDs are labels chosen by your team.
   \item Load is nonnegative and is specified directly in \code{MW} for every hour.
   \item \code{Generators} and \code{storage} are private to the submitting team.
   \item The current release has no student-controlled \code{curtailment} decision.
@@ -197,7 +198,10 @@ For each selected \code{bus} $s$ and hour $t$, you may request load $d_{s,t}\ge 
 You may also submit one or more private \code{generators} and one or more private
 \code{storage devices} attached to your selected connection sites. A team's resources
 serve only that team. They cannot export energy to another team or become a
-shared pool.
+shared pool. The \code{bus\_id} must come from the supplied bus catalog. In
+contrast, \code{generator\_id} and \code{storage\_id} are team-defined labels:
+any clear, nonempty identifier is acceptable, provided the same identifier is
+used consistently for that asset throughout the file and across submissions.
 
 \section{Mathematical model}
 
@@ -214,24 +218,24 @@ capacity and normalized profile internally.
 
 \subsection{Private generation}
 
-\code{Generator IDs} refer to records in the ACTIVSg2000 generator catalog. The evaluator
-uses the catalog's \code{marginal\_cost\_c1\_per\_mwh} value for the generator's
-operating cost. The generator is physically attached to your chosen bus for the
-exercise, but its cost reference comes from the public dataset. For a generator
-with capacity $G_{i,g}$, dispatch satisfies
+Each team-built generator is identified by a team-defined \code{generator\_id}; it
+is not a lookup key into the public generator catalog. The evaluator applies the
+same convex piecewise-linear operating-cost curve to every team-built generator
+at every site: the first 25\% of capacity costs \$12/MWh, the next 50\% costs
+\$16/MWh, and the final 25\% costs \$24/MWh. You submit the capacity and the
+evaluator chooses hourly dispatch. For a generator with capacity $G_{i,g}$,
+dispatch satisfies
 \[
   0\le g_{i,g,t}\le G_{i,g}.
 \]
-The instructor may impose additional catalog or site limits in the round
-configuration.
-
-For the current classroom release, the dispatch evaluator applies the
-generator status, PMIN, and PMAX values from the ACTIVSg2000 catalog in every
-hour. No synthetic technology-specific availability limit is applied.
+The generator is physically attached to the submitted bus and is private to your
+team. It is not an existing public generator and does not inherit a public
+generator ID, PMIN, PMAX, or marginal cost.
 
 \subsection{Private storage}
 
-For storage device $b$, submit power capacity $P_{i,b}$ in MW and energy
+For storage device $b$, use any consistent team-defined \code{storage\_id}, and submit
+power capacity $P_{i,b}$ in MW and energy
 capacity $B_{i,b}$ in MWh. Charging $c_{i,b,t}$ and discharging $q_{i,b,t}$ are
 continuous. We assume ideal charging/discharging efficiency:
 \[
@@ -300,9 +304,9 @@ released year and round.
 Example:
 \begin{lstlisting}
 team_id,submission_id,period,bus_id,load_mw,generator_id,generator_capacity_mw,storage_id,storage_power_mw,storage_energy_mwh
-team-blue,half_year_1,1,3002041,40,12875,20,BATT_1,10,20
-team-blue,half_year_1,2,3002041,35,12875,20,BATT_1,10,20
-team-blue,half_year_1,1,3002042,25,,,,,
+team-blue,half_year_1,1,1001,40,GEN_A,20,STORE_A,10,20
+team-blue,half_year_1,2,1001,35,GEN_A,20,STORE_A,10,20
+team-blue,half_year_1,1,1002,25,,,,,
 \end{lstlisting}
 
 Use empty fields for resources that are not present on a row. Values use MW,
@@ -323,7 +327,7 @@ PYTHONPATH=src python scripts/check_submission.py \\
 \end{lstlisting}
 Use \code{--year 2017 --round jul\_dec} for the July--December submission. The \code{checker} is
 also available after installation as \code{ercot-game-check-csv}. It checks UTF-8
-encoding, the exact header, numeric fields, bus and generator IDs, duplicate
+encoding, the exact header, numeric fields, public bus IDs, team-defined asset IDs, duplicate
 keys, consistent resource specifications, horizon bounds, and nonnegative
 values. The validator is a convenience check; the instructor evaluator remains
 authoritative.
@@ -344,8 +348,9 @@ submission, this coverage pattern continues through period 4,368 or 4,416.
 
 \subsection{Checker troubleshooting}
 \begin{itemize}[leftmargin=*]
-  \item \textbf{Unknown bus or generator:} copy the ID from the supplied
-  ACTIVSg2000 catalog; do not invent a new ID.
+\item \textbf{Unknown bus:} copy the \code{bus\_id} from the supplied ACTIVSg2000
+ bus catalog. Team-defined generator and storage IDs may be invented, but must be
+ consistent within the submission.
   \item \textbf{Incomplete horizon:} add rows for every missing period on each
   selected bus, using zero load when the bus is idle.
   \item \textbf{Inconsistent resource specification:} repeat the same
@@ -433,7 +438,7 @@ Parameter & Provisional value & Basis\\
 \midrule
 Generator capital & \USD85,000/MW & Annualized combustion-turbine anchor from EIA cost data~\cite{eia2024generatorcosts}.\\
 Site cost & \USD50,000/site & Instructional interconnection proxy informed by Berkeley Lab interconnection-cost work~\cite{lbnl2022interconnection}.\\
-Generator operating cost & Dataset value & ACTIVSg2000 \code{gencost} C1 record.\\
+Generator operating cost & Piecewise \$12/16/24 per MWh & Common team-built curve; same at every site.\\
 Energy price & Baseline LMP artifact & Exogenous ACTIVSg2000 DCOPF price surface, one price per bus and hour.\\
 IT value & \USD125/MWh hourly & Full-horizon instructor-chosen opportunity value; see the profile documentation.\\
 Storage power capital & \USD200,000/MW & Rounded power-capacity component calibrated from NREL/EIA battery benchmarks~\cite{eia2024bess,nrel2024bess}.\\
@@ -484,7 +489,8 @@ Before uploading, confirm:
 \begin{itemize}[leftmargin=*]
   \item the file is \code{UTF-8 CSV} with the exact header;
   \item every selected bus has one row for every required period;
-  \item all bus and generator IDs come from the supplied catalogs;
+  \item all bus IDs come from the supplied catalog; team-built generator and storage
+    IDs are self-defined labels;
   \item generator and storage specifications are consistent across rows;
   \item all loads and capacities are finite and nonnegative;
   \item the \code{checker} passes with the correct half-year horizon;
@@ -495,8 +501,9 @@ Before uploading, confirm:
 \section{Troubleshooting and frequently asked questions}
 \begin{description}[style=nextline,leftmargin=0pt]
   \item[Can I invent a generator ID or choose its operating cost?]
-  No. \code{Generator IDs} and operating costs come from the supplied ACTIVSg2000 catalog.
-  You choose capacity; the evaluator dispatches the generator.
+  You may invent a clear generator ID and choose its capacity, but you may not choose
+  its operating-cost curve. Every team-built generator uses the common piecewise
+  curve specified in Section~\ref{sec:score}; the evaluator dispatches it.
 
   \item[Can my generator or storage serve another team?]
   No. These resources are private and can reduce only your team's grid

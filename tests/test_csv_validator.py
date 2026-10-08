@@ -78,7 +78,6 @@ def test_validator_collects_catalog_and_value_errors(tmp_path):
     assert "period must be in 1..2" in messages
     assert "unknown scenario bus UNKNOWN" in messages
     assert "load_mw must be non-negative" in messages
-    assert "unknown scenario generator NOPE" in messages
     assert "generator capacity must be non-negative" in messages
 
 
@@ -150,7 +149,7 @@ def test_validator_reports_oversized_field_as_file_error(tmp_path):
     assert any("malformed CSV" in issue.message for issue in report.issues)
 
 
-def test_validator_rejects_invalid_generator_catalog_cost(tmp_path):
+def test_validator_does_not_require_public_generator_catalog_for_team_assets(tmp_path):
     artifact = _artifact(tmp_path)
     (artifact / "generator_limits.csv").write_text(
         "generator_id,marginal_cost_c1_per_mwh\nG1,nan\n",
@@ -159,5 +158,5 @@ def test_validator_rejects_invalid_generator_catalog_cost(tmp_path):
     path = tmp_path / "team.csv"
     _submission(path, [["team-a", "half-year-1", 1, "3002041", 40, "G1", 20, "", "", ""]])
 
-    with pytest.raises(ValueError, match="generator catalog.*finite and non-negative"):
-        validate_csv_submission(path, artifact_dir=artifact, horizon=1)
+    report = validate_csv_submission(path, artifact_dir=artifact, horizon=1)
+    assert report.valid

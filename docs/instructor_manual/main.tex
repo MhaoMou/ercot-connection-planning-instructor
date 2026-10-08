@@ -37,6 +37,7 @@
 \newcommand{\MW}{\,\mathrm{MW}}
 \newcommand{\MWh}{\,\mathrm{MWh}}
 \newcommand{\USD}{\$}
+\newcolumntype{Y}{>{\raggedleft\arraybackslash}X}
 
 \title{\textbf{Instructor Manual}\\[0.4em]
   \large Competitive Data-Center Connection Planning Game}
@@ -61,7 +62,7 @@ game. It is the operational companion to the student assignment handout.
 Each group represents a data-center operator. A group chooses connection buses,
 hourly computational load, optional private generation, and optional private
 storage. The instructor collects one long-form CSV per group and evaluates the
-submissions jointly with a fixed-load DC optimal power flow (code{DCOPF}).
+submissions jointly with a fixed-load DC optimal power flow (\code{DCOPF}).
 Groups are ranked by their final score.
 
 Students are explicitly encouraged to use AI tools, including ChatGPT, Codex,
@@ -104,11 +105,22 @@ dataset status, PMIN, and PMAX in every hour; it does not apply synthetic
 wind/solar derating. The package is not historical ERCOT telemetry, an official
 ERCOT planning model, or a forecast.
 
+Team-built resources follow a separate convention. A team's \code{bus\_id} must
+refer to a public bus in the selected scenario block, but its \code{generator\_id}
+and \code{storage\_id} are self-defined labels. Any clear, nonempty ID is valid
+as long as the team uses it consistently throughout the CSV and across rounds.
+The ID is only an identity label; it does not select an existing public generator
+or storage device. Every team-built generator uses the same convex piecewise-linear
+operating curve at every bus: 25\% of capacity at \$12/MWh, the next 50\% at
+\$16/MWh, and the final 25\% at \$24/MWh. Students submit capacities; the
+evaluator determines hourly dispatch. Team-built generators and storage serve only
+their submitting team.
+
 \section{Released scenario blocks}
 
 Each round covers one half-year with a one-hour time step.
 \begin{center}
-\begin{tabular}{llll}
+\begin{tabularx}{0.8\textwidth}{l l Y Y}
 \toprule
 Year & Round & Hours & Periods in CSV\\
 \midrule
@@ -117,7 +129,7 @@ Year & Round & Hours & Periods in CSV\\
 2017 or 2018 & January--June & 4,344 & $1,\ldots,4344$\\
 2017 or 2018 & July--December & 4,416 & $1,\ldots,4416$\\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{center}
 
 The released artifacts are under
@@ -135,10 +147,11 @@ team_id,submission_id,period,bus_id,load_mw,generator_id,generator_capacity_mw,s
 
 The file is long-form. A team may use one or many buses, and each used bus
 must have one row for every period in the selected half-year. Zero-load rows
-are required when a listed bus is idle. Generator IDs must come from the
-selected block's \code{generator\_limits.csv}; the evaluator takes the
-generator's marginal operating cost from the dataset. Generator and storage
-assets are private to the submitting team and cannot serve another team.
+are required when a listed bus is idle. Bus IDs must come from the selected
+block's bus catalog. Generator and storage IDs are team-defined labels, not
+public-catalog IDs; the evaluator applies the common team-built generator curve
+described above. Generator and storage assets are private to the submitting team
+and cannot serve another team.
 
 Storage uses MW power capacity and MWh energy capacity. With ideal charging and
 discharging efficiency, the evaluator enforces power and energy bounds, no
@@ -149,7 +162,7 @@ at least $0.5B$.
 \section{Course operation}
 
 Before the first round, provide students with the student handout, the active
-scenario block, the CSV checker, and the generator catalog. A practical format
+scenario block, the CSV checker, and the bus catalog. A practical format
 is one submission per group per announced round. The instructor should record
 the selected year/block, deadline, submission directory, rule-file version,
 and a hash of the final input directory.
@@ -218,15 +231,16 @@ silently erasing the scores of otherwise valid teams.
 \section{Scoring model}
 
 At a high level, a team's score is:
-\[
+\begin{align*}
 \text{IT value}
--\text{energy purchase cost}
+&-\text{energy purchase cost}
 -\text{generator operating cost}
 -\text{generator capital cost}
--\text{storage capital cost}
+\\
+&-\text{storage capital cost}
 -\text{storage operating cost}
 -\text{site cost}.
-\]
+\end{align*}
 
 Energy purchase cost uses the validated baseline DCOPF LMP at the selected bus
 and hour. The six released LMP artifacts are stored as deterministic NPZ
@@ -253,16 +267,16 @@ the exact active header and the first rows of a multi-site cohort; the PDF uses
 an excerpt only to remain readable.
 \begin{lstlisting}
 team_id,submission_id,period,bus_id,load_mw,generator_id,generator_capacity_mw,storage_id,storage_power_mw,storage_energy_mwh
-sim-04-r01-team-01,sim-04-r01,1,7108,9.523800,g0382,3.419000,,,
-sim-04-r01-team-01,sim-04-r01,2,7108,9.713411,g0382,3.419000,,,
+sim-04-r01-team-01,sim-04-r01,1,7108,9.523800,GEN_A,3.419000,,,
+sim-04-r01-team-01,sim-04-r01,2,7108,9.713411,GEN_A,3.419000,,,
 sim-04-r01-team-02,sim-04-r01,1,2116,9.221550,,,sim-04-r01-team-02-storage,2.365000,4.730000
 sim-04-r01-team-02,sim-04-r01,2,2116,9.405143,,,sim-04-r01-team-02-storage,2.365000,4.730000
 sim-04-r01-team-03,sim-04-r01,1,5383,9.459450,,,,,
-sim-04-r01-team-04,sim-04-r01,1,7376,6.130800,g0472,2.201000,,,
+sim-04-r01-team-04,sim-04-r01,1,7376,6.130800,GEN_B,2.201000,,,
 \end{lstlisting}
 
-In the actual generated files, the team IDs, bus IDs, generator IDs, and
-capacities are taken from the current 2,000-bus artifact. Team 2 demonstrates
+In the actual generated files, the team IDs and bus IDs are taken from the current
+2,000-bus artifact; generator and storage IDs are team-defined labels. Team 2 demonstrates
 private storage; Teams 1 and 4 demonstrate private generation; Team 3 is
 grid-only. The same resource metadata is repeated on each period row for that
 team/site so that the long-form file is self-contained.
@@ -270,11 +284,13 @@ team/site so that the long-form file is self-contained.
 \subsection{Example score report}
 
 The following table is populated from the exact generated leaderboard and is
-not a hand-selected score illustration:
+not a hand-selected score illustration. The checked-in artifact predates the
+common team-built generator-cost convention; use it as a pipeline-format
+example, not as a calibration target for a new round.
 \begin{center}
 \IfFileExists{example_score_table.tex}{\input{example_score_table.tex}}{
 \small
-\begin{tabular}{r l r r r r r}
+\begin{tabularx}{\textwidth}{r l Y Y Y Y Y}
 \toprule
 Rank & Team & Served load (MWh) & IT value (USD) & Energy cost (USD) & Asset/storage cost (USD) & Score (USD)\\
 \midrule
@@ -283,7 +299,7 @@ Rank & Team & Served load (MWh) & IT value (USD) & Energy cost (USD) & Asset/sto
 3 & team-04 & 26,779.33 & 3,347,416.80 & 301,047.10 & 388,716.50 & 2,657,653.19\\
 4 & team-02 & 40,279.73 & 5,034,966.30 & 706,971.84 & 1,945,424.52 & 2,382,569.94\\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 }
 \end{center}
 
@@ -336,8 +352,9 @@ Before release, verify:
 \begin{description}[leftmargin=2.2cm,style=nextline]
   \item[Malformed CSV] Run the checker and return the error to the CSV-format
   section of the student handout. Do not repair a student's file silently.
-  \item[Unknown bus or generator] Confirm that the IDs come from the selected
-  half-year artifact, not from a retired prototype.
+  \item[Unknown bus] Confirm that the \code{bus\_id} comes from the selected
+  half-year artifact, not from a retired prototype. Team-built generator and
+  storage IDs are self-defined and are not looked up in the public catalog.
   \item[Incomplete horizon] Check that every listed bus has one row for every
   period in the selected block.
   \item[Joint infeasibility] Inspect projection metadata and binding diagnostics.

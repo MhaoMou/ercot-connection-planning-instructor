@@ -70,18 +70,18 @@ def test_csv_submission_uses_source_bus_ids_and_reconstructs_profile(tmp_path):
     assert submission.plan.generators[0].capacity_mw == 20.0
 
 
-def test_generator_operating_cost_is_inherited_from_dataset_catalog(tmp_path):
+def test_team_generator_uses_common_operating_curve_compatibility_value(tmp_path):
     path = tmp_path / "team.csv"
     _write(path, "team_1,week_1,1,3002041,40,G1,20,,,\n")
 
     submission = read_student_csv(
         path,
         bus_ids={"3002041"},
-        generator_cost_by_id={"G1": 42.5},
+        generator_cost_by_id={"PUBLIC_G1": 42.5},
         horizon=1,
     )
 
-    assert submission.plan.generators[0].marginal_cost_per_mwh == 42.5
+    assert submission.plan.generators[0].marginal_cost_per_mwh == 16.0
 
 
 def test_csv_submission_can_require_complete_horizon(tmp_path):

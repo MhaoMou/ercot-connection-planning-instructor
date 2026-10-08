@@ -318,7 +318,7 @@ def test_missing_artifact_is_reported_as_input_error(tmp_path, capsys):
     assert "error:" in capsys.readouterr().err
 
 
-def test_invalid_generator_catalog_is_reported_as_input_error(tmp_path, capsys):
+def test_batch_does_not_use_generator_catalog_as_submission_registry(tmp_path, capsys):
     submissions_dir, artifact_dir, rules_path, region_map_path = _write_inputs(tmp_path)
     _write_submission(submissions_dir / "team-a.csv", "team-a")
     (artifact_dir / "generator_limits.csv").write_text(
@@ -337,7 +337,7 @@ def test_invalid_generator_catalog_is_reported_as_input_error(tmp_path, capsys):
     ) == 2
 
     captured = capsys.readouterr()
-    assert "production generator catalog" in captured.err
+    assert "demand_bus.csv" in captured.err
 
 
 def test_half_year_cli_requires_economic_profile_artifact(tmp_path, capsys):

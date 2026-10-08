@@ -89,6 +89,7 @@ Hourly quantities are multiplied by the one-hour time step.
 | IT-service value | 125 $/MWh at every hour | **INSTRUCTOR-CHOSEN** | Value of served data-center load; full-horizon vector |
 | Energy purchase price | Hourly baseline ACTIVSg2000 DCOPF LMP at each selected bus | **DATASET-SPECIFIED + DERIVED** | Locational cost of net grid energy purchased |
 | Existing-generator operating cost | Dataset marginal_cost_c1_per_mwh | **DATASET-SPECIFIED** | Cost of dispatching a selected existing generator |
+| Team-built generator operating curve | 25% at $12/MWh, 50% at $16/MWh, 25% at $24/MWh | **INSTRUCTOR-CHOSEN** | Same convex curve for every team-built generator and site |
 | Student generator capital cost | $85,000/MW | **ONLINE-SOURCE CALIBRATED** | One-time cost per submitted generator MW |
 | Connection-site cost | $50,000/site | **INSTRUCTOR-CHOSEN** | One-time instructional site-cost proxy |
 | Storage power capital cost | $200,000/MW | **ONLINE-SOURCE CALIBRATED** | One-time cost for storage power capacity |
@@ -104,18 +105,21 @@ is close to published utility-scale four-hour battery benchmarks
 
 The legacy schema field default_generator_cost_per_mwh = 100 remains only for
 backwards-compatible parsing. It is not the production operating cost for a
-valid selected generator; valid generator IDs inherit costs from the ACTIVSg2000
-catalog.
+team-built generator. Team-built generator IDs are self-defined labels and use
+the common piecewise curve above. Existing public generators, when used by the
+dispatch model, retain their dataset-defined costs; they are distinct from
+team-built generators.
 
 ## Student assets and ownership rules
 
 | Rule | Current value | Source category | Operational meaning |
 |---|---|---|---|
 | Student bus IDs | Must exist in the ACTIVSg2000 bus catalog | **DATASET-SPECIFIED** | A CSV cannot invent a bus |
-| Student generator IDs | Must exist in the ACTIVSg2000 generator catalog | **DATASET-SPECIFIED** | Location and operating cost come from the catalog |
+| Student generator IDs | Any clear nonempty team-defined label, used consistently | **INSTRUCTOR-CHOSEN** | The ID names a private team asset; it is not a public-catalog lookup |
 | Student generator capacity | Submitted in MW; nonnegative and attached to a submitted site | **INSTRUCTOR-CHOSEN** | Evaluator adds a team-owned candidate unit |
 | Student storage power | Positive MW when specified | **INSTRUCTOR-CHOSEN** | Maximum charge/discharge power |
 | Student storage energy | Positive MWh when specified | **INSTRUCTOR-CHOSEN** | Energy capacity |
+| Student storage IDs | Any clear nonempty team-defined label, used consistently | **INSTRUCTOR-CHOSEN** | The ID names a private team asset; no public storage catalog is required |
 | Generator ownership | Private to the submitting team | **INSTRUCTOR-CHOSEN** | Cannot serve another team |
 | Storage ownership | Private to the submitting team | **INSTRUCTOR-CHOSEN** | Cannot serve another team |
 | Team load | Fixed and inelastic | **INSTRUCTOR-CHOSEN** | No load shedding or load curtailment |
@@ -178,8 +182,8 @@ the batch output identifies the projection scope.
 
 ## What students can tune
 
-Students choose plan variables: sites, hourly load, catalog generator
-selections and capacities, and storage capacities. They do not choose prices,
+Students choose plan variables: sites, hourly load, team-defined generator IDs and
+capacities, and storage IDs and capacities. They do not choose prices,
 IT values, network limits, generator marginal costs, projection tolerance, or
 scoring coefficients.
 

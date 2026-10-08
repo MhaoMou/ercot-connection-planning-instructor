@@ -23,6 +23,12 @@ CSV_COLUMNS = (
 )
 BUS_CSV_COLUMNS = tuple("bus_id" if column == "site_id" else column for column in CSV_COLUMNS)
 
+# Team-built generators use a common convex curve, independent of the public
+# generator catalog. The scalar is retained only for compatibility with the
+# canonical plan model; dispatch expands it into three cost segments.
+TEAM_GENERATOR_COST_CURVE = ((0.25, 12.0), (0.50, 16.0), (0.25, 24.0))
+TEAM_GENERATOR_COMPATIBILITY_COST_PER_MWH = 16.0
+
 
 def load_bus_ids(artifact_dir: str | Path) -> frozenset[str]:
     """Load valid source bus IDs from a validated scenario block."""
@@ -254,8 +260,6 @@ def read_student_csv(
             capacity = _number(row, "generator_capacity_mw", row_number)
             if capacity < 0:
                 raise ValueError(f"row {row_number}: generator capacity must be non-negative")
-            if generator_cost_by_id is not None and generator_id not in generator_cost_by_id:
-                raise ValueError(f"row {row_number}: unknown scenario generator {generator_id}")
             existing = generator_specs.get(generator_id)
             spec = (bus_id, capacity)
             if existing is not None and existing != spec:
@@ -288,10 +292,7 @@ def read_student_csv(
             generator_id,
             next(connection.connection_id for connection in connections if connection.bus_id == bus_id),
             capacity,
-            (generator_cost_by_id or {}).get(
-                generator_id,
-                default_generator_cost_per_mwh if default_generator_cost_per_mwh is not None else 0.0,
-            ),
+            TEAM_GENERATOR_COMPATIBILITY_COST_PER_MWH,
         )
         for generator_id, (bus_id, capacity) in sorted(generator_specs.items())
     )

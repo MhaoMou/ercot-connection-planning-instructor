@@ -11,12 +11,7 @@ import math
 from pathlib import Path
 from collections.abc import Iterable, Mapping, Sequence
 
-from .csv_submission import (
-    BUS_CSV_COLUMNS,
-    load_generator_costs,
-    load_bus_ids,
-    read_student_csv,
-)
+from .csv_submission import BUS_CSV_COLUMNS, load_bus_ids, read_student_csv
 from .calendars import half_year_calendar
 
 
@@ -95,8 +90,10 @@ def validate_csv_submission(
         if bus_ids is not None or generator_ids is not None:
             raise ValueError("use artifact_dir or explicit catalogs, not both")
         known_buses = load_bus_ids(artifact_dir)
-        generator_costs = load_generator_costs(artifact_dir)
-        known_generators = frozenset(generator_costs)
+        # Team-built generator IDs are user-defined labels. The public
+        # generator catalog is not an asset-ID registry for submissions.
+        generator_costs = None
+        known_generators = None
     else:
         known_buses = frozenset(bus_ids) if bus_ids is not None else None
         known_generators = frozenset(generator_ids) if generator_ids is not None else None
@@ -227,8 +224,6 @@ def validate_csv_submission(
                 elif capacity is not None:
                     if capacity < 0:
                         issues.append(_issue("generator capacity must be non-negative", row_number))
-                    if known_generators is not None and generator_id not in known_generators:
-                        issues.append(_issue(f"unknown scenario generator {generator_id}", row_number))
                     spec = (bus_id, capacity)
                     if generator_id in generator_specs and generator_specs[generator_id] != spec:
                         issues.append(_issue(f"generator {generator_id} is not consistent across rows", row_number))
