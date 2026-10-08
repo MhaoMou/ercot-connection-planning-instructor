@@ -1,14 +1,13 @@
 """Scalable linear DC optimal power flow backed by HiGHS.
 
-The model is a single-period LP. Multi-period evaluation should call it once
-per period with the scenario's demand and availability values. Storage and
-candidate data-center load can be added as additional variables in the
-evaluator layer without changing the network balance equations here.
+The model includes a single-period LP and a horizon entry point that adds
+team-dedicated storage while retaining the same per-period network balance
+equations.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 import math
 from pathlib import Path
@@ -50,6 +49,34 @@ class DCOPFResult:
     angle_by_bus: dict[str, float]
     flow_mw_by_branch: dict[str, float]
     balance_dual_by_bus: dict[str, float]
+    storage_charge_mw: dict[str, float] = field(default_factory=dict)
+    storage_discharge_mw: dict[str, float] = field(default_factory=dict)
+    storage_soc_mwh: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class StorageDispatchAsset:
+    """One team-dedicated storage asset in the centralized dispatch model."""
+
+    storage_id: str
+    team_id: str
+    bus_id: str
+    power_mw: float
+    energy_mwh: float
+    initial_soc_mwh: float
+
+
+@dataclass(frozen=True)
+class DCOPFHorizonResult:
+    """One coupled multi-period DCOPF solve with intertemporal storage state."""
+
+    status: str
+    periods: tuple[DCOPFResult, ...]
+    final_soc_mwh_by_storage: dict[str, float]
+
+    @property
+    def objective_cost(self) -> float:
+        return sum(period.objective_cost for period in self.periods)
 
 
 class DCOPFInfeasible(ValueError):
@@ -457,15 +484,326 @@ def solve_dcopf(
     )
 
 
-def solve_prepared_period(
-    artifact_dir: str | Path,
+def solve_dcopf_horizon(
     *,
-    period_index: int = 0,
+    periods: Sequence[tuple[tuple[Bus, ...], tuple[Generator, ...], tuple[Branch, ...]]],
+    storage_assets: Sequence[StorageDispatchAsset] = (),
+    fixed_injection_mw_by_period: Sequence[Mapping[str, float]] | None = None,
+    owner_load_mw_by_team: Mapping[str, Sequence[Mapping[str, float]]] | None = None,
+    time_step_hours: float = 1.0,
+    base_mva: float = 1.0,
+) -> DCOPFHorizonResult:
+    """Solve a coupled multi-period DCOPF with team-dedicated storage.
+
+    The network and generator constraints are the same linear DCOPF used by
+    :func:`solve_dcopf`.  Storage charge/discharge and SOC variables are added
+    to that single LP, so the optimizer can move energy between periods while
+    respecting each asset's persisted initial state and terminal half-full
+    requirement.  When ``owner_load_mw_by_team`` is supplied, each team's
+    total discharge is capped by that team's load in the same period; this is
+    the ownership boundary that prevents storage from serving another team.
+    """
+    if not periods:
+        raise ValueError("periods must not be empty")
+    if not math.isfinite(time_step_hours) or time_step_hours <= 0:
+        raise ValueError("time_step_hours must be finite and positive")
+    if not math.isfinite(base_mva) or base_mva <= 0:
+        raise ValueError("base_mva must be finite and positive")
+
+    period_data = tuple(periods)
+    period_count = len(period_data)
+    if fixed_injection_mw_by_period is None:
+        fixed_injections = ({},) * period_count
+    else:
+        fixed_injections = tuple(fixed_injection_mw_by_period)
+        if len(fixed_injections) != period_count:
+            raise ValueError("fixed injections must match the number of periods")
+
+    storage_assets = tuple(storage_assets)
+    storage_by_id: dict[str, StorageDispatchAsset] = {}
+    for storage in storage_assets:
+        if not isinstance(storage, StorageDispatchAsset):
+            raise ValueError("storage_assets must contain StorageDispatchAsset values")
+        if not storage.storage_id or storage.storage_id in storage_by_id:
+            raise ValueError(f"storage IDs must be unique and non-empty: {storage.storage_id}")
+        if not storage.team_id or not storage.bus_id:
+            raise ValueError(f"storage {storage.storage_id} must identify a team and bus")
+        if (
+            not all(
+                math.isfinite(value)
+                for value in (
+                    storage.power_mw,
+                    storage.energy_mwh,
+                    storage.initial_soc_mwh,
+                )
+            )
+            or storage.power_mw <= 0
+            or storage.energy_mwh <= 0
+            or storage.initial_soc_mwh < 0
+            or storage.initial_soc_mwh > storage.energy_mwh
+        ):
+            raise ValueError(f"invalid storage dimensions or initial SOC: {storage.storage_id}")
+        storage_by_id[storage.storage_id] = storage
+
+    owner_loads: dict[str, tuple[Mapping[str, float], ...]] = {}
+    if owner_load_mw_by_team is not None:
+        for team_id, values in owner_load_mw_by_team.items():
+            values = tuple(values)
+            if len(values) != period_count:
+                raise ValueError(f"owner load for {team_id} must match the number of periods")
+            normalized: list[Mapping[str, float]] = []
+            for period_load in values:
+                if not isinstance(period_load, Mapping):
+                    raise ValueError(f"owner load for {team_id} must contain mappings")
+                checked: dict[str, float] = {}
+                for bus_id, amount in period_load.items():
+                    if not isinstance(bus_id, str) or not math.isfinite(amount) or amount < 0:
+                        raise ValueError(f"owner load for {team_id} must be finite and non-negative")
+                    checked[bus_id] = float(amount)
+                normalized.append(checked)
+            owner_loads[team_id] = tuple(normalized)
+        missing_owners = sorted(
+            {storage.team_id for storage in storage_assets} - set(owner_loads)
+        )
+        if missing_owners:
+            raise ValueError(
+                "owner load is required for storage teams: " + ", ".join(missing_owners)
+            )
+
+    Highs, HighsModelStatus, highs_inf = _highs()
+    model_inputs: list[tuple[dict[str, Bus], str, tuple[Generator, ...], tuple[Branch, ...], dict[str, float]]] = []
+    for period_index, (buses, generators, branches) in enumerate(period_data):
+        bus_by_id, reference = _validate(buses, generators, branches)
+        injections = dict(fixed_injections[period_index])
+        if set(injections) - set(bus_by_id):
+            raise ValueError("fixed injection references an unknown bus")
+        if any(not math.isfinite(value) for value in injections.values()):
+            raise ValueError("fixed injections must be finite")
+        for storage in storage_assets:
+            if storage.bus_id not in bus_by_id:
+                raise ValueError(f"storage {storage.storage_id} references an unknown bus")
+        if owner_load_mw_by_team is not None:
+            for team_id, period_load in owner_loads.items():
+                if set(period_load[period_index]) - set(bus_by_id):
+                    raise ValueError(f"owner load for {team_id} references an unknown bus")
+        model_inputs.append((bus_by_id, reference, tuple(generators), tuple(branches), injections))
+
+    highs = Highs()
+    highs.setOptionValue("output_flag", False)
+    highs.setOptionValue("presolve", "on")
+    highs.setOptionValue("parallel", "off")
+    angle_scale = 1000.0
+    generator_columns: dict[tuple[int, str], object] = {}
+    angle_columns: dict[tuple[int, str], object] = {}
+    charge_columns: dict[tuple[int, str], object] = {}
+    discharge_columns: dict[tuple[int, str], object] = {}
+    soc_columns: dict[tuple[int, str], object] = {}
+    balance_row_indices: dict[tuple[int, str], int] = {}
+
+    def add_coefficient(coefficients: dict[int, float], variable: object, value: float) -> None:
+        index = int(variable.index)
+        coefficients[index] = coefficients.get(index, 0.0) + value
+
+    for period_index, (_bus_by_id, reference, generators, _branches, _injections) in enumerate(model_inputs):
+        for generator in generators:
+            generator_columns[(period_index, generator.generator_id)] = highs.addVariable(
+                lb=generator.p_min_mw,
+                ub=generator.p_max_mw,
+                obj=generator.marginal_cost_per_mwh,
+                name=f"gen:{period_index}:{generator.generator_id}",
+            )
+        for bus_id in _bus_by_id:
+            if bus_id != reference:
+                angle_columns[(period_index, bus_id)] = highs.addVariable(
+                    lb=-highs_inf,
+                    ub=highs_inf,
+                    obj=0.0,
+                    name=f"theta:{period_index}:{bus_id}",
+                )
+
+    for storage in storage_assets:
+        for period_index in range(period_count):
+            charge_columns[(period_index, storage.storage_id)] = highs.addVariable(
+                lb=0.0,
+                ub=storage.power_mw,
+                obj=0.0,
+                name=f"storage-charge:{period_index}:{storage.storage_id}",
+            )
+            discharge_columns[(period_index, storage.storage_id)] = highs.addVariable(
+                lb=0.0,
+                ub=storage.power_mw,
+                obj=0.0,
+                name=f"storage-discharge:{period_index}:{storage.storage_id}",
+            )
+            soc_columns[(period_index, storage.storage_id)] = highs.addVariable(
+                lb=0.0,
+                ub=storage.energy_mwh,
+                obj=0.0,
+                name=f"storage-soc:{period_index}:{storage.storage_id}",
+            )
+
+    storage_by_bus: dict[str, tuple[StorageDispatchAsset, ...]] = {}
+    for bus_id in {storage.bus_id for storage in storage_assets}:
+        storage_by_bus[bus_id] = tuple(
+            storage for storage in storage_assets if storage.bus_id == bus_id
+        )
+
+    for period_index, (_bus_by_id, reference, generators, branches, injections) in enumerate(model_inputs):
+        generators_by_bus, branches_by_bus = _cached_network_index(branches, generators)
+        for bus_id, bus in _bus_by_id.items():
+            coefficients: dict[int, float] = {}
+            for generator in generators_by_bus.get(bus_id, ()):
+                add_coefficient(coefficients, generator_columns[(period_index, generator.generator_id)], 1.0)
+            for storage in storage_by_bus.get(bus_id, ()):
+                add_coefficient(coefficients, discharge_columns[(period_index, storage.storage_id)], 1.0)
+                add_coefficient(coefficients, charge_columns[(period_index, storage.storage_id)], -1.0)
+            for branch in branches_by_bus.get(bus_id, ()):
+                susceptance_mw_per_rad = branch.susceptance_pu * base_mva
+                if branch.from_bus_id == bus_id:
+                    if branch.from_bus_id != reference:
+                        add_coefficient(coefficients, angle_columns[(period_index, branch.from_bus_id)], -susceptance_mw_per_rad / angle_scale)
+                    if branch.to_bus_id != reference:
+                        add_coefficient(coefficients, angle_columns[(period_index, branch.to_bus_id)], susceptance_mw_per_rad / angle_scale)
+                elif branch.to_bus_id == bus_id:
+                    if branch.to_bus_id != reference:
+                        add_coefficient(coefficients, angle_columns[(period_index, branch.to_bus_id)], -susceptance_mw_per_rad / angle_scale)
+                    if branch.from_bus_id != reference:
+                        add_coefficient(coefficients, angle_columns[(period_index, branch.from_bus_id)], susceptance_mw_per_rad / angle_scale)
+            rhs = bus.demand_mw - injections.get(bus_id, 0.0)
+            highs.addRow(rhs, rhs, len(coefficients), list(coefficients), list(coefficients.values()))
+            balance_row_indices[(period_index, bus_id)] = len(balance_row_indices)
+
+        for branch in branches:
+            coefficients: dict[int, float] = {}
+            susceptance_mw_per_rad = branch.susceptance_pu * base_mva
+            if branch.from_bus_id != reference:
+                add_coefficient(coefficients, angle_columns[(period_index, branch.from_bus_id)], susceptance_mw_per_rad / angle_scale)
+            if branch.to_bus_id != reference:
+                add_coefficient(coefficients, angle_columns[(period_index, branch.to_bus_id)], -susceptance_mw_per_rad / angle_scale)
+            highs.addRow(-branch.thermal_limit_mw, branch.thermal_limit_mw, len(coefficients), list(coefficients), list(coefficients.values()))
+
+        for storage in storage_assets:
+            coefficients = {
+                int(soc_columns[(period_index, storage.storage_id)].index): 1.0,
+                int(charge_columns[(period_index, storage.storage_id)].index): -time_step_hours,
+                int(discharge_columns[(period_index, storage.storage_id)].index): time_step_hours,
+            }
+            if period_index > 0:
+                add_coefficient(coefficients, soc_columns[(period_index - 1, storage.storage_id)], -1.0)
+                rhs_lower = rhs_upper = 0.0
+            else:
+                rhs_lower = rhs_upper = storage.initial_soc_mwh
+            highs.addRow(rhs_lower, rhs_upper, len(coefficients), list(coefficients), list(coefficients.values()))
+
+            discharge_coefficients = {
+                int(discharge_columns[(period_index, storage.storage_id)].index): 1.0,
+            }
+            if period_index > 0:
+                add_coefficient(discharge_coefficients, soc_columns[(period_index - 1, storage.storage_id)], -1.0)
+                discharge_rhs = 0.0
+            else:
+                discharge_rhs = storage.initial_soc_mwh
+            highs.addRow(-highs_inf, discharge_rhs, len(discharge_coefficients), list(discharge_coefficients), list(discharge_coefficients.values()))
+
+        if owner_load_mw_by_team is not None:
+            for team_id in owner_loads:
+                team_storages = tuple(storage for storage in storage_assets if storage.team_id == team_id)
+                if not team_storages:
+                    continue
+                coefficients = {
+                    int(discharge_columns[(period_index, storage.storage_id)].index): 1.0
+                    for storage in team_storages
+                }
+                owner_load = sum(owner_loads[team_id][period_index].values())
+                highs.addRow(-highs_inf, owner_load, len(coefficients), list(coefficients), list(coefficients.values()))
+
+    highs.run()
+    model_status = highs.getModelStatus()
+    if model_status == getattr(HighsModelStatus, "kInfeasible", None):
+        raise DCOPFInfeasible(f"DCOPF horizon physically infeasible: {model_status}")
+    if model_status != HighsModelStatus.kOptimal:
+        raise DCOPFUnresolved(f"DCOPF horizon solver unresolved: {model_status}")
+
+    solution = highs.getSolution()
+
+    def value(variable: object) -> float:
+        return float(solution.col_value[int(variable.index)])
+
+    results: list[DCOPFResult] = []
+    for period_index, (_bus_by_id, reference, generators, branches, _injections) in enumerate(model_inputs):
+        generation = {
+            generator.generator_id: round(value(generator_columns[(period_index, generator.generator_id)]), 10)
+            for generator in generators
+        }
+        raw_angles = {reference: 0.0}
+        raw_angles.update({
+            bus_id: value(angle_columns[(period_index, bus_id)]) / angle_scale
+            for bus_id in _bus_by_id
+            if bus_id != reference
+        })
+        angles = {bus_id: round(angle, 10) for bus_id, angle in raw_angles.items()}
+        flows = {
+            branch.branch_id: round(
+                branch.susceptance_pu * base_mva * (raw_angles[branch.from_bus_id] - raw_angles[branch.to_bus_id]),
+                10,
+            )
+            for branch in branches
+        }
+        balance_duals = {
+            bus_id: round(solution.row_dual[row_index], 10)
+            for (row_period, bus_id), row_index in balance_row_indices.items()
+            if row_period == period_index
+        }
+        charge = {
+            storage.storage_id: round(value(charge_columns[(period_index, storage.storage_id)]), 10)
+            for storage in storage_assets
+        }
+        discharge = {
+            storage.storage_id: round(value(discharge_columns[(period_index, storage.storage_id)]), 10)
+            for storage in storage_assets
+        }
+        soc = {
+            storage.storage_id: round(value(soc_columns[(period_index, storage.storage_id)]), 10)
+            for storage in storage_assets
+        }
+        objective = sum(
+            generation[generator.generator_id] * generator.marginal_cost_per_mwh
+            for generator in generators
+        )
+        results.append(
+            DCOPFResult(
+                status="optimal",
+                objective_cost=round(objective, 10),
+                generation_mw=generation,
+                angle_by_bus=angles,
+                flow_mw_by_branch=flows,
+                balance_dual_by_bus=balance_duals,
+                storage_charge_mw=charge,
+                storage_discharge_mw=discharge,
+                storage_soc_mwh=soc,
+            )
+        )
+
+    final_soc = {
+        storage.storage_id: results[-1].storage_soc_mwh[storage.storage_id]
+        for storage in storage_assets
+    }
+    return DCOPFHorizonResult(
+        status="optimal",
+        periods=tuple(results),
+        final_soc_mwh_by_storage=final_soc,
+    )
+
+
+def _prepared_period_inputs(
+    artifact_dir: str | Path,
+    artifact: PreparedArtifact,
+    *,
+    period_index: int,
     additional_demand_mw_by_bus: Mapping[str, float] | None = None,
     additional_generators: Sequence[Generator] = (),
-) -> DCOPFResult:
-    """Solve one hourly period from a validated prepared scenario block."""
-    artifact = load_prepared_artifact(str(Path(artifact_dir).resolve()))
+) -> tuple[tuple[Bus, ...], tuple[Generator, ...], tuple[Branch, ...], dict[str, float]]:
+    """Build one prepared period without solving it."""
     if artifact.scenario_year is not None:
         from ercot_game.scenario_profiles import hourly_state
         from ercot_game.scenario_package import require_validated_block
@@ -529,10 +867,80 @@ def solve_prepared_period(
         receiving_bus = row["to_bus_id"]
         if receiving_bus in bus_ids:
             fixed_injections[receiving_bus] = fixed_injections.get(receiving_bus, 0.0) + float(row["Pt"])
+    return buses, source_generators + tuple(additional_generators), branches, fixed_injections
+
+
+def solve_prepared_period(
+    artifact_dir: str | Path,
+    *,
+    period_index: int = 0,
+    additional_demand_mw_by_bus: Mapping[str, float] | None = None,
+    additional_generators: Sequence[Generator] = (),
+) -> DCOPFResult:
+    """Solve one hourly period from a validated prepared scenario block."""
+    artifact = load_prepared_artifact(str(Path(artifact_dir).resolve()))
+    buses, generators, branches, fixed_injections = _prepared_period_inputs(
+        artifact_dir,
+        artifact,
+        period_index=period_index,
+        additional_demand_mw_by_bus=additional_demand_mw_by_bus,
+        additional_generators=additional_generators,
+    )
     return solve_dcopf(
         buses=buses,
-        generators=source_generators + tuple(additional_generators),
+        generators=generators,
         branches=branches,
         fixed_injection_mw_by_bus=fixed_injections,
+        base_mva=100.0,
+    )
+
+
+def solve_prepared_horizon(
+    artifact_dir: str | Path,
+    *,
+    period_indices: Sequence[int],
+    additional_demand_mw_by_period: Sequence[Mapping[str, float]] | None = None,
+    additional_generators_by_period: Sequence[Sequence[Generator]] | None = None,
+    storage_assets: Sequence[StorageDispatchAsset] = (),
+    owner_load_mw_by_team: Mapping[str, Sequence[Mapping[str, float]]] | None = None,
+    time_step_hours: float = 1.0,
+) -> DCOPFHorizonResult:
+    """Solve prepared periods in one storage-coupled DCOPF model."""
+    period_indices = tuple(period_indices)
+    if not period_indices:
+        raise ValueError("period_indices must not be empty")
+    if any(not isinstance(index, int) or isinstance(index, bool) or index < 0 for index in period_indices):
+        raise ValueError("period_indices must contain non-negative integers")
+    period_count = len(period_indices)
+    if additional_demand_mw_by_period is None:
+        demands = ({},) * period_count
+    else:
+        demands = tuple(additional_demand_mw_by_period)
+        if len(demands) != period_count:
+            raise ValueError("additional demand must match the number of periods")
+    if additional_generators_by_period is None:
+        generators_by_period = ((),) * period_count
+    else:
+        generators_by_period = tuple(additional_generators_by_period)
+        if len(generators_by_period) != period_count:
+            raise ValueError("additional generators must match the number of periods")
+
+    artifact = load_prepared_artifact(str(Path(artifact_dir).resolve()))
+    prepared_periods = tuple(
+        _prepared_period_inputs(
+            artifact_dir,
+            artifact,
+            period_index=period_index,
+            additional_demand_mw_by_bus=demands[offset],
+            additional_generators=generators_by_period[offset],
+        )
+        for offset, period_index in enumerate(period_indices)
+    )
+    return solve_dcopf_horizon(
+        periods=tuple((buses, generators, branches) for buses, generators, branches, _ in prepared_periods),
+        storage_assets=storage_assets,
+        fixed_injection_mw_by_period=tuple(fixed for _, _, _, fixed in prepared_periods),
+        owner_load_mw_by_team=owner_load_mw_by_team,
+        time_step_hours=time_step_hours,
         base_mva=100.0,
     )

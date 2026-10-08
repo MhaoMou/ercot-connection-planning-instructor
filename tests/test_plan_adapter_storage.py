@@ -5,7 +5,7 @@ import pytest
 from ercot_game.asset_state import AssetLedger
 from ercot_game.models import ConnectionPlan, GeneratorPlan, SitePlan, StoragePlan, TeamPlan
 from tools.activsg2000 import plan_adapter
-from tools.activsg2000.dcopf import DCOPFResult
+from tools.activsg2000.dcopf import DCOPFHorizonResult, DCOPFResult
 from tools.activsg2000.plan_adapter import (
     _initial_storage_soc,
     _storage_schedule,
@@ -365,3 +365,69 @@ def test_legacy_generator_and_storage_labels_share_one_connection(monkeypatch) -
     assert result.periods[0].submitted_load_mw == 40.0
     assert plan.generators[0].generator_id == "legacy-generator"
     assert plan.storages[0].storage_id == "legacy-storage"
+
+
+def test_batch_adapter_dispatches_storage_centrally_and_exposes_final_soc(monkeypatch) -> None:
+    plans = (
+        TeamPlan(
+            team_id="team-a",
+            connections=(ConnectionPlan("site-a", "b0001", 4.0, (1.0, 1.0)),),
+            storages=(StoragePlan("store-a", "site-a", 2.0, 8.0, 6.0),),
+        ),
+        TeamPlan(
+            team_id="team-b",
+            connections=(ConnectionPlan("site-b", "b0001", 4.0, (1.0, 1.0)),),
+            storages=(StoragePlan("store-b", "site-b", 2.0, 8.0, 6.0),),
+        ),
+    )
+    seen = {}
+
+    def solve_horizon(*, period_indices, storage_assets, owner_load_mw_by_team, **kwargs):
+        seen["periods"] = period_indices
+        seen["storage_assets"] = storage_assets
+        seen["owner_load_mw_by_team"] = owner_load_mw_by_team
+        dcopf_periods = tuple(
+            DCOPFResult(
+                status="optimal",
+                objective_cost=0.0,
+                generation_mw={},
+                angle_by_bus={},
+                flow_mw_by_branch={},
+                balance_dual_by_bus={},
+                storage_charge_mw={"store-a": 1.0, "store-b": 0.5},
+                storage_discharge_mw={"store-a": 0.0, "store-b": 0.0},
+                storage_soc_mwh={"store-a": 7.0, "store-b": 6.5},
+            )
+            for _ in period_indices
+        )
+        return DCOPFHorizonResult(
+            status="optimal",
+            periods=dcopf_periods,
+            final_soc_mwh_by_storage={"store-a": 7.0, "store-b": 6.5},
+        )
+
+    monkeypatch.setattr(plan_adapter, "solve_prepared_horizon", solve_horizon)
+
+    result = evaluate_plans_with_prepared_dcopf(
+        "unused-artifact",
+        plans,
+        period_indices=(0, 1),
+    )
+
+    assert {(asset.team_id, asset.storage_id, asset.bus_id) for asset in seen["storage_assets"]} == {
+        ("team-a", "store-a", "b0001"),
+        ("team-b", "store-b", "b0001"),
+    }
+    assert {asset.initial_soc_mwh for asset in seen["storage_assets"]} == {6.0}
+    assert seen["owner_load_mw_by_team"] == {
+        "team-a": ({"b0001": 4.0}, {"b0001": 4.0}),
+        "team-b": ({"b0001": 4.0}, {"b0001": 4.0}),
+    }
+    assert result.periods[0].storage_charge_mw_by_team == {
+        "team-a": {"store-a": 1.0},
+        "team-b": {"store-b": 0.5},
+    }
+    assert result.final_storage_soc_mwh_by_team == {
+        "team-a": {"store-a": 7.0},
+        "team-b": {"store-b": 6.5},
+    }

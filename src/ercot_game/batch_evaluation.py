@@ -1567,6 +1567,11 @@ def _serialized_dispatch_record(record: DispatchRecord) -> dict[str, Any]:
         "attempted_submission_keys": list(record.attempted_submission_keys),
         "status": record.status,
         "failure_reason": record.failure_reason,
+        "final_storage_soc_mwh_by_team": (
+            {}
+            if record.dispatch is None
+            else getattr(record.dispatch, "final_storage_soc_mwh_by_team", None)
+        ),
         "periods": [
             {
                 "period_index": period.period_index,

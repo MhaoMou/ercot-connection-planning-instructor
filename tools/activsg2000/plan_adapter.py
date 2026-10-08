@@ -12,7 +12,14 @@ from concurrent.futures import ThreadPoolExecutor
 from ercot_game.models import ConnectionPlan, GeneratorPlan, StoragePlan, TeamPlan
 from ercot_game.csv_submission import TEAM_GENERATOR_COST_CURVE
 
-from .dcopf import DCOPFInfeasible, DCOPFResult, Generator, solve_prepared_period
+from .dcopf import (
+    DCOPFInfeasible,
+    DCOPFResult,
+    Generator,
+    StorageDispatchAsset,
+    solve_prepared_horizon,
+    solve_prepared_period,
+)
 
 
 @dataclass(frozen=True)
@@ -27,6 +34,7 @@ class PlanDispatchResult:
     team_id: str
     periods: tuple[PlanPeriodResult, ...]
     time_step_hours: float = 1.0
+    final_storage_soc_mwh_by_storage: dict[str, float] | None = None
 
     @property
     def total_submitted_load_mwh(self) -> float:
@@ -51,6 +59,12 @@ class BatchDispatchResult:
     team_ids: tuple[str, ...]
     periods: tuple[BatchPeriodResult, ...]
     service_fraction_by_team: dict[str, float] | None = None
+    final_storage_soc_mwh_by_team: dict[str, dict[str, float]] | None = None
+
+    @property
+    def final_soc_mwh_by_team(self) -> dict[str, dict[str, float]]:
+        """Compatibility alias for persisted end-of-round storage state."""
+        return self.final_storage_soc_mwh_by_team or {}
 
 
 def _is_finite_number(value: object) -> bool:
@@ -235,10 +249,11 @@ def evaluate_plan_with_prepared_dcopf(
 ) -> PlanDispatchResult:
     """Evaluate a canonical plan against the 2,000-bus dispatch artifact.
 
-    This adapter models fixed load: no curtailment, no load shedding, no
-    integer recourse. storage dispatch is continuous and team-owned, using an
-    ideal-efficiency
-    peak-shaving schedule.
+    This adapter models fixed load: no curtailment, no load shedding, and no
+    integer recourse. With a prepared artifact, storage dispatch is continuous
+    and team-owned inside one horizon DCOPF solve using ideal efficiency.
+    The deterministic schedule below remains only as a compatibility path for
+    lightweight callers that do not provide a prepared artifact.
 
     Connection ``bus_id`` values must be source-artifact bus IDs. A connection
     contributes ``capacity_mw * profile[t]`` to its bus demand, or constant
@@ -256,6 +271,56 @@ def evaluate_plan_with_prepared_dcopf(
     connection_by_id = _validate_plan(plan)
     ordered_connections = tuple(sorted(plan.connections, key=lambda item: item.connection_id))
     ordered_generators = tuple(sorted(plan.generators, key=lambda item: item.generator_id))
+
+    if plan.storages and Path(artifact_dir).is_dir():
+        base_demand_by_period = tuple(
+            _connection_load_by_bus(ordered_connections, period_index)
+            for period_index in period_indices
+        )
+        candidates_by_period = tuple(
+            _student_generators(
+                ordered_generators,
+                connection_by_id,
+                base_demand_by_period[offset],
+            )
+            for offset in range(len(period_indices))
+        )
+        storage_assets = tuple(
+            StorageDispatchAsset(
+                storage_id=storage.storage_id,
+                team_id=plan.team_id,
+                bus_id=connection_by_id[storage.connection_id].bus_id,
+                power_mw=storage.power_mw,
+                energy_mwh=storage.energy_mwh,
+                initial_soc_mwh=_initial_storage_soc(storage),
+            )
+            for storage in sorted(plan.storages, key=lambda item: item.storage_id)
+        )
+        horizon_result = solve_prepared_horizon(
+            artifact_dir=artifact_dir,
+            period_indices=period_indices,
+            additional_demand_mw_by_period=base_demand_by_period,
+            additional_generators_by_period=candidates_by_period,
+            storage_assets=storage_assets,
+            owner_load_mw_by_team={plan.team_id: base_demand_by_period},
+            time_step_hours=time_step_hours,
+        )
+        if len(horizon_result.periods) != len(period_indices):
+            raise ValueError("horizon DCOPF returned a different number of periods")
+        return PlanDispatchResult(
+            team_id=plan.team_id,
+            periods=tuple(
+                PlanPeriodResult(
+                    period_index=period_index,
+                    dcopf=horizon_result.periods[offset],
+                    submitted_load_mw=sum(base_demand_by_period[offset].values()),
+                )
+                for offset, period_index in enumerate(period_indices)
+            ),
+            time_step_hours=time_step_hours,
+            final_storage_soc_mwh_by_storage=dict(horizon_result.final_soc_mwh_by_storage),
+        )
+
     storage_schedule = _storage_schedule(
         plan,
         ordered_connections,
@@ -343,6 +408,17 @@ def evaluate_plans_with_prepared_dcopf(
         connection_by_team[plan.team_id] = {
             connection.connection_id: connection for connection in ordered_connections
         }
+
+    if any(plan.storages for plan in ordered_plans):
+        return _evaluate_batch_with_central_storage(
+            artifact_dir,
+            ordered_plans=ordered_plans,
+            team_ids=team_ids,
+            connection_by_team=connection_by_team,
+            ordered_connections_by_team=ordered_connections_by_team,
+            period_indices=period_indices,
+            time_step_hours=1.0,
+        )
 
     storage_schedules = {
         plan.team_id: _storage_schedule(
@@ -471,6 +547,186 @@ def evaluate_plans_with_prepared_dcopf(
         }
         periods = solve_all(idle_schedules)
     return BatchDispatchResult(team_ids=team_ids, periods=tuple(periods))
+
+
+def _evaluate_batch_with_central_storage(
+    artifact_dir: str | Path,
+    *,
+    ordered_plans: tuple[TeamPlan, ...],
+    team_ids: tuple[str, ...],
+    connection_by_team: dict[str, dict[str, ConnectionPlan]],
+    ordered_connections_by_team: dict[str, tuple[ConnectionPlan, ...]],
+    period_indices: tuple[int, ...],
+    time_step_hours: float,
+) -> BatchDispatchResult:
+    """Build one joint horizon solve and attribute storage only to its owner."""
+    base_demand_by_team: dict[str, tuple[dict[str, float], ...]] = {
+        plan.team_id: tuple(
+            _connection_load_by_bus(ordered_connections_by_team[plan.team_id], period_index)
+            for period_index in period_indices
+        )
+        for plan in ordered_plans
+    }
+    aggregate_demand_by_period = tuple(
+        {
+            bus_id: sum(
+                base_demand_by_team[team_id][period_offset].get(bus_id, 0.0)
+                for team_id in team_ids
+            )
+            for bus_id in {
+                bus_id
+                for team_id in team_ids
+                for bus_id in base_demand_by_team[team_id][period_offset]
+            }
+        }
+        for period_offset in range(len(period_indices))
+    )
+    candidates_by_period = tuple(
+        tuple(
+            candidate
+            for plan in ordered_plans
+            for candidate in _student_generators(
+                tuple(sorted(plan.generators, key=lambda item: item.generator_id)),
+                connection_by_team[plan.team_id],
+                base_demand_by_team[plan.team_id][period_offset],
+                id_prefix=(plan.team_id,),
+            )
+        )
+        for period_offset in range(len(period_indices))
+    )
+
+    storage_records: list[tuple[str, str, str, str, float, float, float]] = []
+    used_solver_storage_ids: set[str] = set()
+    for plan in ordered_plans:
+        for storage in sorted(plan.storages, key=lambda item: item.storage_id):
+            solver_storage_id = storage.storage_id
+            if solver_storage_id in used_solver_storage_ids:
+                solver_storage_id = f"{plan.team_id}:{storage.storage_id}"
+            while solver_storage_id in used_solver_storage_ids:
+                solver_storage_id = f"{plan.team_id}:{solver_storage_id}"
+            used_solver_storage_ids.add(solver_storage_id)
+            connection = connection_by_team[plan.team_id][storage.connection_id]
+            storage_records.append(
+                (
+                    plan.team_id,
+                    storage.storage_id,
+                    solver_storage_id,
+                    connection.bus_id,
+                    storage.power_mw,
+                    storage.energy_mwh,
+                    _initial_storage_soc(storage),
+                )
+            )
+
+    storage_assets = tuple(
+        StorageDispatchAsset(
+            storage_id=solver_storage_id,
+            team_id=team_id,
+            bus_id=bus_id,
+            power_mw=power_mw,
+            energy_mwh=energy_mwh,
+            initial_soc_mwh=initial_soc,
+        )
+        for team_id, _storage_id, solver_storage_id, bus_id, power_mw, energy_mwh, initial_soc in storage_records
+    )
+    owner_load_mw_by_team = {
+        team_id: base_demand_by_team[team_id]
+        for team_id in team_ids
+    }
+    horizon_result = solve_prepared_horizon(
+        artifact_dir=artifact_dir,
+        period_indices=period_indices,
+        additional_demand_mw_by_period=aggregate_demand_by_period,
+        additional_generators_by_period=candidates_by_period,
+        storage_assets=storage_assets,
+        owner_load_mw_by_team=owner_load_mw_by_team,
+        time_step_hours=time_step_hours,
+    )
+    if len(horizon_result.periods) != len(period_indices):
+        raise ValueError("horizon DCOPF returned a different number of periods")
+
+    storage_by_solver_id = {
+        solver_storage_id: (team_id, storage_id, bus_id)
+        for team_id, storage_id, solver_storage_id, bus_id, _power_mw, _energy_mwh, _initial_soc in storage_records
+    }
+    periods: list[BatchPeriodResult] = []
+    for period_offset, (period_index, dcopf) in enumerate(zip(period_indices, horizon_result.periods)):
+        generator_dispatch_by_team: dict[str, dict[str, float]] = {}
+        grid_purchase_by_team_by_bus: dict[str, dict[str, float]] = {}
+        storage_charge_by_team: dict[str, dict[str, float]] = {team_id: {} for team_id in team_ids}
+        storage_discharge_by_team: dict[str, dict[str, float]] = {team_id: {} for team_id in team_ids}
+        storage_soc_by_team: dict[str, dict[str, float]] = {team_id: {} for team_id in team_ids}
+        for solver_storage_id, (team_id, storage_id, _bus_id) in storage_by_solver_id.items():
+            storage_charge_by_team[team_id][storage_id] = dcopf.storage_charge_mw.get(solver_storage_id, 0.0)
+            storage_discharge_by_team[team_id][storage_id] = dcopf.storage_discharge_mw.get(solver_storage_id, 0.0)
+            storage_soc_by_team[team_id][storage_id] = dcopf.storage_soc_mwh.get(solver_storage_id, 0.0)
+
+        for plan in ordered_plans:
+            team_dispatch: dict[str, float] = {}
+            for generator in sorted(plan.generators, key=lambda item: item.generator_id):
+                team_dispatch[generator.generator_id] = sum(
+                    dcopf.generation_mw.get(
+                        _student_generator_segment_id(
+                            plan.team_id,
+                            generator.generator_id,
+                            segment=segment,
+                        ),
+                        0.0,
+                    )
+                    for segment in range(1, len(TEAM_GENERATOR_COST_CURVE) + 1)
+                )
+            generator_dispatch_by_team[plan.team_id] = team_dispatch
+
+            net_load_by_bus = dict(base_demand_by_team[plan.team_id][period_offset])
+            for solver_storage_id, (team_id, _storage_id, bus_id) in storage_by_solver_id.items():
+                if team_id != plan.team_id:
+                    continue
+                net_load_by_bus[bus_id] = net_load_by_bus.get(bus_id, 0.0) + (
+                    dcopf.storage_charge_mw.get(solver_storage_id, 0.0)
+                    - dcopf.storage_discharge_mw.get(solver_storage_id, 0.0)
+                )
+            generator_bus_by_id = {
+                generator.generator_id: connection_by_team[plan.team_id][generator.connection_id].bus_id
+                for generator in plan.generators
+            }
+            grid_purchase_by_bus = {}
+            for bus_id, net_load in net_load_by_bus.items():
+                local_generation = sum(
+                    amount
+                    for generator_id, amount in team_dispatch.items()
+                    if generator_bus_by_id.get(generator_id) == bus_id
+                )
+                grid_purchase_by_bus[bus_id] = max(net_load - local_generation, 0.0)
+            grid_purchase_by_team_by_bus[plan.team_id] = grid_purchase_by_bus
+
+        periods.append(
+            BatchPeriodResult(
+                period_index=period_index,
+                dcopf=dcopf,
+                submitted_load_mw_by_team={
+                    team_id: sum(base_demand_by_team[team_id][period_offset].values())
+                    for team_id in team_ids
+                },
+                generator_dispatch_mw_by_team=generator_dispatch_by_team,
+                grid_purchase_mw_by_team={
+                    team_id: sum(grid_purchase_by_team_by_bus[team_id].values())
+                    for team_id in team_ids
+                },
+                grid_purchase_mw_by_team_by_bus=grid_purchase_by_team_by_bus,
+                storage_charge_mw_by_team=storage_charge_by_team,
+                storage_discharge_mw_by_team=storage_discharge_by_team,
+                storage_soc_mwh_by_team=storage_soc_by_team,
+            )
+        )
+
+    final_storage_soc_mwh_by_team: dict[str, dict[str, float]] = {team_id: {} for team_id in team_ids}
+    for solver_storage_id, (team_id, storage_id, _bus_id) in storage_by_solver_id.items():
+        final_storage_soc_mwh_by_team[team_id][storage_id] = horizon_result.final_soc_mwh_by_storage[solver_storage_id]
+    return BatchDispatchResult(
+        team_ids=team_ids,
+        periods=tuple(periods),
+        final_storage_soc_mwh_by_team=final_storage_soc_mwh_by_team,
+    )
 
 
 def _connection_load_by_bus(
