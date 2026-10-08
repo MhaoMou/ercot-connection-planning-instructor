@@ -132,8 +132,8 @@ def test_asset_conflict_does_not_mutate_prior_state() -> None:
     state = GameState.new().advance("2027_jan_jun", (_plan(),))
     conflicting = TeamPlan(
         team_id="team-a",
-        connections=(ConnectionPlan("site-2", "b0002", 40.0, (1.0,)),),
-        generators=(GeneratorPlan("gen-1", "site-2", 10.0, 16.0),),
+        connections=(ConnectionPlan("site-1", "b0001", 40.0, (1.0,)),),
+        generators=(GeneratorPlan("renamed-gen-1", "site-1", 11.0, 16.0),),
     )
 
     with pytest.raises(AssetStateError):

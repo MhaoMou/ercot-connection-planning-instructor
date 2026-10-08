@@ -3,12 +3,13 @@
 The dispatch evaluator still evaluates one frozen half-year at a time.  This
 module provides the state contract needed by the multi-round game: a team's
 generator and storage assets remain owned by that team after the round in
-which they are first declared.  Asset identifiers are intentionally scoped
-to a team because student teams choose those identifiers themselves.
+which they are first declared.  Students may choose display labels, while
+the ledger uses a stable team/site/kind identity internally.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping as ABCMapping
 from dataclasses import asdict, dataclass, field
 import math
 from typing import Any, Mapping
@@ -20,6 +21,66 @@ class AssetStateError(ValueError):
     """Raised when a plan conflicts with previously persisted team assets."""
 
 
+def _canonical_asset_key(team_id: str, connection_id: str, kind: str) -> str:
+    """Return the stable ledger identity for one team/site asset kind."""
+    return f"{kind}:{team_id}:{connection_id}"
+
+
+class _AssetCollection(ABCMapping):
+    """Canonical asset storage with submitted-label lookup compatibility."""
+
+    def __init__(self, assets: Mapping[str, Any] | None = None) -> None:
+        values = assets.values() if isinstance(assets, Mapping) else (assets or ())
+        self._assets = {asset.asset_key: asset for asset in values}
+
+    def __getitem__(self, key: str) -> Any:
+        if key in self._assets:
+            return self._assets[key]
+        matches = [asset for asset in self._assets.values() if _asset_label(asset) == key]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise KeyError(f"ambiguous submitted asset label: {key}")
+        raise KeyError(key)
+
+    def __iter__(self):
+        labels: set[str] = set()
+        for asset in sorted(self._assets.values(), key=lambda item: item.asset_key):
+            label = _asset_label(asset)
+            key = label if label not in labels else asset.asset_key
+            labels.add(key)
+            yield key
+
+    def __len__(self) -> int:
+        return len(self._assets)
+
+    def items(self):
+        for key in self:
+            yield key, self[key]
+
+    def values(self):
+        return self._assets.values()
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, _AssetCollection):
+            return self._assets == other._assets
+        if isinstance(other, Mapping):
+            return dict(self.items()) == dict(other.items())
+        return NotImplemented
+
+    def canonical_get(self, asset_key: str) -> Any | None:
+        return self._assets.get(asset_key)
+
+    def canonical_items(self):
+        return self._assets.items()
+
+    def canonical_values(self):
+        return self._assets.values()
+
+    def canonical_dict(self) -> dict[str, Any]:
+        return dict(self._assets)
+
+
 @dataclass(frozen=True)
 class GeneratorAsset:
     team_id: str
@@ -28,6 +89,15 @@ class GeneratorAsset:
     bus_id: str
     capacity_mw: float
     marginal_cost_per_mwh: float
+    asset_key: str | None = None
+
+    def __post_init__(self) -> None:
+        expected = _canonical_asset_key(self.team_id, self.connection_id, "generator")
+        if self.asset_key not in (None, expected):
+            raise AssetStateError(
+                f"generator asset key does not match team/site identity: {self.asset_key}"
+            )
+        object.__setattr__(self, "asset_key", expected)
 
 
 @dataclass(frozen=True)
@@ -39,6 +109,7 @@ class StorageAsset:
     power_mw: float
     energy_mwh: float
     state_of_charge_mwh: float | None = None
+    asset_key: str | None = None
 
     def __post_init__(self) -> None:
         _validate_storage_dimension(self.power_mw, "power_mw")
@@ -55,6 +126,12 @@ class StorageAsset:
             storage_id=self.storage_id,
         )
         object.__setattr__(self, "state_of_charge_mwh", float(state_of_charge_mwh))
+        expected = _canonical_asset_key(self.team_id, self.connection_id, "storage")
+        if self.asset_key not in (None, expected):
+            raise AssetStateError(
+                f"storage asset key does not match team/site identity: {self.asset_key}"
+            )
+        object.__setattr__(self, "asset_key", expected)
 
 
 @dataclass(frozen=True)
@@ -65,8 +142,8 @@ class TeamAssetState:
     last_round_key: str | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "generators", dict(self.generators))
-        object.__setattr__(self, "storages", dict(self.storages))
+        object.__setattr__(self, "generators", _AssetCollection(self.generators))
+        object.__setattr__(self, "storages", _AssetCollection(self.storages))
 
 
 @dataclass(frozen=True)
@@ -103,30 +180,32 @@ class AssetLedger:
     def register_plan(self, plan: TeamPlan, *, round_key: str) -> "AssetLedger":
         """Record newly built assets and preserve earlier identical assets.
 
-        A repeated asset ID is valid when its immutable specification is the
-        same.  Changing its site or capacity is rejected because that would
-        silently move or resize an already-built asset between rounds.
+        A repeated team/site/kind identity is valid when its immutable
+        specification is the same.  The submitted ID is only a display label
+        and may change between rounds; changing the site or capacity is
+        rejected because that would silently move or resize an asset.
         """
         if not round_key or not round_key.strip():
             raise AssetStateError("round_key must be a non-empty string")
         connections = _unique_connections(plan.connections)
         current = self.teams.get(plan.team_id, TeamAssetState(team_id=plan.team_id))
-        generators = dict(current.generators)
-        storages = dict(current.storages)
+        generators = current.generators.canonical_dict()
+        storages = current.storages.canonical_dict()
 
         for generator in _unique_assets(plan.generators, kind="generator").values():
             connection = _connection_for_asset(connections, generator.connection_id)
             candidate = _generator_asset(plan.team_id, generator, connection)
-            previous = generators.get(generator.generator_id)
-            if previous is not None and previous != candidate:
+            previous = generators.get(candidate.asset_key)
+            if previous is not None and not _same_generator_spec(previous, candidate):
                 raise AssetStateError(
                     f"generator {generator.generator_id} conflicts with its persisted specification"
                 )
-            generators[generator.generator_id] = candidate
+            generators[candidate.asset_key] = candidate
 
         for storage in _unique_assets(plan.storages, kind="storage").values():
             connection = _connection_for_asset(connections, storage.connection_id)
-            previous = storages.get(storage.storage_id)
+            asset_key = _canonical_asset_key(plan.team_id, storage.connection_id, "storage")
+            previous = storages.get(asset_key)
             candidate = _storage_asset(
                 plan.team_id,
                 storage,
@@ -141,7 +220,7 @@ class AssetLedger:
                 raise AssetStateError(
                     f"storage {storage.storage_id} conflicts with its persisted specification"
                 )
-            storages[storage.storage_id] = candidate
+            storages[candidate.asset_key] = candidate
 
         updated = dict(self.teams)
         updated[plan.team_id] = TeamAssetState(
@@ -172,16 +251,20 @@ class AssetLedger:
 
         for generator in current_generators.values():
             connection = _connection_for_asset(connections, generator.connection_id)
-            persisted = current.generators.get(generator.generator_id)
+            persisted = current.generators.canonical_get(
+                _canonical_asset_key(plan.team_id, generator.connection_id, "generator")
+            )
             candidate = _generator_asset(plan.team_id, generator, connection)
-            if persisted is not None and persisted != candidate:
+            if persisted is not None and not _same_generator_spec(persisted, candidate):
                 raise AssetStateError(
                     f"generator {generator.generator_id} conflicts with its persisted specification"
                 )
 
         for storage in current_storages.values():
             connection = _connection_for_asset(connections, storage.connection_id)
-            persisted = current.storages.get(storage.storage_id)
+            persisted = current.storages.canonical_get(
+                _canonical_asset_key(plan.team_id, storage.connection_id, "storage")
+            )
             candidate = _storage_asset(plan.team_id, storage, connection)
             if persisted is not None and not _same_storage_spec(persisted, candidate):
                 raise AssetStateError(
@@ -200,46 +283,53 @@ class AssetLedger:
                     profile=(0.0,) * horizon,
                 )
 
-        generators = {
-            generator_id: GeneratorPlan(
-                generator_id=asset.generator_id,
-                connection_id=asset.connection_id,
-                capacity_mw=asset.capacity_mw,
-                marginal_cost_per_mwh=asset.marginal_cost_per_mwh,
-            )
-            for generator_id, asset in current.generators.items()
-        }
-        generators.update(
-            {
-                generator_id: generator
-                for generator_id, generator in current_generators.items()
-                if generator_id not in current.generators
-            }
-        )
+        generators: dict[str, GeneratorPlan] = {}
+        current_generator_keys: set[str] = set()
+        for generator in current_generators.values():
+            asset_key = _canonical_asset_key(plan.team_id, generator.connection_id, "generator")
+            current_generator_keys.add(asset_key)
+            generators[asset_key] = generator
+        for asset in current.generators.canonical_values():
+            if asset.asset_key not in current_generator_keys:
+                generators[asset.asset_key] = GeneratorPlan(
+                    generator_id=asset.generator_id,
+                    connection_id=asset.connection_id,
+                    capacity_mw=asset.capacity_mw,
+                    marginal_cost_per_mwh=asset.marginal_cost_per_mwh,
+                )
 
-        storages = {
-            storage_id: StoragePlan(
-                storage_id=asset.storage_id,
-                connection_id=asset.connection_id,
-                power_mw=asset.power_mw,
-                energy_mwh=asset.energy_mwh,
-                initial_state_of_charge_mwh=asset.state_of_charge_mwh,
+        storages: dict[str, StoragePlan] = {}
+        current_storage_keys: set[str] = set()
+        for storage in current_storages.values():
+            asset_key = _canonical_asset_key(plan.team_id, storage.connection_id, "storage")
+            current_storage_keys.add(asset_key)
+            persisted = current.storages.canonical_get(asset_key)
+            storages[asset_key] = (
+                StoragePlan(
+                    storage_id=storage.storage_id,
+                    connection_id=storage.connection_id,
+                    power_mw=storage.power_mw,
+                    energy_mwh=storage.energy_mwh,
+                    initial_state_of_charge_mwh=persisted.state_of_charge_mwh,
+                )
+                if persisted is not None
+                else storage
             )
-            for storage_id, asset in current.storages.items()
-        }
-        storages.update(
-            {
-                storage_id: storage
-                for storage_id, storage in current_storages.items()
-                if storage_id not in current.storages
-            }
-        )
+        for asset in current.storages.canonical_values():
+            if asset.asset_key not in current_storage_keys:
+                storages[asset.asset_key] = StoragePlan(
+                    storage_id=asset.storage_id,
+                    connection_id=asset.connection_id,
+                    power_mw=asset.power_mw,
+                    energy_mwh=asset.energy_mwh,
+                    initial_state_of_charge_mwh=asset.state_of_charge_mwh,
+                )
 
         return TeamPlan(
             team_id=plan.team_id,
             connections=tuple(materialized_connections[key] for key in sorted(materialized_connections)),
-            generators=tuple(generators[key] for key in sorted(generators)),
-            storages=tuple(storages[key] for key in sorted(storages)),
+            generators=tuple(sorted(generators.values(), key=lambda item: item.generator_id)),
+            storages=tuple(sorted(storages.values(), key=lambda item: item.storage_id)),
             sites=plan.sites,
         )
 
@@ -259,9 +349,11 @@ class AssetLedger:
                     f"storage state of charge for team {team_id} must be a mapping"
                 )
             current = self.teams[team_id]
-            storages = dict(current.storages)
+            storages = current.storages.canonical_dict()
             for storage_id, value in storage_values.items():
-                if storage_id not in storages:
+                try:
+                    asset = current.storages[storage_id]
+                except KeyError:
                     raise AssetStateError(
                         f"unknown storage asset for team {team_id}: {storage_id}"
                     )
@@ -273,7 +365,6 @@ class AssetLedger:
                     raise AssetStateError(
                         f"storage state of charge must be finite for {team_id}/{storage_id}"
                     )
-                asset = storages[storage_id]
                 if value < 0.0 or value > asset.energy_mwh:
                     raise AssetStateError(
                         f"storage state of charge must be between 0 and energy capacity "
@@ -284,7 +375,7 @@ class AssetLedger:
                         f"storage state of charge must be at least half of energy capacity "
                         f"for {team_id}/{storage_id}"
                     )
-                storages[storage_id] = StorageAsset(
+                storages[asset.asset_key] = StorageAsset(
                     team_id=asset.team_id,
                     storage_id=asset.storage_id,
                     connection_id=asset.connection_id,
@@ -370,10 +461,36 @@ def _unique_assets(assets: tuple[Any, ...], *, kind: str) -> dict[str, Any]:
     field = f"{kind}_id"
     for asset in assets:
         asset_id = getattr(asset, field)
-        if asset_id in indexed:
-            raise AssetStateError(f"duplicate {kind} asset: {asset_id}")
-        indexed[asset_id] = asset
+        site_id = asset.connection_id
+        if site_id in indexed:
+            previous_id = getattr(indexed[site_id], field)
+            if previous_id == asset_id:
+                raise AssetStateError(f"duplicate {kind} asset: {asset_id}")
+            raise AssetStateError(f"duplicate {kind} asset at connection site: {site_id}")
+        indexed[site_id] = asset
     return indexed
+
+
+def _asset_label(asset: Any) -> str:
+    return asset.generator_id if hasattr(asset, "generator_id") else asset.storage_id
+
+
+def _same_generator_spec(left: GeneratorAsset, right: GeneratorAsset) -> bool:
+    return (
+        left.team_id,
+        left.asset_key,
+        left.connection_id,
+        left.bus_id,
+        left.capacity_mw,
+        left.marginal_cost_per_mwh,
+    ) == (
+        right.team_id,
+        right.asset_key,
+        right.connection_id,
+        right.bus_id,
+        right.capacity_mw,
+        right.marginal_cost_per_mwh,
+    )
 
 
 def _generator_asset(
@@ -388,6 +505,7 @@ def _generator_asset(
         bus_id=connection.bus_id,
         capacity_mw=generator.capacity_mw,
         marginal_cost_per_mwh=generator.marginal_cost_per_mwh,
+        asset_key=_canonical_asset_key(team_id, generator.connection_id, "generator"),
     )
 
 
@@ -409,6 +527,7 @@ def _storage_asset(
             if state_of_charge_mwh is None
             else state_of_charge_mwh
         ),
+        asset_key=_canonical_asset_key(team_id, storage.connection_id, "storage"),
     )
 
 
@@ -448,14 +567,14 @@ def _validate_storage_dimension(value: Any, field: str) -> None:
 def _same_storage_spec(left: StorageAsset, right: StorageAsset) -> bool:
     return (
         left.team_id,
-        left.storage_id,
+        left.asset_key,
         left.connection_id,
         left.bus_id,
         left.power_mw,
         left.energy_mwh,
     ) == (
         right.team_id,
-        right.storage_id,
+        right.asset_key,
         right.connection_id,
         right.bus_id,
         right.power_mw,

@@ -85,6 +85,24 @@ def test_materialization_injects_persisted_soc_for_omitted_and_redeclared_storag
     assert redeclared.storages[0].initial_state_of_charge_mwh == 15.0
 
 
+def test_materialization_reuses_canonical_asset_with_latest_submitted_label() -> None:
+    ledger = AssetLedger.empty().register_plan(_asset_plan(), round_key="2027_jan_jun")
+    current = _plan(
+        connections=(ConnectionPlan("site-old", "b0001", 40.0, (1.0, 1.0)),),
+        generators=(GeneratorPlan("generator-label-v2", "site-old", 10.0, 16.0),),
+        storages=(StoragePlan("storage-label-v2", "site-old", 5.0, 20.0),),
+    )
+
+    materialized = ledger.materialize_plan(current, horizon=2)
+
+    assert materialized.generators == (
+        GeneratorPlan("generator-label-v2", "site-old", 10.0, 16.0),
+    )
+    assert materialized.storages == (
+        StoragePlan("storage-label-v2", "site-old", 5.0, 20.0, 10.0),
+    )
+
+
 def test_new_storage_materialization_keeps_default_initial_soc() -> None:
     materialized = AssetLedger.empty().materialize_plan(
         _plan(storages=(StoragePlan("store-new", "site-1", 5.0, 20.0),)),

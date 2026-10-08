@@ -8,29 +8,38 @@ from ercot_game.asset_state import AssetLedger, AssetStateError, StorageAsset
 from ercot_game.models import ConnectionPlan, GeneratorPlan, StoragePlan, TeamPlan
 
 
-def _plan(*, team_id: str = "team-a", generator_capacity: float = 10.0, storage_energy: float = 20.0) -> TeamPlan:
+def _plan(
+    *,
+    team_id: str = "team-a",
+    site_id: str = "site-1",
+    bus_id: str = "b0001",
+    generator_id: str = "gen-1",
+    generator_capacity: float = 10.0,
+    storage_id: str = "store-1",
+    storage_energy: float = 20.0,
+) -> TeamPlan:
     return TeamPlan(
         team_id=team_id,
         connections=(
             ConnectionPlan(
-                connection_id="site-1",
-                bus_id="b0001",
+                connection_id=site_id,
+                bus_id=bus_id,
                 capacity_mw=40.0,
                 profile=(1.0,),
             ),
         ),
         generators=(
             GeneratorPlan(
-                generator_id="gen-1",
-                connection_id="site-1",
+                generator_id=generator_id,
+                connection_id=site_id,
                 capacity_mw=generator_capacity,
                 marginal_cost_per_mwh=16.0,
             ),
         ),
         storages=(
             StoragePlan(
-                storage_id="store-1",
-                connection_id="site-1",
+                storage_id=storage_id,
+                connection_id=site_id,
                 power_mw=5.0,
                 energy_mwh=storage_energy,
             ),
@@ -203,6 +212,43 @@ def test_register_plan_preserves_existing_storage_soc() -> None:
     repeated = ledger.register_plan(_plan(), round_key="2027_jul_dec")
 
     assert repeated.team("team-a").storages["store-1"].state_of_charge_mwh == 15.0
+
+
+def test_same_team_site_and_kind_reuses_asset_when_submitted_label_changes() -> None:
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    ledger = ledger.update_storage_soc({"team-a": {"store-1": 15.0}})
+
+    renamed = ledger.register_plan(
+        _plan(generator_id="friendly-generator", storage_id="battery-label"),
+        round_key="2027_jul_dec",
+    )
+
+    team = renamed.team("team-a")
+    assert len(team.generators) == 1
+    assert len(team.storages) == 1
+    assert team.generators["friendly-generator"].asset_key == "generator:team-a:site-1"
+    assert team.storages["battery-label"].asset_key == "storage:team-a:site-1"
+    assert team.storages["battery-label"].state_of_charge_mwh == 15.0
+
+
+def test_different_sites_and_asset_kinds_keep_distinct_internal_identities() -> None:
+    first = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    combined = first.register_plan(
+        _plan(site_id="site-2", bus_id="b0002", generator_id="gen-1", storage_id="store-1"),
+        round_key="2027_jul_dec",
+    )
+
+    team = combined.team("team-a")
+    assert len(team.generators) == 2
+    assert len(team.storages) == 2
+    assert {asset.asset_key for asset in team.generators.values()} == {
+        "generator:team-a:site-1",
+        "generator:team-a:site-2",
+    }
+    assert {asset.asset_key for asset in team.storages.values()} == {
+        "storage:team-a:site-1",
+        "storage:team-a:site-2",
+    }
 
 
 def test_reset_clears_assets_and_storage_soc_for_a_new_weekly_match() -> None:
