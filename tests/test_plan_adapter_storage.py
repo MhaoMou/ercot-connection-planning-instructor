@@ -63,6 +63,23 @@ def test_plan_validation_rejects_boolean_initial_soc() -> None:
         _validate_plan(plan)
 
 
+@pytest.mark.parametrize(
+    ("field", "message_field"),
+    (("power_mw", "power"), ("energy_mwh", "energy")),
+)
+def test_plan_validation_rejects_boolean_storage_dimensions(field, message_field) -> None:
+    dimensions = {"power_mw": 2.0, "energy_mwh": 1.0}
+    dimensions[field] = True
+    plan = TeamPlan(
+        team_id="team-a",
+        connections=(ConnectionPlan("site", "b0001", 10.0, (1.0,)),),
+        storages=(StoragePlan("store", "site", dimensions["power_mw"], dimensions["energy_mwh"]),),
+    )
+
+    with pytest.raises(ValueError, match=f"storage store {message_field} must be finite and positive"):
+        _validate_plan(plan)
+
+
 def test_initial_soc_helper_rejects_boolean_initial_soc() -> None:
     storage = StoragePlan("store", "site", 2.0, 1.0, True)
 

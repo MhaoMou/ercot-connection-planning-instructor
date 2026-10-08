@@ -105,9 +105,9 @@ def _validate_plan(
     for storage in plan.storages:
         if storage.connection_id not in connection_by_id:
             raise ValueError(f"storage {storage.storage_id} references unknown connection")
-        if not math.isfinite(storage.power_mw) or storage.power_mw <= 0:
+        if isinstance(storage.power_mw, bool) or not math.isfinite(storage.power_mw) or storage.power_mw <= 0:
             raise ValueError(f"storage {storage.storage_id} power must be finite and positive")
-        if not math.isfinite(storage.energy_mwh) or storage.energy_mwh <= 0:
+        if isinstance(storage.energy_mwh, bool) or not math.isfinite(storage.energy_mwh) or storage.energy_mwh <= 0:
             raise ValueError(f"storage {storage.storage_id} energy must be finite and positive")
         if storage.initial_state_of_charge_mwh is not None:
             if (
