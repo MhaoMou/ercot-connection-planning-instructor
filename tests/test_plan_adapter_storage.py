@@ -40,7 +40,7 @@ def test_active_storage_schedule_starts_from_optional_initial_soc() -> None:
     assert schedule["discharge"][0] == 5.0
 
 
-@pytest.mark.parametrize("initial_soc", (-0.1, 20.1, float("nan")))
+@pytest.mark.parametrize("initial_soc", (-0.1, 9.0, 20.1, float("nan")))
 def test_storage_initial_soc_is_validated(initial_soc) -> None:
     plan = TeamPlan(
         team_id="team-a",

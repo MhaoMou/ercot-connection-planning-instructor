@@ -254,6 +254,11 @@ class AssetLedger:
                         f"storage state of charge must be between 0 and energy capacity "
                         f"for {team_id}/{storage_id}"
                     )
+                if value < asset.energy_mwh * 0.5:
+                    raise AssetStateError(
+                        f"storage state of charge must be at least half of energy capacity "
+                        f"for {team_id}/{storage_id}"
+                    )
                 storages[storage_id] = StorageAsset(
                     team_id=asset.team_id,
                     storage_id=asset.storage_id,

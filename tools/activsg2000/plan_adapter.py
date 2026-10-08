@@ -112,12 +112,12 @@ def _validate_plan(
         if storage.initial_state_of_charge_mwh is not None:
             if (
                 not math.isfinite(storage.initial_state_of_charge_mwh)
-                or storage.initial_state_of_charge_mwh < 0
+                or storage.initial_state_of_charge_mwh < storage.energy_mwh * 0.5
                 or storage.initial_state_of_charge_mwh > storage.energy_mwh
             ):
                 raise ValueError(
                     f"storage {storage.storage_id} initial state of charge must be finite "
-                    "and within its energy capacity"
+                    "and at least half of, and within, its energy capacity"
                 )
     return connection_by_id
 
@@ -540,12 +540,12 @@ def _initial_storage_soc(storage) -> float:
         return storage.energy_mwh * 0.5
     if (
         not math.isfinite(initial)
-        or initial < 0
+        or initial < storage.energy_mwh * 0.5
         or initial > storage.energy_mwh
     ):
         raise ValueError(
             f"storage {storage.storage_id} initial state of charge must be finite "
-            "and within its energy capacity"
+            "and at least half of, and within, its energy capacity"
         )
     return initial
 

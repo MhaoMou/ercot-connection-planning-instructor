@@ -82,6 +82,7 @@ def test_update_storage_soc_returns_new_ledger_and_round_trips() -> None:
     "mapping, message",
     [
         ({"team-a": {"store-1": -1.0}}, "between 0 and energy capacity"),
+        ({"team-a": {"store-1": 9.0}}, "at least half"),
         ({"team-a": {"store-1": 21.0}}, "between 0 and energy capacity"),
         ({"team-a": {"store-1": float("nan")}}, "finite"),
         ({"team-x": {"store-1": 10.0}}, "unknown team"),
