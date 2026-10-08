@@ -477,8 +477,8 @@ def test_later_round_materializes_prior_assets_and_scopes_new_capital_costs(tmp_
     )
     assert seen["site_cost_connection_count_by_team"] == {"team-a": 1}
     assert set(result.state.asset_ledger.team("team-a").generators) == {
-        "gen-new",
-        "gen-old",
+        "generator:team-a:site-new",
+        "generator:team-a:site-old",
     }
 
 

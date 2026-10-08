@@ -60,13 +60,7 @@ class _AssetCollection(ABCMapping):
         raise KeyError(key)
 
     def __iter__(self):
-        label_counts: dict[str, int] = {}
-        for asset in self._assets.values():
-            label = _asset_label(asset)
-            label_counts[label] = label_counts.get(label, 0) + 1
-        for asset in sorted(self._assets.values(), key=lambda item: item.asset_key):
-            label = _asset_label(asset)
-            yield label if label_counts[label] == 1 else asset.asset_key
+        yield from sorted(self._assets)
 
     def __len__(self) -> int:
         return len(self._assets)

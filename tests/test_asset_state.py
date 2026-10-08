@@ -70,7 +70,7 @@ def test_round_trip_json_preserves_assets_deterministically() -> None:
 def test_legacy_storage_asset_without_soc_loads_half_full() -> None:
     ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
     payload = ledger.to_dict()
-    del payload["teams"]["team-a"]["storages"]["store-1"]["state_of_charge_mwh"]
+    del payload["teams"]["team-a"]["storages"]["storage:team-a:site-1"]["state_of_charge_mwh"]
 
     restored = AssetLedger.from_dict(payload)
 
@@ -80,7 +80,7 @@ def test_legacy_storage_asset_without_soc_loads_half_full() -> None:
 def test_persisted_storage_soc_null_is_rejected_instead_of_defaulting() -> None:
     ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
     payload = ledger.to_dict()
-    payload["teams"]["team-a"]["storages"]["store-1"]["state_of_charge_mwh"] = None
+    payload["teams"]["team-a"]["storages"]["storage:team-a:site-1"]["state_of_charge_mwh"] = None
 
     with pytest.raises(AssetStateError, match="storage state of charge must be finite"):
         AssetLedger.from_dict(payload)
@@ -90,7 +90,7 @@ def test_persisted_storage_soc_null_is_rejected_instead_of_defaulting() -> None:
 def test_persisted_storage_soc_must_be_finite_and_within_terminal_bounds(value) -> None:
     ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
     payload = ledger.to_dict()
-    payload["teams"]["team-a"]["storages"]["store-1"]["state_of_charge_mwh"] = value
+    payload["teams"]["team-a"]["storages"]["storage:team-a:site-1"]["state_of_charge_mwh"] = value
 
     with pytest.raises(AssetStateError, match="storage state of charge"):
         AssetLedger.from_dict(payload)
@@ -158,7 +158,7 @@ def test_direct_storage_asset_rejects_invalid_dimensions(field, value) -> None:
 def test_asset_ledger_from_dict_rejects_invalid_storage_dimensions(field, value) -> None:
     ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
     payload = ledger.to_dict()
-    payload["teams"]["team-a"]["storages"]["store-1"][field] = value
+    payload["teams"]["team-a"]["storages"]["storage:team-a:site-1"][field] = value
 
     with pytest.raises(AssetStateError, match=f"storage {field} must be finite and positive"):
         AssetLedger.from_dict(payload)
@@ -249,6 +249,48 @@ def test_different_sites_and_asset_kinds_keep_distinct_internal_identities() -> 
         "storage:team-a:site-1",
         "storage:team-a:site-2",
     }
+
+
+def test_round_trip_preserves_assets_when_display_label_collides_with_canonical_key() -> None:
+    plan = TeamPlan(
+        team_id="team-a",
+        connections=(
+            ConnectionPlan("site-a", "b0001", 40.0, (1.0,)),
+            ConnectionPlan("site-b", "b0002", 30.0, (1.0,)),
+        ),
+        generators=(
+            GeneratorPlan("generator:team-a:site-b", "site-a", 10.0, 16.0),
+            GeneratorPlan("generator-at-site-b", "site-b", 12.0, 22.0),
+        ),
+        storages=(
+            StoragePlan("storage-at-site-a", "site-a", 5.0, 20.0),
+            StoragePlan("storage-at-site-b", "site-b", 4.0, 16.0),
+        ),
+    )
+
+    ledger = AssetLedger.empty().register_plan(plan, round_key="2027_jan_jun")
+    ledger = ledger.update_storage_soc(
+        {"team-a": {"storage-at-site-a": 15.0, "storage-at-site-b": 12.0}}
+    )
+
+    payload = ledger.to_dict()
+    restored = AssetLedger.from_dict(json.loads(json.dumps(payload)))
+
+    assert set(payload["teams"]["team-a"]["generators"]) == {
+        "generator:team-a:site-a",
+        "generator:team-a:site-b",
+    }
+    team = restored.team("team-a")
+    assert team.generators.canonical_get("generator:team-a:site-a") == team.generators[
+        "generator:team-a:site-a"
+    ]
+    assert team.generators.canonical_get("generator:team-a:site-a").capacity_mw == 10.0
+    assert team.generators.canonical_get("generator:team-a:site-a").marginal_cost_per_mwh == 16.0
+    assert team.generators.canonical_get("generator:team-a:site-b").capacity_mw == 12.0
+    assert team.generators.canonical_get("generator:team-a:site-b").marginal_cost_per_mwh == 22.0
+    assert team.storages["storage-at-site-a"].state_of_charge_mwh == 15.0
+    assert team.storages["storage-at-site-b"].state_of_charge_mwh == 12.0
+    assert restored.to_dict() == payload
 
 
 def test_reset_clears_assets_and_storage_soc_for_a_new_weekly_match() -> None:
