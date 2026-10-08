@@ -83,6 +83,14 @@ class AssetLedger:
     def empty(cls) -> "AssetLedger":
         return cls()
 
+    def reset(self) -> "AssetLedger":
+        """Return an empty ledger at a weekly-match boundary.
+
+        A new weekly match starts with no built assets and no carried storage
+        state of charge.  The current ledger remains immutable and unchanged.
+        """
+        return type(self)(version=self.version)
+
     def team_ids(self) -> tuple[str, ...]:
         return tuple(sorted(self.teams))
 
@@ -232,6 +240,7 @@ class AssetLedger:
             connections=tuple(materialized_connections[key] for key in sorted(materialized_connections)),
             generators=tuple(generators[key] for key in sorted(generators)),
             storages=tuple(storages[key] for key in sorted(storages)),
+            sites=plan.sites,
         )
 
     def update_storage_soc(

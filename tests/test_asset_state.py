@@ -205,6 +205,16 @@ def test_register_plan_preserves_existing_storage_soc() -> None:
     assert repeated.team("team-a").storages["store-1"].state_of_charge_mwh == 15.0
 
 
+def test_reset_clears_assets_and_storage_soc_for_a_new_weekly_match() -> None:
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    ledger = ledger.update_storage_soc({"team-a": {"store-1": 15.0}})
+
+    reset = ledger.reset()
+
+    assert reset.team_ids() == ()
+    assert ledger.team("team-a").storages["store-1"].state_of_charge_mwh == 15.0
+
+
 def test_asset_ids_are_scoped_to_team_ownership() -> None:
     ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
     ledger = ledger.register_plan(

@@ -32,13 +32,26 @@ def test_advance_persists_assets_and_moves_to_next_half_year() -> None:
     state = GameState.new().advance("2027_jan_jun", (_plan(),))
 
     assert state.current_round_key == "2027_jan_jun"
+    assert state.current_week_id == "week-1"
+    assert state.current_submission_number == 1
     assert state.next_round_key == "2027_jul_dec"
+    assert state.next_week_id == "week-1"
+    assert state.next_submission_number == 2
     assert state.asset_ledger.team("team-a").generators["gen-1"].bus_id == "b0001"
 
     next_state = state.advance("2027_jul_dec", (TeamPlan(team_id="team-a", connections=()),))
     assert next_state.current_round_key == "2027_jul_dec"
     assert next_state.asset_ledger.team("team-a").generators["gen-1"].capacity_mw == 10.0
 
+
+def test_advance_resets_assets_at_the_start_of_the_next_weekly_match() -> None:
+    state = GameState.new().advance("2027_jan_jun", (_plan(),))
+    state = state.advance("2027_jul_dec", (TeamPlan(team_id="team-a", connections=()),))
+
+    next_week = state.advance("2028_jan_jun", ())
+
+    assert next_week.current_week_id == "week-2"
+    assert next_week.asset_ledger.team_ids() == ()
 
 def test_rounds_must_be_completed_in_order() -> None:
     state = GameState.new()

@@ -9,13 +9,35 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class SitePlan:
+    """One persistent site decision expressed as constant capacities.
+
+    Site plans are the frozen submission schema for the game.  The evaluator
+    expands the capacities over its selected half-year horizon; a site plan
+    therefore does not contain an hourly connection profile.
+    """
+
+    site_id: str
+    bus_id: str
+    connection_capacity_mw: float
+    generator_capacity_mw: float = 0.0
+    storage_power_mw: float = 0.0
+    storage_energy_mwh: float = 0.0
+
+
+@dataclass(frozen=True)
 class ConnectionPlan:
-    """One team-owned data-center connection at a scenario source bus."""
+    """Legacy expanded connection view at a scenario source bus.
+
+    New submissions use :class:`SitePlan`.  ``profile`` remains optional so
+    historical CSV/evaluator callers can continue to construct this view
+    until the schema migration task removes that dependency.
+    """
 
     connection_id: str
     bus_id: str
     capacity_mw: float
-    profile: tuple[float, ...]
+    profile: tuple[float, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "profile", tuple(self.profile))
@@ -44,14 +66,16 @@ class StoragePlan:
 
 @dataclass(frozen=True)
 class TeamPlan:
-    """Complete canonical plan reconstructed from one student CSV."""
+    """Complete team plan with site-level decisions and legacy asset views."""
 
     team_id: str
-    connections: tuple[ConnectionPlan, ...]
+    connections: tuple[ConnectionPlan, ...] = ()
     generators: tuple[GeneratorPlan, ...] = ()
     storages: tuple[StoragePlan, ...] = ()
+    sites: tuple[SitePlan, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "connections", tuple(self.connections))
         object.__setattr__(self, "generators", tuple(self.generators))
         object.__setattr__(self, "storages", tuple(self.storages))
+        object.__setattr__(self, "sites", tuple(self.sites))

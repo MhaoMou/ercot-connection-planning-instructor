@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from ercot_game.calendars import half_year_calendar
+from ercot_game.calendars import CLASSROOM_SCHEDULE, half_year_calendar
 
 
 def test_half_year_calendar_uses_actual_leap_year_lengths():
@@ -29,3 +29,17 @@ def test_half_year_calendar_rejects_years_without_released_artifacts(year):
 def test_half_year_calendar_rejects_unknown_round():
     with pytest.raises(ValueError, match="jan_jun or jul_dec"):
         half_year_calendar(2027, "annual")
+
+
+def test_classroom_schedule_has_three_two_submission_weekly_matches():
+    assert [match.week_id for match in CLASSROOM_SCHEDULE] == [
+        "week-1",
+        "week-2",
+        "week-3",
+    ]
+    assert [match.round_keys for match in CLASSROOM_SCHEDULE] == [
+        ("2027_jan_jun", "2027_jul_dec"),
+        ("2028_jan_jun", "2028_jul_dec"),
+        ("2029_jan_jun", "2029_jul_dec"),
+    ]
+    assert all(len(match.round_keys) == 2 for match in CLASSROOM_SCHEDULE)

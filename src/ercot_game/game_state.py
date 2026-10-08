@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
 
 from .asset_state import AssetLedger
-from .calendars import SUPPORTED_YEARS, half_year_calendar
+from .calendars import CLASSROOM_SCHEDULE, weekly_match_for
 from .models import TeamPlan
 
 
@@ -20,11 +20,7 @@ class RoundTransitionError(ValueError):
 
 
 def _released_round_sequence() -> tuple[str, ...]:
-    return tuple(
-        half_year_calendar(year, round_name).label
-        for year in SUPPORTED_YEARS
-        for round_name in ("jan_jun", "jul_dec")
-    )
+    return tuple(round_key for match in CLASSROOM_SCHEDULE for round_key in match.round_keys)
 
 
 RELEASED_ROUND_SEQUENCE = _released_round_sequence()
@@ -32,7 +28,7 @@ RELEASED_ROUND_SEQUENCE = _released_round_sequence()
 
 @dataclass(frozen=True)
 class GameState:
-    """Immutable state for one ordered three-year instructional game."""
+    """Immutable state for three two-submission weekly classroom matches."""
 
     state_version: int = 1
     current_round_key: str | None = None
@@ -65,6 +61,36 @@ class GameState:
             return None
         return RELEASED_ROUND_SEQUENCE[next_index]
 
+    @property
+    def current_week_id(self) -> str | None:
+        """The weekly match containing the current round, if any."""
+        if self.current_round_key is None:
+            return None
+        return weekly_match_for(self.current_round_key).week_id
+
+    @property
+    def current_submission_number(self) -> int | None:
+        """The one-based submission number within the current weekly match."""
+        if self.current_round_key is None:
+            return None
+        match = weekly_match_for(self.current_round_key)
+        return match.round_keys.index(self.current_round_key) + 1
+
+    @property
+    def next_week_id(self) -> str | None:
+        """The weekly match containing the next round, if any."""
+        if self.next_round_key is None:
+            return None
+        return weekly_match_for(self.next_round_key).week_id
+
+    @property
+    def next_submission_number(self) -> int | None:
+        """The one-based submission number expected next."""
+        if self.next_round_key is None:
+            return None
+        match = weekly_match_for(self.next_round_key)
+        return match.round_keys.index(self.next_round_key) + 1
+
     def advance(self, round_key: str, plans: Iterable[TeamPlan]) -> "GameState":
         """Commit one half-year's team plans and advance exactly one round."""
         _validate_round_key(round_key)
@@ -83,7 +109,10 @@ class GameState:
         if len(set(team_ids)) != len(team_ids):
             raise RoundTransitionError("at most one plan per team is allowed in a round")
 
+        next_match = weekly_match_for(round_key)
         ledger = self.asset_ledger
+        if self.current_week_id != next_match.week_id:
+            ledger = ledger.reset()
         for plan in plan_tuple:
             ledger = ledger.register_plan(plan, round_key=round_key)
         completed = self.completed_rounds + (round_key,)

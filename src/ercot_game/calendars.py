@@ -23,8 +23,40 @@ class HalfYearCalendar:
         return f"{self.year}_{self.round_name}"
 
 
+@dataclass(frozen=True)
+class WeeklyMatch:
+    """The two half-year submissions that form one classroom match."""
+
+    week_id: str
+    round_keys: tuple[str, str]
+    feedback_only: bool = False
+
+    def __post_init__(self) -> None:
+        round_keys = tuple(self.round_keys)
+        if len(round_keys) != 2 or any(not key for key in round_keys):
+            raise ValueError("a weekly match must contain exactly two round keys")
+        if round_keys[0] == round_keys[1]:
+            raise ValueError("a weekly match must contain two distinct round keys")
+        object.__setattr__(self, "round_keys", round_keys)
+
+
 SUPPORTED_YEARS = (2027, 2028, 2029)
 _ROUND_MONTHS = {"jan_jun": (1, 6), "jul_dec": (7, 12)}
+
+
+CLASSROOM_SCHEDULE = (
+    WeeklyMatch("week-1", ("2027_jan_jun", "2027_jul_dec"), feedback_only=True),
+    WeeklyMatch("week-2", ("2028_jan_jun", "2028_jul_dec")),
+    WeeklyMatch("week-3", ("2029_jan_jun", "2029_jul_dec")),
+)
+
+
+def weekly_match_for(round_key: str) -> WeeklyMatch:
+    """Return the classroom match containing ``round_key``."""
+    for match in CLASSROOM_SCHEDULE:
+        if round_key in match.round_keys:
+            return match
+    raise ValueError(f"unknown classroom round key: {round_key}")
 
 
 def half_year_calendar(year: int, round_name: str) -> HalfYearCalendar:
