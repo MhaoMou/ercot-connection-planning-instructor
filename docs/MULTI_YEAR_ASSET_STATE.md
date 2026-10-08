@@ -78,8 +78,8 @@ Plan-loader validation failures, asset conflicts, evaluator exceptions, and
 unusable dispatch results do not overwrite the prior state file. Individual
 rejected submissions remain isolated by the existing batch evaluator; valid
 teams can still be evaluated and their accepted assets committed. The
-existing `evaluate_csv_batch()` API remains unchanged; this coordinator is an
-opt-in multi-round wrapper.
+the existing evaluator's one-round behavior remains unchanged; this
+coordinator is an opt-in multi-round wrapper.
 
 ## Stage 5: active-portfolio materialization
 
@@ -116,3 +116,38 @@ commit a round, run DCOPF, or compute scores. It is an input-building boundary
 for a later multi-round evaluator integration. Stage 5 does not change
 `evaluate_csv_batch()`, CSV parsing semantics, storage state-of-charge, capital
 cost accounting, or scoring.
+
+## Stage 6: active-portfolio evaluation and one-time capital accounting
+
+Stage 6 connects the persistent ledger to the round evaluator without changing
+the default one-round CSV behavior. `evaluate_round()` now uses the prior
+round's ledger to materialize each accepted team's active portfolio before
+dispatch. If a later CSV omits a previously built generator or storage asset,
+that asset is restored for dispatch and operational scoring. Malformed or
+rejected submissions are never materialized and never enter the ledger.
+
+`evaluate_csv_batch()` exposes this behavior through two opt-in arguments:
+
+- `plan_overrides` maps accepted team IDs to evaluator-facing `TeamPlan`
+  objects. CSV records, input hashes, and rejection records still come from
+  the submitted files; overrides affect only dispatch and operational scoring.
+- `capital_cost_scope` is a `CapitalCostScope` containing the generator and
+  storage IDs newly constructed in the current round for each team.
+
+With no overrides or capital scope, existing callers retain the original
+behavior: every generator and storage present in the parsed plan is charged its
+capital cost. With the Stage 6 scope, only the listed newly constructed assets
+are charged generator/storage capital cost. Generator and storage operational
+costs are always calculated from the full materialized portfolio, including
+assets carried over from earlier rounds.
+
+The current implementation intentionally leaves `site_cost` unchanged. Site
+cost remains round/submission-scoped because connection-site persistence has
+not yet been modeled in the ledger. A future connection-persistence stage must
+define that accounting separately rather than inferring it from the current
+asset IDs.
+
+The round coordinator remains transactional: it materializes and prepares the
+advanced state in memory, evaluates the joint plans, and saves the new state
+only after a usable evaluation result is returned. An evaluator exception or
+unusable dispatch therefore leaves the prior state file unchanged.

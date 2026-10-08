@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+import inspect
 from pathlib import Path
 from typing import Any
 
 from .batch_evaluation import (
     BatchEvaluation,
     BatchScoringRules,
+    CapitalCostScope,
     _collect_evaluation_inputs,
     evaluate_csv_batch,
 )
@@ -90,9 +92,39 @@ def evaluate_round(
             rules=rules,
         )
     )
+    materialized_plans: dict[str, TeamPlan] = {}
+    new_generator_ids: dict[str, frozenset[str]] = {}
+    new_storage_ids: dict[str, frozenset[str]] = {}
+    for plan in plans:
+        materialized_plans[plan.team_id] = prior_state.asset_ledger.materialize_plan(
+            plan,
+            horizon=horizon,
+        )
+        prior_team = prior_state.asset_ledger.teams.get(plan.team_id)
+        prior_generator_ids = frozenset(prior_team.generators) if prior_team is not None else frozenset()
+        prior_storage_ids = frozenset(prior_team.storages) if prior_team is not None else frozenset()
+        new_generator_ids[plan.team_id] = frozenset(
+            generator.generator_id for generator in plan.generators
+        ) - prior_generator_ids
+        new_storage_ids[plan.team_id] = frozenset(
+            storage.storage_id for storage in plan.storages
+        ) - prior_storage_ids
+
     advanced_state = prior_state.advance(round_key, plans)
 
     kwargs = dict(evaluator_kwargs or {})
+    if "plan_overrides" in kwargs or "capital_cost_scope" in kwargs:
+        raise RoundCoordinatorError(
+            "evaluate_round owns plan_overrides and capital_cost_scope"
+        )
+    optional_kwargs = {
+        "plan_overrides": materialized_plans,
+        "capital_cost_scope": CapitalCostScope(
+            generator_ids_by_team=new_generator_ids,
+            storage_ids_by_team=new_storage_ids,
+        ),
+    }
+    kwargs.update(_supported_optional_kwargs(evaluator, optional_kwargs))
     evaluation = evaluator(
         submissions,
         artifact_dir=artifact_dir,
@@ -115,6 +147,26 @@ def evaluate_round(
         prior_state=prior_state,
         state=advanced_state,
     )
+
+
+def _supported_optional_kwargs(
+    evaluator: Evaluator,
+    optional_kwargs: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Pass Stage 6 kwargs only to evaluators that advertise them."""
+    try:
+        signature = inspect.signature(evaluator)
+    except (TypeError, ValueError):
+        return dict(optional_kwargs)
+    parameters = signature.parameters.values()
+    if any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters):
+        return dict(optional_kwargs)
+    supported = {
+        name: value
+        for name, value in optional_kwargs.items()
+        if name in signature.parameters
+    }
+    return supported
 
 
 class RoundEvaluationResult:

@@ -8,7 +8,8 @@ import pytest
 from ercot_game.asset_state import AssetStateError
 from ercot_game.game_state import GameState
 from ercot_game.game_state_store import GameStateStore
-from ercot_game.models import ConnectionPlan, GeneratorPlan, TeamPlan
+from ercot_game.batch_evaluation import CapitalCostScope
+from ercot_game.models import ConnectionPlan, GeneratorPlan, StoragePlan, TeamPlan
 from ercot_game import round_coordinator
 from ercot_game.round_coordinator import RoundCoordinatorError, evaluate_round
 
@@ -18,6 +19,15 @@ def _plan(team_id: str = "team-a", bus_id: str = "b0001") -> TeamPlan:
         team_id=team_id,
         connections=(ConnectionPlan("site-1", bus_id, 40.0, (1.0,)),),
         generators=(GeneratorPlan("gen-1", "site-1", 10.0, 16.0),),
+    )
+
+
+def _asset_plan(team_id: str = "team-a") -> TeamPlan:
+    return TeamPlan(
+        team_id=team_id,
+        connections=(ConnectionPlan("site-old", "b0001", 40.0, (1.0,)),),
+        generators=(GeneratorPlan("gen-old", "site-old", 10.0, 16.0),),
+        storages=(StoragePlan("store-old", "site-old", 5.0, 20.0),),
     )
 
 
@@ -204,3 +214,125 @@ def test_default_plan_loader_keeps_accepted_plans_when_one_file_is_rejected(monk
     )
 
     assert plans == (_plan(),)
+
+
+def test_later_round_materializes_prior_assets_and_scopes_new_capital_costs(tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    prior = GameState.new().advance("2027_jan_jun", (_asset_plan(),))
+    GameStateStore(state_path).save(prior)
+    current = TeamPlan(
+        team_id="team-a",
+        connections=(ConnectionPlan("site-new", "b0001", 30.0, (1.0,)),),
+        generators=(GeneratorPlan("gen-new", "site-new", 8.0, 16.0),),
+        storages=(StoragePlan("store-new", "site-new", 4.0, 16.0),),
+    )
+    seen: dict[str, object] = {}
+
+    def evaluator(*args, **kwargs):
+        seen.update(kwargs)
+        return _UsableEvaluation()
+
+    result = evaluate_round(
+        state_path=state_path,
+        round_key="2027_jul_dec",
+        submissions=tmp_path / "submissions",
+        artifact_dir=tmp_path / "artifacts",
+        horizon=1,
+        rules=object(),
+        plan_loader=_loader((current,)),
+        evaluator=evaluator,
+    )
+
+    overrides = seen["plan_overrides"]
+    assert overrides["team-a"].generators == (
+        GeneratorPlan("gen-new", "site-new", 8.0, 16.0),
+        GeneratorPlan("gen-old", "site-old", 10.0, 16.0),
+    )
+    assert overrides["team-a"].storages == (
+        StoragePlan("store-new", "site-new", 4.0, 16.0),
+        StoragePlan("store-old", "site-old", 5.0, 20.0),
+    )
+    assert seen["capital_cost_scope"] == CapitalCostScope(
+        generator_ids_by_team={"team-a": {"gen-new"}},
+        storage_ids_by_team={"team-a": {"store-new"}},
+    )
+    assert set(result.state.asset_ledger.team("team-a").generators) == {
+        "gen-new",
+        "gen-old",
+    }
+
+
+def test_rejected_team_is_not_materialized_or_registered(tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    valid_plan = _plan("team-valid")
+    rejected_plan = _plan("team-rejected")
+    seen: dict[str, object] = {}
+
+    def evaluator(*args, **kwargs):
+        seen.update(kwargs)
+        return _UsableEvaluation(rejected_submissions=(object(),))
+
+    result = evaluate_round(
+        state_path=state_path,
+        round_key="2027_jan_jun",
+        submissions=tmp_path / "submissions",
+        artifact_dir=tmp_path / "artifacts",
+        horizon=1,
+        rules=object(),
+        plan_loader=_loader((valid_plan,)),
+        evaluator=evaluator,
+    )
+
+    assert set(seen["plan_overrides"]) == {"team-valid"}
+    assert result.state.asset_ledger.team_ids() == ("team-valid",)
+    assert "team-rejected" not in seen["capital_cost_scope"].generator_ids_by_team
+
+
+def test_legacy_evaluator_without_stage_six_kwargs_remains_compatible(tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    called: dict[str, object] = {}
+
+    def legacy_evaluator(submissions, *, artifact_dir, horizon, rules):
+        called["horizon"] = horizon
+        return _UsableEvaluation()
+
+    result = evaluate_round(
+        state_path=state_path,
+        round_key="2027_jan_jun",
+        submissions=tmp_path / "submissions",
+        artifact_dir=tmp_path / "artifacts",
+        horizon=1,
+        rules=object(),
+        plan_loader=_loader((_plan(),)),
+        evaluator=legacy_evaluator,
+    )
+
+    assert called["horizon"] == 1
+    assert result.state.current_round_key == "2027_jan_jun"
+
+
+def test_materialization_evaluation_failure_leaves_existing_state_unchanged(tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    prior = GameState.new().advance("2027_jan_jun", (_asset_plan(),))
+    store = GameStateStore(state_path)
+    store.save(prior)
+    before = state_path.read_bytes()
+
+    def evaluator(*args, **kwargs):
+        assert "plan_overrides" in kwargs
+        raise RuntimeError("materialized dispatch failed")
+
+    with pytest.raises(RuntimeError, match="materialized dispatch failed"):
+        evaluate_round(
+            state_path=state_path,
+            round_key="2027_jul_dec",
+            submissions=tmp_path / "submissions",
+            artifact_dir=tmp_path / "artifacts",
+            horizon=1,
+            rules=object(),
+            plan_loader=_loader((TeamPlan("team-a", connections=()),)),
+            evaluator=evaluator,
+        )
+
+    assert state_path.read_bytes() == before
+    assert store.load().current_round_key == "2027_jan_jun"

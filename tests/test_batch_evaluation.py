@@ -14,6 +14,7 @@ from ercot_game import batch_evaluation
 from ercot_game.batch_evaluation import (
     BatchCollection,
     BatchScoringRules,
+    CapitalCostScope,
     SubmissionRecord,
     _score_team,
     collect_csv_submissions,
@@ -21,10 +22,10 @@ from ercot_game.batch_evaluation import (
     write_batch_outputs,
     load_scoring_rules,
 )
-from ercot_game.csv_submission import CSV_COLUMNS, read_student_csv
+from ercot_game.csv_submission import CSVSubmission, CSV_COLUMNS, read_student_csv
 from ercot_game.batch_evaluation import DCOPFInfeasible
 from ercot_game.economic_profiles import load_economic_profiles
-from ercot_game.models import ConnectionPlan, TeamPlan
+from ercot_game.models import ConnectionPlan, GeneratorPlan, StoragePlan, TeamPlan
 
 
 def _write_submission(
@@ -374,6 +375,128 @@ def test_evaluate_csv_batch_scores_feasible_joint_set(tmp_path, monkeypatch):
     assert [score.team_id for score in result.team_scores] == ["team-a", "team-b"]
     assert all(score.valid and score.feasible for score in result.team_scores)
     assert all(score.competition_scope == "joint" for score in result.team_scores)
+
+
+def test_evaluate_csv_batch_uses_materialized_plan_and_charges_only_new_assets(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "team-a.csv"
+    parsed_plan = TeamPlan(
+        "team-a",
+        (ConnectionPlan("site-current", "b0001", 10.0, (1.0,)),),
+    )
+    materialized_plan = TeamPlan(
+        "team-a",
+        (
+            ConnectionPlan("site-current", "b0001", 10.0, (1.0,)),
+            ConnectionPlan("site-old", "b0001", 0.0, (0.0,)),
+        ),
+        generators=(
+            GeneratorPlan("gen-new", "site-current", 5.0, 16.0),
+            GeneratorPlan("gen-old", "site-old", 10.0, 16.0),
+        ),
+        storages=(
+            StoragePlan("store-new", "site-current", 2.0, 10.0),
+            StoragePlan("store-old", "site-old", 3.0, 20.0),
+        ),
+    )
+    record = SubmissionRecord(
+        path=path,
+        team_id="team-a",
+        submission_id="round-2",
+        submission=CSVSubmission("team-a", "round-2", parsed_plan, "parsed-sha"),
+        valid=True,
+        failure_reason=None,
+        input_sha256="input-sha",
+    )
+    monkeypatch.setattr(
+        batch_evaluation,
+        "_collect_evaluation_inputs",
+        lambda *args, **kwargs: BatchCollection((record,), ()),
+    )
+    seen: dict[str, object] = {}
+
+    def dispatch(_artifact_dir, plans, period_indices, **kwargs):
+        seen["plans"] = tuple(plans)
+        return SimpleNamespace(
+            team_ids=("team-a",),
+            periods=(
+                SimpleNamespace(
+                    period_index=0,
+                    submitted_load_mw_by_team={"team-a": 10.0},
+                    generator_dispatch_mw_by_team={
+                        "team-a": {"gen-old": 1.0, "gen-new": 2.0}
+                    },
+                    grid_purchase_mw_by_team={"team-a": 7.0},
+                    storage_discharge_mw_by_team={
+                        "team-a": {"store-old": 1.0, "store-new": 1.0}
+                    },
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(batch_evaluation, "_dispatch_plans", dispatch)
+    rules = BatchScoringRules(
+        rules_version="test-v1",
+        it_value_per_mwh=(200.0,),
+        energy_price_per_mwh=(50.0,),
+        generator_capital_cost_per_mw=10.0,
+        storage_capital_cost_per_mw=3.0,
+        storage_capital_cost_per_mwh=4.0,
+        storage_operating_cost_per_mwh=2.0,
+    )
+
+    result = evaluate_csv_batch(
+        path,
+        artifact_dir=tmp_path,
+        bus_ids={"b0001"},
+        horizon=1,
+        rules=rules,
+        plan_overrides={"team-a": materialized_plan},
+        capital_cost_scope=CapitalCostScope(
+            generator_ids_by_team={"team-a": {"gen-new"}},
+            storage_ids_by_team={"team-a": {"store-new"}},
+        ),
+    )
+
+    score = result.team_scores[0]
+    assert seen["plans"] == (materialized_plan,)
+    assert result.input_sha256_by_team == {"team-a": "parsed-sha"}
+    assert score.generator_capital_cost == 50.0
+    assert score.storage_capital_cost == 46.0
+    assert score.generator_operating_cost == 39.0
+    assert score.storage_operating_cost == 4.0
+
+
+def test_evaluate_csv_batch_rejects_unknown_capital_scope_asset(tmp_path, monkeypatch):
+    path = tmp_path / "team-a.csv"
+    plan = TeamPlan("team-a", (ConnectionPlan("site", "b0001", 1.0, (1.0,)),))
+    record = SubmissionRecord(
+        path=path,
+        team_id="team-a",
+        submission_id="round-1",
+        submission=CSVSubmission("team-a", "round-1", plan, "sha"),
+        valid=True,
+        failure_reason=None,
+        input_sha256="sha",
+    )
+    monkeypatch.setattr(
+        batch_evaluation,
+        "_collect_evaluation_inputs",
+        lambda *args, **kwargs: BatchCollection((record,), ()),
+    )
+
+    with pytest.raises(ValueError, match="unknown generator asset"):
+        evaluate_csv_batch(
+            path,
+            artifact_dir=tmp_path,
+            bus_ids={"b0001"},
+            horizon=1,
+            rules=_rules(),
+            capital_cost_scope=CapitalCostScope(
+                generator_ids_by_team={"team-a": {"not-in-plan"}}
+            ),
+        )
 
 
 def test_evaluate_csv_batch_isolates_first_leave_one_out_team(tmp_path, monkeypatch):

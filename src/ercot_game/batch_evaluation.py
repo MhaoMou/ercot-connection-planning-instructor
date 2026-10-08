@@ -9,7 +9,7 @@ import json
 from copy import copy
 from pathlib import Path
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 import math
 from typing import Any, TYPE_CHECKING, NoReturn
 
@@ -147,6 +147,59 @@ class BatchScoringRules:
             _validate_rule_number(name, getattr(self, name), nonnegative=True)
         if self.economic_profiles is not None and not isinstance(self.economic_profiles, HourlyEconomicProfiles):
             raise ValueError("economic_profiles must be an HourlyEconomicProfiles instance")
+
+
+@dataclass(frozen=True)
+class CapitalCostScope:
+    """One-time construction-cost scope for a multi-round evaluation.
+
+    When omitted from :func:`evaluate_csv_batch`, every asset in the
+    evaluator-facing plan is charged.  When supplied, only the listed asset
+    IDs are charged capital cost; operational costs still use the complete
+    materialized plan.
+    """
+
+    generator_ids_by_team: Mapping[str, Iterable[str]] = field(default_factory=dict)
+    storage_ids_by_team: Mapping[str, Iterable[str]] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "generator_ids_by_team",
+            _normalize_capital_ids(self.generator_ids_by_team, "generator"),
+        )
+        object.__setattr__(
+            self,
+            "storage_ids_by_team",
+            _normalize_capital_ids(self.storage_ids_by_team, "storage"),
+        )
+
+    def generator_ids_for(self, team_id: str) -> frozenset[str]:
+        return self.generator_ids_by_team.get(team_id, frozenset())
+
+    def storage_ids_for(self, team_id: str) -> frozenset[str]:
+        return self.storage_ids_by_team.get(team_id, frozenset())
+
+
+def _normalize_capital_ids(
+    values: Mapping[str, Iterable[str]],
+    kind: str,
+) -> dict[str, frozenset[str]]:
+    if not isinstance(values, Mapping):
+        raise ValueError(f"{kind}_ids_by_team must be a mapping")
+    normalized: dict[str, frozenset[str]] = {}
+    for team_id, asset_ids in values.items():
+        if not isinstance(team_id, str) or not team_id:
+            raise ValueError(f"{kind}_ids_by_team keys must be non-empty strings")
+        if isinstance(asset_ids, (str, bytes)):
+            raise ValueError(f"{kind}_ids_by_team values must be collections of IDs")
+        try:
+            normalized[team_id] = frozenset(asset_ids)
+        except TypeError:
+            raise ValueError(f"{kind}_ids_by_team values must be collections of IDs") from None
+        if any(not isinstance(asset_id, str) or not asset_id for asset_id in normalized[team_id]):
+            raise ValueError(f"{kind}_ids_by_team values must contain non-empty string IDs")
+    return normalized
 
 
 @dataclass(frozen=True)
@@ -411,6 +464,7 @@ def _score_team(
     rules: BatchScoringRules,
     *,
     submission_key: str | None = None,
+    capital_cost_scope: CapitalCostScope | None = None,
 ) -> TeamScore:
     period_indices = tuple(period.period_index for period in dispatch.periods)
     if len(set(period_indices)) != len(period_indices):
@@ -463,8 +517,33 @@ def _score_team(
         storage_discharge_by_team = getattr(period, "storage_discharge_mw_by_team", None)
         if storage_discharge_by_team is not None:
             storage_operating_cost += sum(storage_discharge_by_team.get(team_id, {}).values()) * rules.storage_operating_cost_per_mwh * rules.time_step_hours
-    generator_capital = sum(generator.capacity_mw for generator in plan.generators) * rules.generator_capital_cost_per_mw
-    storage_capital = sum(storage.power_mw for storage in plan.storages) * rules.storage_capital_cost_per_mw + sum(storage.energy_mwh for storage in plan.storages) * rules.storage_capital_cost_per_mwh
+    generator_ids_for_capital = (
+        None
+        if capital_cost_scope is None
+        else capital_cost_scope.generator_ids_for(team_id)
+    )
+    storage_ids_for_capital = (
+        None
+        if capital_cost_scope is None
+        else capital_cost_scope.storage_ids_for(team_id)
+    )
+    generator_capital = sum(
+        generator.capacity_mw
+        for generator in plan.generators
+        if generator_ids_for_capital is None or generator.generator_id in generator_ids_for_capital
+    ) * rules.generator_capital_cost_per_mw
+    storage_capital = (
+        sum(
+            storage.power_mw
+            for storage in plan.storages
+            if storage_ids_for_capital is None or storage.storage_id in storage_ids_for_capital
+        ) * rules.storage_capital_cost_per_mw
+        + sum(
+            storage.energy_mwh
+            for storage in plan.storages
+            if storage_ids_for_capital is None or storage.storage_id in storage_ids_for_capital
+        ) * rules.storage_capital_cost_per_mwh
+    )
     site_cost = len(plan.connections) * rules.site_cost_per_site
     score = it_value - energy_cost - generator_cost - generator_capital - storage_capital - storage_operating_cost - site_cost
     return TeamScore(
@@ -776,6 +855,68 @@ def _dispatch_plans(
     return _relabel_dispatch_periods(dispatch, period_indices)
 
 
+def _evaluation_plans(
+    accepted: Sequence[SubmissionRecord],
+    plan_overrides: Mapping[str, TeamPlan] | None,
+) -> tuple[TeamPlan, ...]:
+    parsed_by_team = {
+        record.team_id: record.submission.plan
+        for record in accepted
+        if record.submission is not None
+    }
+    if plan_overrides is None:
+        return tuple(parsed_by_team[team_id] for team_id in sorted(parsed_by_team))
+    if not isinstance(plan_overrides, Mapping):
+        raise ValueError("plan_overrides must be a mapping")
+    unknown_teams = sorted(set(plan_overrides) - set(parsed_by_team))
+    if unknown_teams:
+        raise ValueError(
+            "plan_overrides contains teams without accepted submissions: "
+            + ", ".join(unknown_teams)
+        )
+    plans: dict[str, TeamPlan] = dict(parsed_by_team)
+    for team_id, plan in plan_overrides.items():
+        if not isinstance(plan, TeamPlan):
+            raise ValueError(f"plan_overrides[{team_id!r}] must be a TeamPlan")
+        if plan.team_id != team_id:
+            raise ValueError(
+                f"plan_overrides[{team_id!r}] has mismatched team_id {plan.team_id!r}"
+            )
+        plans[team_id] = plan
+    return tuple(plans[team_id] for team_id in sorted(plans))
+
+
+def _validate_capital_cost_scope(
+    scope: CapitalCostScope | None,
+    plans: Sequence[TeamPlan],
+) -> None:
+    if scope is None:
+        return
+    plan_by_team = {plan.team_id: plan for plan in plans}
+    for team_id, asset_ids in scope.generator_ids_by_team.items():
+        plan = plan_by_team.get(team_id)
+        if plan is None:
+            raise ValueError(f"capital cost scope contains unknown team {team_id!r}")
+        known_ids = {generator.generator_id for generator in plan.generators}
+        unknown_ids = sorted(asset_ids - known_ids)
+        if unknown_ids:
+            raise ValueError(
+                f"capital cost scope contains unknown generator asset(s) for {team_id}: "
+                + ", ".join(unknown_ids)
+            )
+    for team_id, asset_ids in scope.storage_ids_by_team.items():
+        plan = plan_by_team.get(team_id)
+        if plan is None:
+            raise ValueError(f"capital cost scope contains unknown team {team_id!r}")
+        known_ids = {storage.storage_id for storage in plan.storages}
+        unknown_ids = sorted(asset_ids - known_ids)
+        if unknown_ids:
+            raise ValueError(
+                f"capital cost scope contains unknown storage asset(s) for {team_id}: "
+                + ", ".join(unknown_ids)
+            )
+
+
 def evaluate_csv_batch(
     csv_paths: Sequence[str | Path] | str | Path,
     *,
@@ -790,8 +931,17 @@ def evaluate_csv_batch(
     default_generator_cost_per_mwh: float | None = None,
     dispatch_workers: int = 1,
     projection_iterations: int = 10,
+    plan_overrides: Mapping[str, TeamPlan] | None = None,
+    capital_cost_scope: CapitalCostScope | None = None,
 ) -> BatchEvaluation:
-    """Collect and score valid submissions with deterministic failure isolation."""
+    """Collect and score valid submissions with deterministic failure isolation.
+
+    ``plan_overrides`` changes only the evaluator-facing plans used for
+    dispatch and operational scoring. CSV parsing, accepted/rejected records,
+    and input hashes remain based on the submitted files. ``capital_cost_scope``
+    optionally limits one-time generator/storage construction charges; when it
+    is omitted, all assets in each evaluator-facing plan are charged.
+    """
     generator_cost = (
         rules.default_generator_cost_per_mwh
         if default_generator_cost_per_mwh is None
@@ -845,7 +995,8 @@ def evaluate_csv_batch(
         require_complete_horizon=True,
     )
     accepted = tuple(collection.accepted)
-    plans = tuple(record.submission.plan for record in accepted if record.submission is not None)
+    plans = _evaluation_plans(accepted, plan_overrides)
+    _validate_capital_cost_scope(capital_cost_scope, plans)
     record_by_team = {record.team_id: record for record in accepted}
     all_records = tuple(
         sorted(
@@ -941,6 +1092,7 @@ def evaluate_csv_batch(
                             projected_dispatch,
                             rules,
                             submission_key=record_by_team[original_plan.team_id].submission_key,
+                            capital_cost_scope=capital_cost_scope,
                         ),
                         competition_scope="joint_projection",
                     )
@@ -1046,6 +1198,7 @@ def evaluate_csv_batch(
                             dispatch,
                             rules,
                             submission_key=record_by_team[plan.team_id].submission_key,
+                            capital_cost_scope=capital_cost_scope,
                         ),
                         competition_scope="joint",
                     )
@@ -1123,6 +1276,7 @@ def evaluate_csv_batch(
                                     individual_dispatch,
                                     rules,
                                     submission_key=submission_key,
+                                    capital_cost_scope=capital_cost_scope,
                                 ),
                                 competition_scope="individual_fallback",
                             )
@@ -1153,6 +1307,7 @@ def evaluate_csv_batch(
                         dispatch,
                         rules,
                         submission_key=record_by_team[plan.team_id].submission_key,
+                        capital_cost_scope=capital_cost_scope,
                     ),
                     competition_scope="joint",
                 )
