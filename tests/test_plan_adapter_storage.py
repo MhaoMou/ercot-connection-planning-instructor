@@ -2,8 +2,16 @@ from __future__ import annotations
 
 import pytest
 
-from ercot_game.models import ConnectionPlan, StoragePlan, TeamPlan
-from tools.activsg2000.plan_adapter import _initial_storage_soc, _storage_schedule, _validate_plan
+from ercot_game.asset_state import AssetLedger
+from ercot_game.models import ConnectionPlan, GeneratorPlan, SitePlan, StoragePlan, TeamPlan
+from tools.activsg2000 import plan_adapter
+from tools.activsg2000.dcopf import DCOPFResult
+from tools.activsg2000.plan_adapter import (
+    _initial_storage_soc,
+    _storage_schedule,
+    _validate_plan,
+    evaluate_plan_with_prepared_dcopf,
+)
 
 
 def test_zero_load_placeholder_storage_stays_idle() -> None:
@@ -159,3 +167,88 @@ def test_active_site_storage_keeps_peak_shaving_schedule() -> None:
     assert schedule["charge"][0] == 5.0
     assert schedule["discharge"][1] == 5.0
     assert schedule["soc"][3] == 10.0
+
+
+def test_materialized_duplicate_labels_pass_real_plan_adapter_boundary(monkeypatch) -> None:
+    plan = TeamPlan(
+        team_id="team-a",
+        connections=(
+            ConnectionPlan("site-a", "b0001", 10.0, (1.0,)),
+            ConnectionPlan("site-b", "b0002", 10.0, (1.0,)),
+        ),
+        generators=(
+            GeneratorPlan("same-label", "site-a", 2.0, 16.0),
+            GeneratorPlan("same-label", "site-b", 2.0, 16.0),
+        ),
+        storages=(
+            StoragePlan("same-label", "site-a", 2.0, 8.0),
+            StoragePlan("same-label", "site-b", 2.0, 8.0),
+        ),
+    )
+    materialized = AssetLedger.empty().register_plan(
+        plan, round_key="2027_jan_jun"
+    ).materialize_plan(plan, horizon=1)
+    seen = []
+
+    def solve(*args, **kwargs):
+        seen.append(kwargs)
+        return DCOPFResult(
+            status="optimal",
+            objective_cost=0.0,
+            generation_mw={},
+            angle_by_bus={},
+            flow_mw_by_branch={},
+            balance_dual_by_bus={},
+        )
+
+    monkeypatch.setattr(plan_adapter, "solve_prepared_period", solve)
+
+    result = evaluate_plan_with_prepared_dcopf(
+        "unused-artifact",
+        materialized,
+        period_indices=(0,),
+    )
+
+    assert result.periods[0].submitted_load_mw == 20.0
+    assert len(seen) == 1
+    assert {storage.storage_id for storage in materialized.storages} == {
+        "storage:team-a:site-a",
+        "storage:team-a:site-b",
+    }
+    assert {generator.generator_id for generator in materialized.generators} == {
+        "generator:team-a:site-a",
+        "generator:team-a:site-b",
+    }
+
+
+def test_site_only_plan_evaluates_constant_capacity_through_plan_adapter(monkeypatch) -> None:
+    plan = TeamPlan(
+        team_id="team-a",
+        sites=(SitePlan("site-1", "b0001", 40.0, 2.0, 1.0, 4.0),),
+    )
+    materialized = AssetLedger.empty().materialize_plan(plan, horizon=2)
+    seen = []
+
+    def solve(*args, **kwargs):
+        seen.append(kwargs["additional_demand_mw_by_bus"])
+        return DCOPFResult(
+            status="optimal",
+            objective_cost=0.0,
+            generation_mw={},
+            angle_by_bus={},
+            flow_mw_by_branch={},
+            balance_dual_by_bus={},
+        )
+
+    monkeypatch.setattr(plan_adapter, "solve_prepared_period", solve)
+
+    result = evaluate_plan_with_prepared_dcopf(
+        "unused-artifact",
+        materialized,
+        period_indices=(0, 1),
+    )
+
+    assert [period.submitted_load_mw for period in result.periods] == [40.0, 40.0]
+    assert seen == [{"b0001": 40.0}, {"b0001": 40.0}]
+    assert materialized.generators[0].generator_id == "generator:team-a:site-1"
+    assert materialized.storages[0].storage_id == "storage:team-a:site-1"

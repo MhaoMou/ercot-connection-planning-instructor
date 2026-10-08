@@ -5,7 +5,7 @@ import json
 import pytest
 
 from ercot_game.asset_state import AssetLedger, AssetStateError
-from ercot_game.models import ConnectionPlan, GeneratorPlan, StoragePlan, TeamPlan
+from ercot_game.models import ConnectionPlan, GeneratorPlan, SitePlan, StoragePlan, TeamPlan
 
 
 def _plan(
@@ -215,6 +215,50 @@ def test_materialize_orders_all_components_deterministically() -> None:
     assert [item.connection_id for item in materialized.connections] == ["site-a", "site-z"]
     assert [item.generator_id for item in materialized.generators] == ["gen-a", "gen-z"]
     assert [item.storage_id for item in materialized.storages] == ["store-a", "store-z"]
+
+
+def test_materialize_uses_unique_canonical_ids_for_duplicate_display_labels() -> None:
+    plan = _plan(
+        connections=(
+            ConnectionPlan("site-a", "b0001", 40.0, (1.0, 1.0)),
+            ConnectionPlan("site-b", "b0002", 30.0, (1.0, 1.0)),
+        ),
+        generators=(
+            GeneratorPlan("same-label", "site-a", 10.0, 16.0),
+            GeneratorPlan("same-label", "site-b", 12.0, 16.0),
+        ),
+        storages=(
+            StoragePlan("same-label", "site-a", 5.0, 20.0),
+            StoragePlan("same-label", "site-b", 4.0, 16.0),
+        ),
+    )
+
+    ledger = AssetLedger.empty().register_plan(plan, round_key="2027_jan_jun")
+    materialized = ledger.materialize_plan(plan, horizon=2)
+
+    assert [generator.generator_id for generator in materialized.generators] == [
+        "generator:team-a:site-a",
+        "generator:team-a:site-b",
+    ]
+    assert [storage.storage_id for storage in materialized.storages] == [
+        "storage:team-a:site-a",
+        "storage:team-a:site-b",
+    ]
+    assert ledger.team("team-a").generators["generator:team-a:site-a"].generator_id == "same-label"
+    assert ledger.team("team-a").storages["storage:team-a:site-b"].storage_id == "same-label"
+
+
+def test_site_only_plan_materializes_constant_connection_without_profile() -> None:
+    plan = TeamPlan(
+        team_id="team-a",
+        sites=(SitePlan("site-1", "b0001", 40.0),),
+    )
+
+    materialized = AssetLedger.empty().materialize_plan(plan, horizon=2)
+
+    assert materialized.connections == (
+        ConnectionPlan("site-1", "b0001", 40.0),
+    )
 
 
 def test_materialize_requires_positive_horizon() -> None:

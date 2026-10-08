@@ -26,6 +26,18 @@ def canonical_asset_key(team_id: str, connection_id: str, kind: str) -> str:
     return f"{kind}:{team_id}:{connection_id}"
 
 
+def canonical_asset_keys_for_plan(plan: TeamPlan, *, kind: str) -> frozenset[str]:
+    """Return declared team/site identities, including site-only assets."""
+    _, generators, storages = _plan_components(plan)
+    assets = generators if kind == "generator" else storages if kind == "storage" else None
+    if assets is None:
+        raise ValueError(f"unsupported asset kind: {kind}")
+    return frozenset(
+        canonical_asset_key(plan.team_id, asset.connection_id, kind)
+        for asset in assets.values()
+    )
+
+
 def _canonical_asset_key(team_id: str, connection_id: str, kind: str) -> str:
     return canonical_asset_key(team_id, connection_id, kind)
 
@@ -192,12 +204,12 @@ class AssetLedger:
         """
         if not round_key or not round_key.strip():
             raise AssetStateError("round_key must be a non-empty string")
-        connections = _unique_connections(plan.connections)
+        connections, declared_generators, declared_storages = _plan_components(plan)
         current = self.teams.get(plan.team_id, TeamAssetState(team_id=plan.team_id))
         generators = current.generators.canonical_dict()
         storages = current.storages.canonical_dict()
 
-        for generator in _unique_assets(plan.generators, kind="generator").values():
+        for generator in declared_generators.values():
             connection = _connection_for_asset(connections, generator.connection_id)
             candidate = _generator_asset(plan.team_id, generator, connection)
             previous = generators.get(candidate.asset_key)
@@ -207,7 +219,7 @@ class AssetLedger:
                 )
             generators[candidate.asset_key] = candidate
 
-        for storage in _unique_assets(plan.storages, kind="storage").values():
+        for storage in declared_storages.values():
             connection = _connection_for_asset(connections, storage.connection_id)
             asset_key = _canonical_asset_key(plan.team_id, storage.connection_id, "storage")
             previous = storages.get(asset_key)
@@ -249,10 +261,10 @@ class AssetLedger:
         if isinstance(horizon, bool) or not isinstance(horizon, int) or horizon <= 0:
             raise AssetStateError("horizon must be a positive integer")
 
-        connections = _unique_connections(plan.connections)
+        connections, declared_generators, declared_storages = _plan_components(plan)
         current = self.teams.get(plan.team_id, TeamAssetState(team_id=plan.team_id))
-        current_generators = _unique_assets(plan.generators, kind="generator")
-        current_storages = _unique_assets(plan.storages, kind="storage")
+        current_generators = declared_generators
+        current_storages = declared_storages
 
         for generator in current_generators.values():
             connection = _connection_for_asset(connections, generator.connection_id)
@@ -329,6 +341,9 @@ class AssetLedger:
                     energy_mwh=asset.energy_mwh,
                     initial_state_of_charge_mwh=asset.state_of_charge_mwh,
                 )
+
+        generators = _canonicalize_generator_ids(generators)
+        storages = _canonicalize_storage_ids(storages)
 
         return TeamPlan(
             team_id=plan.team_id,
@@ -452,6 +467,59 @@ def _connection_for_asset(connections: Mapping[str, Any], connection_id: str) ->
         ) from None
 
 
+def _plan_components(
+    plan: TeamPlan,
+) -> tuple[dict[str, ConnectionPlan], dict[str, GeneratorPlan], dict[str, StoragePlan]]:
+    """Normalize legacy connections and site-only plans at the state boundary."""
+    connections = _unique_connections(plan.connections)
+    for site in plan.sites:
+        site_connection = ConnectionPlan(
+            connection_id=site.site_id,
+            bus_id=site.bus_id,
+            capacity_mw=site.connection_capacity_mw,
+        )
+        previous = connections.get(site.site_id)
+        if previous is not None and (
+            previous.bus_id != site_connection.bus_id
+            or previous.capacity_mw != site_connection.capacity_mw
+        ):
+            raise AssetStateError(
+                f"site {site.site_id} conflicts with its persisted connection specification"
+            )
+        connections.setdefault(site.site_id, site_connection)
+
+    generators = list(plan.generators)
+    storages = list(plan.storages)
+    generator_sites = {generator.connection_id for generator in generators}
+    storage_sites = {storage.connection_id for storage in storages}
+    for site in plan.sites:
+        if site.site_id not in generator_sites and site.generator_capacity_mw != 0:
+            generators.append(
+                GeneratorPlan(
+                    generator_id=_canonical_asset_key(plan.team_id, site.site_id, "generator"),
+                    connection_id=site.site_id,
+                    capacity_mw=site.generator_capacity_mw,
+                    marginal_cost_per_mwh=0.0,
+                )
+            )
+        if site.site_id not in storage_sites and (
+            site.storage_power_mw != 0 or site.storage_energy_mwh != 0
+        ):
+            storages.append(
+                StoragePlan(
+                    storage_id=_canonical_asset_key(plan.team_id, site.site_id, "storage"),
+                    connection_id=site.site_id,
+                    power_mw=site.storage_power_mw,
+                    energy_mwh=site.storage_energy_mwh,
+                )
+            )
+    return (
+        connections,
+        _unique_assets(tuple(generators), kind="generator"),
+        _unique_assets(tuple(storages), kind="storage"),
+    )
+
+
 def _unique_connections(connections: tuple[Any, ...]) -> dict[str, Any]:
     indexed: dict[str, Any] = {}
     for connection in connections:
@@ -474,6 +542,51 @@ def _unique_assets(assets: tuple[Any, ...], *, kind: str) -> dict[str, Any]:
             raise AssetStateError(f"duplicate {kind} asset at connection site: {site_id}")
         indexed[site_id] = asset
     return indexed
+
+
+def _canonicalize_generator_ids(
+    generators: Mapping[str, GeneratorPlan],
+) -> dict[str, GeneratorPlan]:
+    label_counts: dict[str, int] = {}
+    for generator in generators.values():
+        label_counts[generator.generator_id] = label_counts.get(generator.generator_id, 0) + 1
+    result = {}
+    for asset_key, generator in generators.items():
+        evaluator_id = (
+            generator.generator_id
+            if label_counts[generator.generator_id] == 1 and generator.generator_id not in generators
+            else asset_key
+        )
+        result[asset_key] = GeneratorPlan(
+            generator_id=evaluator_id,
+            connection_id=generator.connection_id,
+            capacity_mw=generator.capacity_mw,
+            marginal_cost_per_mwh=generator.marginal_cost_per_mwh,
+        )
+    return result
+
+
+def _canonicalize_storage_ids(
+    storages: Mapping[str, StoragePlan],
+) -> dict[str, StoragePlan]:
+    label_counts: dict[str, int] = {}
+    for storage in storages.values():
+        label_counts[storage.storage_id] = label_counts.get(storage.storage_id, 0) + 1
+    result = {}
+    for asset_key, storage in storages.items():
+        evaluator_id = (
+            storage.storage_id
+            if label_counts[storage.storage_id] == 1 and storage.storage_id not in storages
+            else asset_key
+        )
+        result[asset_key] = StoragePlan(
+            storage_id=evaluator_id,
+            connection_id=storage.connection_id,
+            power_mw=storage.power_mw,
+            energy_mwh=storage.energy_mwh,
+            initial_state_of_charge_mwh=storage.initial_state_of_charge_mwh,
+        )
+    return result
 
 
 def _asset_label(asset: Any) -> str:

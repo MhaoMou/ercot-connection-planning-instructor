@@ -142,7 +142,8 @@ def evaluate_plan_with_prepared_dcopf(
     peak-shaving schedule.
 
     Connection ``bus_id`` values must be source-artifact bus IDs. A connection
-    contributes ``capacity_mw * profile[t]`` to its bus demand. Student
+    contributes ``capacity_mw * profile[t]`` to its bus demand, or constant
+    ``capacity_mw`` when its legacy-compatible profile is empty. Student
     generators are local candidate generators at the corresponding connection
     bus. Their aggregate capacity is capped by the team's local net load at
     that bus in each requested period. This is an adapter-level contract; it
@@ -254,9 +255,7 @@ def evaluate_plans_with_prepared_dcopf(
         aggregate_demand: dict[str, float] = {}
         for plan in ordered_plans:
             for connection in ordered_connections_by_team[plan.team_id]:
-                if period_index < 0 or period_index >= len(connection.profile):
-                    raise ValueError(f"connection {connection.connection_id} profile is too short for period {period_index}")
-                amount = connection.capacity_mw * connection.profile[period_index]
+                amount = _connection_load(connection, period_index)
                 base_demand_by_team[plan.team_id][connection.bus_id] = (
                     base_demand_by_team[plan.team_id].get(connection.bus_id, 0.0) + amount
                 )
@@ -372,12 +371,19 @@ def _connection_load_by_bus(
 ) -> dict[str, float]:
     demand_by_bus: dict[str, float] = {}
     for connection in connections:
-        if period_index < 0 or period_index >= len(connection.profile):
-            raise ValueError(f"connection {connection.connection_id} profile is too short for period {period_index}")
-        demand_by_bus[connection.bus_id] = demand_by_bus.get(connection.bus_id, 0.0) + (
-            connection.capacity_mw * connection.profile[period_index]
-        )
+        amount = _connection_load(connection, period_index)
+        demand_by_bus[connection.bus_id] = demand_by_bus.get(connection.bus_id, 0.0) + amount
     return demand_by_bus
+
+
+def _connection_load(connection: ConnectionPlan, period_index: int) -> float:
+    if period_index < 0:
+        raise ValueError(f"connection {connection.connection_id} profile is too short for period {period_index}")
+    if not connection.profile:
+        return connection.capacity_mw
+    if period_index >= len(connection.profile):
+        raise ValueError(f"connection {connection.connection_id} profile is too short for period {period_index}")
+    return connection.capacity_mw * connection.profile[period_index]
 
 
 def _student_generators(
@@ -433,9 +439,7 @@ def _storage_schedule(
     connection_by_id = {connection.connection_id: connection for connection in connections}
     load_by_connection = {
         connection.connection_id: {
-            period: connection.capacity_mw * connection.profile[period]
-            if period < len(connection.profile)
-            else (_raise_profile_length(connection, period))
+            period: _connection_load(connection, period)
             for period in period_indices
         }
         for connection in connections
@@ -501,10 +505,6 @@ def _storage_schedule(
             "soc": soc_by_period,
         }
     return result
-
-
-def _raise_profile_length(connection: ConnectionPlan, period_index: int) -> float:
-    raise ValueError(f"connection {connection.connection_id} profile is too short for period {period_index}")
 
 
 def _idle_storage_schedule(

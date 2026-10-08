@@ -9,7 +9,7 @@ from ercot_game.asset_state import AssetStateError
 from ercot_game.game_state import GameState
 from ercot_game.game_state_store import GameStateStore
 from ercot_game.batch_evaluation import CapitalCostScope
-from ercot_game.models import ConnectionPlan, GeneratorPlan, StoragePlan, TeamPlan
+from ercot_game.models import ConnectionPlan, GeneratorPlan, SitePlan, StoragePlan, TeamPlan
 from ercot_game import round_coordinator
 from ercot_game.round_coordinator import RoundCoordinatorError, evaluate_round
 
@@ -572,8 +572,37 @@ def test_reusing_label_at_new_site_charges_capital_cost_for_new_asset(tmp_path) 
     )
 
     assert seen["capital_cost_scope"] == CapitalCostScope(
-        generator_ids_by_team={"team-a": {"gen-old"}},
+        generator_ids_by_team={"team-a": {"generator:team-a:site-new"}},
         storage_ids_by_team={"team-a": {"store-old"}},
+    )
+
+
+def test_site_only_plan_uses_site_cost_scope_and_constant_materialized_load(tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    plan = TeamPlan(
+        team_id="team-a",
+        sites=(SitePlan("site-1", "b0001", 40.0),),
+    )
+    seen: dict[str, object] = {}
+
+    def evaluator(*args, **kwargs):
+        seen.update(kwargs)
+        return _UsableEvaluation()
+
+    evaluate_round(
+        state_path=state_path,
+        round_key="2027_jan_jun",
+        submissions=tmp_path / "submissions",
+        artifact_dir=tmp_path / "artifacts",
+        horizon=2,
+        rules=object(),
+        plan_loader=_loader((plan,)),
+        evaluator=evaluator,
+    )
+
+    assert seen["site_cost_connection_count_by_team"] == {"team-a": 1}
+    assert seen["plan_overrides"]["team-a"].connections == (
+        ConnectionPlan("site-1", "b0001", 40.0),
     )
 
 

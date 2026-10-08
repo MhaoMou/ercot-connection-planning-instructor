@@ -16,7 +16,11 @@ from .batch_evaluation import (
     _collect_evaluation_inputs,
     evaluate_csv_batch,
 )
-from .asset_state import AssetStateError, canonical_asset_key
+from .asset_state import (
+    AssetStateError,
+    canonical_asset_key,
+    canonical_asset_keys_for_plan,
+)
 from .calendars import weekly_match_for
 from .csv_submission import load_bus_ids
 from .game_state import GameState
@@ -118,6 +122,7 @@ def evaluate_round(
             plan,
             horizon=horizon,
         )
+        materialized = materialized_plans[plan.team_id]
         prior_team = prior_state.asset_ledger.teams.get(plan.team_id)
         prior_generator_keys = (
             frozenset(asset.asset_key for asset in prior_team.generators.values())
@@ -129,17 +134,25 @@ def evaluate_round(
             if prior_team is not None
             else frozenset()
         )
+        materialized_generator_ids = {
+            canonical_asset_key(plan.team_id, generator.connection_id, "generator"): generator.generator_id
+            for generator in materialized.generators
+        }
+        materialized_storage_ids = {
+            canonical_asset_key(plan.team_id, storage.connection_id, "storage"): storage.storage_id
+            for storage in materialized.storages
+        }
+        declared_generator_keys = canonical_asset_keys_for_plan(plan, kind="generator")
+        declared_storage_keys = canonical_asset_keys_for_plan(plan, kind="storage")
         new_generators = frozenset(
-            generator.generator_id
-            for generator in plan.generators
-            if canonical_asset_key(plan.team_id, generator.connection_id, "generator")
-            not in prior_generator_keys
+            materialized_generator_ids[asset_key]
+            for asset_key in declared_generator_keys
+            if asset_key not in prior_generator_keys
         )
         new_storages = frozenset(
-            storage.storage_id
-            for storage in plan.storages
-            if canonical_asset_key(plan.team_id, storage.connection_id, "storage")
-            not in prior_storage_keys
+            materialized_storage_ids[asset_key]
+            for asset_key in declared_storage_keys
+            if asset_key not in prior_storage_keys
         )
         if new_generators:
             new_generator_ids[plan.team_id] = new_generators
@@ -158,7 +171,7 @@ def evaluate_round(
             storage_ids_by_team=new_storage_ids,
         ),
         "site_cost_connection_count_by_team": {
-            plan.team_id: len(plan.connections)
+            plan.team_id: len(plan.connections) if plan.connections else len(plan.sites)
             for plan in plans
         },
     }
