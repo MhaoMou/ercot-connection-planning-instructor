@@ -1,0 +1,24 @@
+{
+  "accepted_submissions": [
+    {"failure_reason": null, "identity_is_fallback": false, "input_sha256": "030ac6e7c15d9060d2135e03ff613e299174686e625cbbac1662bbf6eb5a163b", "source_filename": "sim-04-r01-team-01.csv", "submission_id": "sim-04-r01", "team_id": "sim-04-r01-team-01", "valid": true},
+    {"failure_reason": null, "identity_is_fallback": false, "input_sha256": "9537b7a7aab8a772847cf6b3d5e4fa9c87bb13c64db23fffd51fc8e3a0ef68bd", "source_filename": "sim-04-r01-team-02.csv", "submission_id": "sim-04-r01", "team_id": "sim-04-r01-team-02", "valid": true},
+    {"failure_reason": null, "identity_is_fallback": false, "input_sha256": "e4f63ee63cbb88142e111f913eddf5994bf3325c8f8bc7e4c9c4794c7379fdd4", "source_filename": "sim-04-r01-team-03.csv", "submission_id": "sim-04-r01", "team_id": "sim-04-r01-team-03", "valid": true},
+    {"failure_reason": null, "identity_is_fallback": false, "input_sha256": "ea6a317468b2ef8d62518e7beb04717b37c50405b94eff095615ce8c9653e9c6", "source_filename": "sim-04-r01-team-04.csv", "submission_id": "sim-04-r01", "team_id": "sim-04-r01-team-04", "valid": true}
+  ],
+  "competition_scope": "joint",
+  "evaluator_version": "0.3.0",
+  "isolation_events": [{"attempted_team_ids": ["sim-04-r01-team-01", "sim-04-r01-team-02", "sim-04-r01-team-03", "sim-04-r01-team-04"], "outcome": "joint_feasible", "reason": "joint dispatch feasible", "removed_team_id": null}],
+  "period_count": 4368,
+  "period_end": 4367,
+  "period_start": 0,
+  "rejected_submissions": [],
+  "rules_version": "dispatch-scoring-jan_jun-v1",
+  "run_id": "32d90150f920fd702d26e33cce399284920e85a0b7ddfa32b97df96beb4fe47c",
+  "scenario_version": "jan_jun",
+  "team_scores": [
+    {"team_id": "sim-04-r01-team-03", "rank": 1, "valid": true, "feasible": true, "score": 4389875.938805681, "served_load_mwh": 41318.877599999934, "it_value": 5164859.700000084, "energy_cost": 724983.7611944032, "generator_operating_cost": 0.0, "generator_capital_cost": 0.0, "site_cost": 50000.0, "storage_capital_cost": 0.0, "storage_operating_cost": 0.0, "competition_scope": "joint", "failure_reason": null},
+    {"team_id": "sim-04-r01-team-01", "rank": 2, "valid": true, "feasible": true, "score": 4164864.23457432, "served_load_mwh": 41599.9584000004, "it_value": 5199994.79999998, "energy_cost": 467665.18894567376, "generator_operating_cost": 226850.37647998746, "generator_capital_cost": 290615.0, "site_cost": 50000.0, "storage_capital_cost": 0.0, "storage_operating_cost": 0.0, "competition_scope": "joint", "failure_reason": null},
+    {"team_id": "sim-04-r01-team-04", "rank": 3, "valid": true, "feasible": true, "score": 2657653.192728321, "served_load_mwh": 26779.334400000378, "it_value": 3347416.8000000454, "energy_cost": 301047.1039757062, "generator_operating_cost": 151631.50329601788, "generator_capital_cost": 187085.0, "site_cost": 50000.0, "storage_capital_cost": 0.0, "storage_operating_cost": 0.0, "competition_scope": "joint", "failure_reason": null},
+    {"team_id": "sim-04-r01-team-02", "rank": 4, "valid": true, "feasible": true, "score": 2382569.9377585263, "served_load_mwh": 40279.73040000044, "it_value": 5034966.299999954, "energy_cost": 706971.8422414277, "generator_operating_cost": 0.0, "generator_capital_cost": 0.0, "site_cost": 50000.0, "storage_capital_cost": 1892000.0000000002, "storage_operating_cost": 3424.520000000008, "competition_scope": "joint", "failure_reason": null}
+  ]
+}

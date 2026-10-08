@@ -1,0 +1,36 @@
+{
+  "cohort_size": 4,
+  "repetition": 1,
+  "horizon": 4368,
+  "seed": 20261409,
+  "teams": [
+    {
+      "team_id": "sim-04-r01-team-01",
+      "bus_id": "7108",
+      "generator_id": "g0382",
+      "storage_id": null,
+      "base_load_mw": 9.768
+    },
+    {
+      "team_id": "sim-04-r01-team-02",
+      "bus_id": "2116",
+      "generator_id": null,
+      "storage_id": "sim-04-r01-team-02-storage",
+      "base_load_mw": 9.458
+    },
+    {
+      "team_id": "sim-04-r01-team-03",
+      "bus_id": "5383",
+      "generator_id": null,
+      "storage_id": null,
+      "base_load_mw": 9.702
+    },
+    {
+      "team_id": "sim-04-r01-team-04",
+      "bus_id": "7376",
+      "generator_id": "g0472",
+      "storage_id": null,
+      "base_load_mw": 6.288
+    }
+  ]
+}

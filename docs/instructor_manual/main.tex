@@ -1,0 +1,363 @@
+\documentclass[12pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{newtxtext,newtxmath}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{microtype}
+\usepackage{amsmath,mathtools}
+\usepackage{booktabs,longtable,array,tabularx}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+
+\definecolor{githubink}{HTML}{24292F}
+\definecolor{githubblue}{HTML}{0969DA}
+\definecolor{githubgreen}{HTML}{1A7F37}
+\definecolor{githubgray}{HTML}{57606A}
+\definecolor{codebg}{HTML}{F6F8FA}
+\definecolor{codeborder}{HTML}{D0D7DE}
+\hypersetup{colorlinks=true,linkcolor=githubblue,citecolor=githubblue,urlcolor=githubblue,
+  pdftitle={Instructor Manual: Competitive Data-Center Connection Planning},
+  pdfauthor={Power Systems Course}}
+\lstdefinestyle{githubcode}{basicstyle=\ttfamily\small,backgroundcolor=\color{codebg},
+  frame=single,rulecolor=\color{codeborder},framerule=0.5pt,columns=fullflexible,
+  keepspaces=true,breaklines=true,showstringspaces=false,xleftmargin=0.5em,xrightmargin=0.5em}
+\lstset{style=githubcode}
+\pagestyle{fancy}
+\setlength{\headheight}{15pt}
+\fancyhf{}
+\lhead{Competitive Connection Planning}
+\rhead{Instructor Manual}
+\cfoot{\thepage\ of \pageref{LastPage}}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\MW}{\,\mathrm{MW}}
+\newcommand{\MWh}{\,\mathrm{MWh}}
+\newcommand{\USD}{\$}
+
+\title{\textbf{Instructor Manual}\\[0.4em]
+  \large Competitive Data-Center Connection Planning Game}
+\author{Power Systems Course}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{center}
+\fbox{\parbox{0.91\textwidth}{
+\textbf{Instructor purpose.} This manual explains how to configure, validate,
+evaluate, audit, and discuss the competitive data-center connection-planning
+game. It is the operational companion to the student assignment handout.
+}}
+\end{center}
+\tableofcontents
+\newpage
+
+\section{Instructor overview}
+
+Each group represents a data-center operator. A group chooses connection buses,
+hourly computational load, optional private generation, and optional private
+storage. The instructor collects one long-form CSV per group and evaluates the
+submissions jointly with a fixed-load DC optimal power flow (code{DCOPF}).
+Groups are ranked by their final score.
+
+Students are explicitly encouraged to use AI tools, including ChatGPT, Codex,
+Claude Code, GitHub Copilot, and similar systems. The instructor should grade
+the submitted artifact and the students' engineering explanation, not whether
+students manually typed every line of code. Students remain responsible for
+validating generated code and understanding their plan.
+
+The recommended production workflow is:
+\begin{center}
+\fbox{\parbox{0.84\textwidth}{\centering
+ACTIVSg2000 public model\\
+$\Downarrow$\\
+Validated half-year scenario and hourly economic artifacts\\
+$\Downarrow$\\
+Student CSV collection and format validation\\
+$\Downarrow$\\
+Joint DCOPF evaluation and fair continuous projection\\
+$\Downarrow$\\
+Scores, diagnostics, and protected classroom reporting
+}}
+\end{center}
+
+\section{Production mental model}
+
+The release uses the following distinction:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Public dataset:} the synthetic Texas ACTIVSg2000 topology,
+  buses, branches, generators, status values, PMIN, PMAX, and marginal costs.
+  \item \textbf{Derived scenario:} deterministic bus-level hourly load profiles
+  over six half-year blocks.
+  \item \textbf{Instructional assumptions:} student-owned assets, IT value,
+  capital costs, storage costs, DCOPF settlement, scoring, and fair projection.
+\end{itemize}
+
+The active scenario package contains 2,000 buses, 3,206 branches, and 544
+generator records. ACTIVSg2000 does not provide technology labels or hourly
+availability fields. Therefore the active release uses each active generator's
+dataset status, PMIN, and PMAX in every hour; it does not apply synthetic
+wind/solar derating. The package is not historical ERCOT telemetry, an official
+ERCOT planning model, or a forecast.
+
+\section{Released scenario blocks}
+
+Each round covers one half-year with a one-hour time step.
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+Year & Round & Hours & Periods in CSV\\
+\midrule
+2016 & January--June & 4,368 & $1,\ldots,4368$\\
+2016 & July--December & 4,416 & $1,\ldots,4416$\\
+2017 or 2018 & January--June & 4,344 & $1,\ldots,4344$\\
+2017 or 2018 & July--December & 4,416 & $1,\ldots,4416$\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The released artifacts are under
+\sloppy\code{data/processed/activsg2000\_scenarios\_v1/<year>/<block>}. The root and
+block manifests record validation status, scenario hashes, and artifact
+metadata. A block must report \code{validation\_status: passed} before it is
+used for a classroom round.
+
+\section{Student submission contract}
+
+The active CSV header is:
+\begin{lstlisting}
+team_id,submission_id,period,bus_id,load_mw,generator_id,generator_capacity_mw,storage_id,storage_power_mw,storage_energy_mwh
+\end{lstlisting}
+
+The file is long-form. A team may use one or many buses, and each used bus
+must have one row for every period in the selected half-year. Zero-load rows
+are required when a listed bus is idle. Generator IDs must come from the
+selected block's \code{generator\_limits.csv}; the evaluator takes the
+generator's marginal operating cost from the dataset. Generator and storage
+assets are private to the submitting team and cannot serve another team.
+
+Storage uses MW power capacity and MWh energy capacity. With ideal charging and
+discharging efficiency, the evaluator enforces power and energy bounds, no
+simultaneous charge/discharge, discharge no greater than the stored energy, an
+initial state of charge of at least $0.5B$, and a terminal state of charge of
+at least $0.5B$.
+
+\section{Course operation}
+
+Before the first round, provide students with the student handout, the active
+scenario block, the CSV checker, and the generator catalog. A practical format
+is one submission per group per announced round. The instructor should record
+the selected year/block, deadline, submission directory, rule-file version,
+and a hash of the final input directory.
+
+Recommended sequence:
+\begin{enumerate}[leftmargin=*]
+  \item Explain the data/model distinction and the CSV contract.
+  \item Give groups time to explore candidate buses and resource portfolios.
+  \item Require each group to run the checker before submission.
+  \item Freeze the submission directory at the deadline.
+  \item Run the batch evaluator once on the frozen directory.
+  \item Release scores and aggregate diagnostics without exposing competitors'
+  private plans.
+\end{enumerate}
+
+\section{Instructor command cookbook}
+
+Check one submission:
+\begin{lstlisting}
+ercot-game-check-csv \
+  --file path/to/team.csv \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2016/jan_jun \
+  --year 2016 --round jan_jun
+\end{lstlisting}
+
+Evaluate a frozen round:
+\begin{lstlisting}
+ercot-game-batch run \
+  --submissions-dir work/round_01/submissions \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2016/jan_jun \
+  --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
+  --year 2016 --round jan_jun \
+  --workers 8 --projection-iterations 10 \
+  --output-dir work/round_01/results
+\end{lstlisting}
+
+Validate the complete scenario package:
+\begin{lstlisting}
+PYTHONPATH=.:src python3 tools/activsg2000/validate_scenario_package.py \
+  --package data/processed/activsg2000_scenarios_v1 --workers 6
+\end{lstlisting}
+
+The economic profiles are generated by the module invocation below. The
+module form is intentional because the builder uses package-relative imports:
+\begin{lstlisting}
+PYTHONPATH=.:src python3 -m tools.activsg2000.build_economic_profiles \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2016/jan_jun \
+  --output-dir data/processed/activsg2000_scenarios_v1/2016/jan_jun
+\end{lstlisting}
+
+\section{Evaluation and joint infeasibility}
+
+Malformed files are rejected independently so that valid teams remain eligible
+for evaluation. A valid plan may be feasible alone but infeasible when all
+teams are dispatched together. In that case, the evaluator computes the largest
+common $\alpha\in[0,1]$ such that every valid team's load multiplied by $\alpha$
+can be served jointly. This is the fair continuous projection. Submitted asset
+costs remain part of the score, while served-load value and energy costs reflect
+the projected load. The output records the projection scope and fraction.
+
+If a common projected dispatch cannot be found, the evaluator records
+deterministic leave-one-team-out and individual fallback attempts where
+possible. This prevents one invalid or excessively large submission from
+silently erasing the scores of otherwise valid teams.
+
+\section{Scoring model}
+
+At a high level, a team's score is:
+\[
+\text{IT value}
+-\text{energy purchase cost}
+-\text{generator operating cost}
+-\text{generator capital cost}
+-\text{storage capital cost}
+-\text{storage operating cost}
+-\text{site cost}.
+\]
+
+Energy purchase cost uses the validated baseline DCOPF LMP at the selected bus
+and hour. The six released LMP artifacts are stored as deterministic NPZ
+matrices with one row per hour and one column per bus. Raw balance duals are
+retained for audit, while nonnegative LMPs are used for scoring. IT value is a
+complete full-horizon vector supplied in the corresponding economic-profile
+JSON. These prices are instructional model outputs, not official ERCOT market
+prices.
+
+\section{Concrete multi-team example}
+
+The complete example package is in
+\code{docs/instructor\_manual/examples/multi\_team\_round/}. It was generated
+from the current 2016 January--June ACTIVSg2000 block, not from the retired
+3000-series prototype. It contains four valid teams, complete 4,368-hour CSV
+files, a copy of the exact scoring rules, the leaderboard, compact evaluation
+metadata, and representative diagnostics. The full raw evaluation record is
+not checked into the repository because it is very large.
+
+\subsection{CSV excerpt}
+
+The complete files contain 4,368 rows per used bus. The following excerpt shows
+the exact active header and the first rows of a multi-site cohort; the PDF uses
+an excerpt only to remain readable.
+\begin{lstlisting}
+team_id,submission_id,period,bus_id,load_mw,generator_id,generator_capacity_mw,storage_id,storage_power_mw,storage_energy_mwh
+sim-04-r01-team-01,sim-04-r01,1,7108,9.523800,g0382,3.419000,,,
+sim-04-r01-team-01,sim-04-r01,2,7108,9.713411,g0382,3.419000,,,
+sim-04-r01-team-02,sim-04-r01,1,2116,9.221550,,,sim-04-r01-team-02-storage,2.365000,4.730000
+sim-04-r01-team-02,sim-04-r01,2,2116,9.405143,,,sim-04-r01-team-02-storage,2.365000,4.730000
+sim-04-r01-team-03,sim-04-r01,1,5383,9.459450,,,,,
+sim-04-r01-team-04,sim-04-r01,1,7376,6.130800,g0472,2.201000,,,
+\end{lstlisting}
+
+In the actual generated files, the team IDs, bus IDs, generator IDs, and
+capacities are taken from the current 2,000-bus artifact. Team 2 demonstrates
+private storage; Teams 1 and 4 demonstrate private generation; Team 3 is
+grid-only. The same resource metadata is repeated on each period row for that
+team/site so that the long-form file is self-contained.
+
+\subsection{Example score report}
+
+The following table is populated from the exact generated leaderboard and is
+not a hand-selected score illustration:
+\begin{center}
+\IfFileExists{example_score_table.tex}{\input{example_score_table.tex}}{
+\small
+\begin{tabular}{r l r r r r r}
+\toprule
+Rank & Team & Served load (MWh) & IT value (USD) & Energy cost (USD) & Asset/storage cost (USD) & Score (USD)\\
+\midrule
+1 & team-03 & 41,318.88 & 5,164,859.70 & 724,983.76 & 50,000.00 & 4,389,875.94\\
+2 & team-01 & 41,599.96 & 5,199,994.80 & 467,665.19 & 567,465.38 & 4,164,864.23\\
+3 & team-04 & 26,779.33 & 3,347,416.80 & 301,047.10 & 388,716.50 & 2,657,653.19\\
+4 & team-02 & 40,279.73 & 5,034,966.30 & 706,971.84 & 1,945,424.52 & 2,382,569.94\\
+\bottomrule
+\end{tabular}
+}
+\end{center}
+
+The decomposition should be read together with the compact
+\code{evaluation\_summary.json} and the exact \code{leaderboard.csv}. In a
+live instructor run, retain the complete raw evaluation record separately. In
+particular, a large served-load value can improve
+IT revenue while increasing locational energy cost; storage can reduce or shift
+energy purchases but adds power-capacity, energy-capacity, and operating costs.
+
+\subsection{Artifacts to inspect}
+\begin{itemize}[leftmargin=*]
+  \item \code{leaderboard.csv}: rank, feasibility, score, and major cost/value fields;
+  \item \code{submission\_manifest.csv}: input validity and SHA-256 hashes;
+  \item \code{evaluation\_summary.json}: compact run metadata, accepted teams,
+  projection outcome, and per-team scores;
+  \item \code{diagnostic\_team\_01.json}: one representative team-level
+  diagnostic record;
+  \item \code{dispatch\_period\_0.json}: one representative dispatch record;
+  \item \code{rules/dispatch\_scoring\_rules\_jan\_jun\_v1.json}: the exact
+  rule file used by the run;
+  \item \code{evaluation\_sha256.txt}: hash of the evaluation record.
+\end{itemize}
+
+\section{Privacy and classroom reporting}
+
+Keep raw CSVs, per-team diagnostics, bus selections, generator capacities,
+storage capacities, and hourly profiles instructor-only. Student-facing results
+may include each team's own score, rank, feasibility status, aggregate served
+load, common projection fraction, and anonymized network-level summaries.
+Avoid publishing a map that lets one group reconstruct another group's exact
+sites or resource portfolio. When showing a network figure, aggregate loads by
+region or use anonymized selected-resource markers.
+
+\section{Reproducibility and release audit}
+
+Before release, verify:
+\begin{itemize}[leftmargin=*]
+  \item all six scenario blocks report 26,304 total passed hourly states;
+  \item every economic-profile NPZ hash matches its manifest;
+  \item the chosen rule file and scenario block match the round announcement;
+  \item a dry-run CSV passes the checker and batch evaluator;
+  \item the output directory contains the leaderboard, manifest, evaluation
+  record, diagnostics, and hashes;
+  \item the frozen submission directory is archived before any feedback is released.
+\end{itemize}
+
+\section{Troubleshooting}
+
+\begin{description}[leftmargin=2.2cm,style=nextline]
+  \item[Malformed CSV] Run the checker and return the error to the CSV-format
+  section of the student handout. Do not repair a student's file silently.
+  \item[Unknown bus or generator] Confirm that the IDs come from the selected
+  half-year artifact, not from a retired prototype.
+  \item[Incomplete horizon] Check that every listed bus has one row for every
+  period in the selected block.
+  \item[Joint infeasibility] Inspect projection metadata and binding diagnostics.
+  A valid team may still receive a projected score.
+  \item[Missing economic profile] Confirm that the selected block contains
+  \code{economic\_profiles.npz}, \code{economic\_profile.json}, and its
+  manifest, and that the manifest hash matches.
+\end{description}
+
+\section{Instructor checklist}
+
+\begin{enumerate}[leftmargin=*]
+  \item Select the year, round, rule file, and deadline.
+  \item Publish the student handout and checker.
+  \item Freeze and hash the submission directory.
+  \item Run format validation and the full batch evaluation.
+  \item Inspect valid/invalid counts, projection scope, and diagnostics.
+  \item Release protected summaries and retain the complete instructor archive.
+\end{enumerate}
+
+\bibliographystyle{plain}
+\bibliography{references}
+\end{document}
