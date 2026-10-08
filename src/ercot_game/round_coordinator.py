@@ -45,12 +45,9 @@ def _default_plan_loader(
         )
     except (OSError, ValueError) as exc:
         raise RoundCoordinatorError(f"could not validate round submissions: {exc}") from exc
-    if collection.rejected:
-        reasons = "; ".join(
-            f"{record.team_id}: {record.failure_reason or 'submission rejected'}"
-            for record in collection.rejected
-        )
-        raise RoundCoordinatorError(f"rejected submissions: {reasons}")
+    # Keep only accepted plans.  The batch evaluator deliberately isolates
+    # malformed submissions so valid teams can still be evaluated; rejected
+    # records must not enter the persistent asset ledger.
     return tuple(
         record.submission.plan
         for record in collection.accepted
@@ -103,11 +100,10 @@ def evaluate_round(
         rules=rules,
         **kwargs,
     )
-    rejected = getattr(evaluation, "rejected_submissions", ())
-    if rejected:
-        raise RoundCoordinatorError(
-            "evaluation returned rejected submissions; state was not committed"
-        )
+    # Rejected files are isolated by the existing batch evaluator.  They must
+    # not prevent valid teams from receiving a result or having their accepted
+    # assets committed; only the accepted plans returned by the plan loader
+    # enter the ledger.
     if getattr(evaluation, "dispatch", None) is None:
         raise RoundCoordinatorError(
             "evaluation did not return a usable dispatch result; state was not committed"

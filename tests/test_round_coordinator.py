@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import pytest
 
@@ -8,6 +9,7 @@ from ercot_game.asset_state import AssetStateError
 from ercot_game.game_state import GameState
 from ercot_game.game_state_store import GameStateStore
 from ercot_game.models import ConnectionPlan, GeneratorPlan, TeamPlan
+from ercot_game import round_coordinator
 from ercot_game.round_coordinator import RoundCoordinatorError, evaluate_round
 
 
@@ -126,9 +128,9 @@ def test_asset_conflict_does_not_change_existing_state(tmp_path) -> None:
 
 def test_rejected_result_does_not_commit_state(tmp_path) -> None:
     state_path = tmp_path / "state.json"
-    rejected = _UsableEvaluation(rejected_submissions=(object(),))
+    rejected = _UsableEvaluation(rejected_submissions=(object(),), dispatch=None)
 
-    with pytest.raises(RoundCoordinatorError, match="rejected submissions"):
+    with pytest.raises(RoundCoordinatorError, match="usable dispatch"):
         evaluate_round(
             state_path=state_path,
             round_key="2027_jan_jun",
@@ -141,3 +143,64 @@ def test_rejected_result_does_not_commit_state(tmp_path) -> None:
         )
 
     assert not state_path.exists()
+
+
+def test_valid_teams_commit_when_rejected_team_is_isolated(tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    evaluation = _UsableEvaluation(rejected_submissions=(object(),))
+
+    result = evaluate_round(
+        state_path=state_path,
+        round_key="2027_jan_jun",
+        submissions=tmp_path / "submissions",
+        artifact_dir=tmp_path / "artifacts",
+        horizon=1,
+        rules=object(),
+        plan_loader=_loader((_plan(),)),
+        evaluator=lambda *args, **kwargs: evaluation,
+    )
+
+    assert result.state.current_round_key == "2027_jan_jun"
+    assert GameStateStore(state_path).load().current_round_key == "2027_jan_jun"
+
+
+def test_valid_teams_commit_even_when_evaluation_reports_rejected_team(tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    rejected = _UsableEvaluation(rejected_submissions=(object(),))
+
+    result = evaluate_round(
+        state_path=state_path,
+        round_key="2027_jan_jun",
+        submissions=tmp_path / "submissions",
+        artifact_dir=tmp_path / "artifacts",
+        horizon=1,
+        rules=object(),
+        plan_loader=lambda *args, **kwargs: (_plan(),),
+        evaluator=lambda *args, **kwargs: rejected,
+    )
+
+    assert result.state.current_round_key == "2027_jan_jun"
+    assert GameStateStore(state_path).load().current_round_key == "2027_jan_jun"
+
+
+def test_default_plan_loader_keeps_accepted_plans_when_one_file_is_rejected(monkeypatch, tmp_path) -> None:
+    accepted = SimpleNamespace(submission=SimpleNamespace(plan=_plan()))
+    rejected = SimpleNamespace(team_id="team-b", failure_reason="bad CSV")
+    monkeypatch.setattr(round_coordinator, "load_bus_ids", lambda _path: frozenset({"b0001"}))
+    monkeypatch.setattr(
+        round_coordinator,
+        "_collect_evaluation_inputs",
+        lambda *args, **kwargs: SimpleNamespace(
+            accepted=(accepted,),
+            rejected=(rejected,),
+        ),
+    )
+
+    plans = round_coordinator._default_plan_loader(
+        tmp_path / "submissions",
+        artifact_dir=tmp_path / "artifacts",
+        horizon=1,
+        rules=SimpleNamespace(default_generator_cost_per_mwh=16.0),
+    )
+
+    assert plans == (_plan(),)

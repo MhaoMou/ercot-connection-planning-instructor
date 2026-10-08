@@ -74,7 +74,9 @@ single-half-year evaluator. It:
    behavior; and
 5. saves the advanced state only after a usable dispatch result is returned.
 
-Validation failures, asset conflicts, evaluator exceptions, rejected
-submissions, and unusable dispatch results do not overwrite the prior state
-file. The existing `evaluate_csv_batch()` API remains unchanged; this
-coordinator is an opt-in multi-round wrapper.
+Plan-loader validation failures, asset conflicts, evaluator exceptions, and
+unusable dispatch results do not overwrite the prior state file. Individual
+rejected submissions remain isolated by the existing batch evaluator; valid
+teams can still be evaluated and their accepted assets committed. The
+existing `evaluate_csv_batch()` API remains unchanged; this coordinator is an
+opt-in multi-round wrapper.
