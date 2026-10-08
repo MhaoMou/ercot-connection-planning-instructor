@@ -34,3 +34,19 @@ This stage does not yet:
 Those behaviors belong to later stages and will consume this versioned state
 contract. Keeping the contract separate first prevents asset persistence from
 changing current single-round results accidentally.
+
+## Stage 2: ordered game state
+
+`GameState` now wraps the ledger with the released round sequence:
+
+```text
+2027_jan_jun -> 2027_jul_dec ->
+2028_jan_jun -> 2028_jul_dec ->
+2029_jan_jun -> 2029_jul_dec
+```
+
+Calling `advance(round_key, plans)` registers that round's plans and returns a
+new state. The transition is rejected if a round is skipped, repeated, moved
+backward, or outside the released `2027`--`2029` package. The state can be
+saved and restored with `to_dict()` and `from_dict()`; later evaluator stages
+will use this boundary to load the prior round's team assets before dispatch.
