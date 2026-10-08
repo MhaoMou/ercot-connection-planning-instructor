@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+from numbers import Real
 from pathlib import Path
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -50,6 +51,10 @@ class BatchDispatchResult:
     team_ids: tuple[str, ...]
     periods: tuple[BatchPeriodResult, ...]
     service_fraction_by_team: dict[str, float] | None = None
+
+
+def _is_finite_number(value: object) -> bool:
+    return isinstance(value, Real) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def _validate_period_indices(period_indices: tuple[int, ...]) -> None:
@@ -105,14 +110,13 @@ def _validate_plan(
     for storage in plan.storages:
         if storage.connection_id not in connection_by_id:
             raise ValueError(f"storage {storage.storage_id} references unknown connection")
-        if isinstance(storage.power_mw, bool) or not math.isfinite(storage.power_mw) or storage.power_mw <= 0:
+        if not _is_finite_number(storage.power_mw) or storage.power_mw <= 0:
             raise ValueError(f"storage {storage.storage_id} power must be finite and positive")
-        if isinstance(storage.energy_mwh, bool) or not math.isfinite(storage.energy_mwh) or storage.energy_mwh <= 0:
+        if not _is_finite_number(storage.energy_mwh) or storage.energy_mwh <= 0:
             raise ValueError(f"storage {storage.storage_id} energy must be finite and positive")
         if storage.initial_state_of_charge_mwh is not None:
             if (
-                isinstance(storage.initial_state_of_charge_mwh, bool)
-                or not math.isfinite(storage.initial_state_of_charge_mwh)
+                not _is_finite_number(storage.initial_state_of_charge_mwh)
                 or storage.initial_state_of_charge_mwh < storage.energy_mwh * 0.5
                 or storage.initial_state_of_charge_mwh > storage.energy_mwh
             ):
@@ -536,12 +540,15 @@ def _idle_storage_entry(
 
 
 def _initial_storage_soc(storage) -> float:
+    if not _is_finite_number(storage.power_mw) or storage.power_mw <= 0:
+        raise ValueError(f"storage {storage.storage_id} power must be finite and positive")
+    if not _is_finite_number(storage.energy_mwh) or storage.energy_mwh <= 0:
+        raise ValueError(f"storage {storage.storage_id} energy must be finite and positive")
     initial = storage.initial_state_of_charge_mwh
     if initial is None:
         return storage.energy_mwh * 0.5
     if (
-        isinstance(initial, bool)
-        or not math.isfinite(initial)
+        not _is_finite_number(initial)
         or initial < storage.energy_mwh * 0.5
         or initial > storage.energy_mwh
     ):

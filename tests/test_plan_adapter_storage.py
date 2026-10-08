@@ -80,10 +80,68 @@ def test_plan_validation_rejects_boolean_storage_dimensions(field, message_field
         _validate_plan(plan)
 
 
+@pytest.mark.parametrize(
+    ("field", "message"),
+    (
+        ("power_mw", "storage store power must be finite and positive"),
+        ("energy_mwh", "storage store energy must be finite and positive"),
+        ("initial_state_of_charge_mwh", "initial state of charge"),
+    ),
+)
+def test_plan_validation_rejects_nonnumeric_storage_values(field, message) -> None:
+    values = {
+        "power_mw": 2.0,
+        "energy_mwh": 20.0,
+        "initial_state_of_charge_mwh": 16.0,
+    }
+    values[field] = "not-a-number"
+    plan = TeamPlan(
+        team_id="team-a",
+        connections=(ConnectionPlan("site", "b0001", 10.0, (1.0,)),),
+        storages=(StoragePlan(
+            "store",
+            "site",
+            values["power_mw"],
+            values["energy_mwh"],
+            values["initial_state_of_charge_mwh"],
+        ),),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        _validate_plan(plan)
+
+
 def test_initial_soc_helper_rejects_boolean_initial_soc() -> None:
     storage = StoragePlan("store", "site", 2.0, 1.0, True)
 
     with pytest.raises(ValueError, match="initial state of charge"):
+        _initial_storage_soc(storage)
+
+
+@pytest.mark.parametrize(
+    ("field", "message"),
+    (
+        ("power_mw", "storage store power must be finite and positive"),
+        ("energy_mwh", "storage store energy must be finite and positive"),
+        ("initial_state_of_charge_mwh", "initial state of charge"),
+    ),
+)
+def test_initial_soc_helper_rejects_nonnumeric_storage_values(field, message) -> None:
+    values = {
+        "power_mw": 2.0,
+        "energy_mwh": 20.0,
+        "initial_state_of_charge_mwh": 16.0,
+    }
+    values[field] = "not-a-number"
+    storage = StoragePlan(
+        "store",
+        "site",
+        values["power_mw"],
+        values["energy_mwh"],
+        values["initial_state_of_charge_mwh"],
+    )
+
+    with pytest.raises(ValueError, match=message):
         _initial_storage_soc(storage)
 
 
