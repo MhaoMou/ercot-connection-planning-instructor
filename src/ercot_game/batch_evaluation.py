@@ -802,7 +802,7 @@ def _relabel_dispatch_periods(
 
 
 def _scaled_plan(plan: TeamPlan, alpha: float) -> TeamPlan:
-    """Scale each team's requested load continuously for fair projection."""
+    """Scale a team's load while keeping canonical and legacy site views equal."""
     connections = tuple(
         ConnectionPlan(
             connection.connection_id,
@@ -812,12 +812,29 @@ def _scaled_plan(plan: TeamPlan, alpha: float) -> TeamPlan:
         )
         for connection in plan.connections
     )
+    connection_capacity_by_id = {
+        connection.connection_id: connection.capacity_mw
+        for connection in plan.connections
+    }
+    sites = tuple(
+        replace(
+            site,
+            connection_capacity_mw=(
+                connection_capacity_by_id.get(
+                    site.site_id,
+                    site.connection_capacity_mw,
+                )
+                * alpha
+            ),
+        )
+        for site in plan.sites
+    )
     return TeamPlan(
         plan.team_id,
         connections=connections,
         generators=plan.generators,
         storages=plan.storages,
-        sites=plan.sites,
+        sites=sites,
     )
 
 

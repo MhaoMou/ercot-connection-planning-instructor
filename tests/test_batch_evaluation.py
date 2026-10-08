@@ -26,7 +26,9 @@ from ercot_game.batch_evaluation import (
 from ercot_game.csv_submission import CSVSubmission, LEGACY_CSV_COLUMNS, read_student_csv
 from ercot_game.batch_evaluation import DCOPFInfeasible
 from ercot_game.economic_profiles import load_economic_profiles
-from ercot_game.models import ConnectionPlan, GeneratorPlan, StoragePlan, TeamPlan
+from ercot_game.models import ConnectionPlan, GeneratorPlan, SitePlan, StoragePlan, TeamPlan
+from tools.activsg2000 import plan_adapter
+from tools.activsg2000.dcopf import DCOPFResult
 
 
 def _write_submission(
@@ -927,6 +929,85 @@ def test_fair_projection_reports_projected_load_in_mwh(tmp_path, monkeypatch):
         {"team-a": 2.0, "team-b": 2.0}, abs=2e-5
     )
     assert projection.total_projected_load_mwh == pytest.approx(4.0, abs=2e-5)
+
+
+def test_scaled_plan_keeps_canonical_site_and_materialized_connection_in_sync():
+    plan = TeamPlan(
+        team_id="team-a",
+        connections=(
+            ConnectionPlan("site-a", "b0001", 40.0, (1.0,)),
+            ConnectionPlan("legacy-site", "b0002", 6.0, (1.0,)),
+        ),
+        generators=(GeneratorPlan("generator-a", "site-a", 4.0, 16.0),),
+        storages=(StoragePlan("storage-a", "site-a", 2.0, 8.0),),
+        sites=(SitePlan("site-a", "b0001", 40.0, 4.0, 2.0, 8.0),),
+    )
+
+    scaled = batch_evaluation._scaled_plan(plan, 0.25)
+
+    assert [connection.capacity_mw for connection in scaled.connections] == [10.0, 1.5]
+    assert scaled.sites == (
+        SitePlan("site-a", "b0001", 10.0, 4.0, 2.0, 8.0),
+    )
+    assert scaled.generators == plan.generators
+    assert scaled.storages == plan.storages
+
+
+def test_canonical_site_submission_reaches_fair_projection_through_plan_adapter(
+    tmp_path, monkeypatch
+):
+    first = tmp_path / "team-a.csv"
+    second = tmp_path / "team-b.csv"
+    header = (
+        "team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,"
+        "storage_power_mw,storage_energy_mwh\n"
+    )
+    first.write_text(header + "team-a,site-a,3002041,8,0,0,0\n", encoding="utf-8")
+    second.write_text(header + "team-b,site-b,3002041,8,0,0,0\n", encoding="utf-8")
+    artifact_dir = _write_artifact_catalogs(tmp_path)
+    solver_calls: list[float] = []
+
+    def solve(*args, **kwargs):
+        total_load = sum(kwargs["additional_demand_mw_by_bus"].values())
+        solver_calls.append(total_load)
+        if total_load > 10.0 + 1e-8:
+            raise DCOPFInfeasible("synthetic projected overload")
+        return DCOPFResult(
+            status="optimal",
+            objective_cost=0.0,
+            generation_mw={},
+            angle_by_bus={},
+            flow_mw_by_branch={},
+            balance_dual_by_bus={"3002041": 50.0},
+        )
+
+    monkeypatch.setattr(plan_adapter, "solve_prepared_period", solve)
+
+    result = evaluate_csv_batch(
+        (first, second),
+        artifact_dir=artifact_dir,
+        bus_ids={"3002041"},
+        horizon=1,
+        rules=_rules(),
+    )
+
+    assert result.competition_scope == "joint_projection"
+    assert result.projection_diagnostics is not None
+    assert result.projection_diagnostics.service_fraction_by_team == pytest.approx(
+        {"team-a": 0.625, "team-b": 0.625}, abs=2e-5
+    )
+    assert result.projection_diagnostics.requested_load_mwh_by_team == pytest.approx(
+        {"team-a": 8.0, "team-b": 8.0}
+    )
+    assert result.projection_diagnostics.projected_load_mwh_by_team == pytest.approx(
+        {"team-a": 5.0, "team-b": 5.0}, abs=2e-4
+    )
+    assert result.projection_diagnostics.total_projected_load_mwh == pytest.approx(
+        10.0, abs=2e-4
+    )
+    assert [score.served_load_mwh for score in result.team_scores] == pytest.approx([5.0, 5.0])
+    assert any(total_load == pytest.approx(16.0) for total_load in solver_calls)
+    assert any(total_load == pytest.approx(10.0, abs=2e-4) for total_load in solver_calls)
 
 
 def test_evaluation_records_projection_diagnostics_and_preserves_valid_team_isolation(
