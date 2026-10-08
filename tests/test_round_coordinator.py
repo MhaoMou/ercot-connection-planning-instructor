@@ -8,7 +8,7 @@ import pytest
 from ercot_game.asset_state import AssetStateError
 from ercot_game.game_state import GameState
 from ercot_game.game_state_store import GameStateStore
-from ercot_game.batch_evaluation import CapitalCostScope
+from ercot_game.batch_evaluation import CapitalCostScope, ProjectionDiagnostics
 from ercot_game.models import ConnectionPlan, GeneratorPlan, SitePlan, StoragePlan, TeamPlan
 from ercot_game import round_coordinator
 from ercot_game.round_coordinator import RoundCoordinatorError, evaluate_round
@@ -40,6 +40,7 @@ class _MinimalDispatch:
 class _UsableEvaluation:
     rejected_submissions: tuple = ()
     dispatch: object = field(default_factory=_MinimalDispatch)
+    projection_diagnostics: ProjectionDiagnostics | None = None
 
 
 def _loader(plans):
@@ -400,6 +401,37 @@ def test_valid_teams_commit_even_when_evaluation_reports_rejected_team(tmp_path)
 
     assert result.state.current_round_key == "2027_jan_jun"
     assert GameStateStore(state_path).load().current_round_key == "2027_jan_jun"
+
+
+def test_projection_diagnostics_cannot_add_rejected_team_to_round_state(tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    diagnostics = ProjectionDiagnostics(
+        service_fraction_by_team={"team-valid": 0.5, "team-rejected": 0.5},
+        projected_capacity_mw_by_team={"team-valid": 1.0, "team-rejected": 1.0},
+        capped_request_capacity_mw_by_team={"team-valid": 2.0, "team-rejected": 2.0},
+        requested_load_mwh_by_team={"team-valid": 2.0, "team-rejected": 2.0},
+        projected_load_mwh_by_team={"team-valid": 1.0, "team-rejected": 1.0},
+        total_requested_load_mwh=4.0,
+        total_projected_load_mwh=2.0,
+        proportional_fair_utility=0.0,
+        total_load_tolerance_mwh=1e-6,
+    )
+
+    with pytest.raises(RoundCoordinatorError, match="rejected or unknown team"):
+        evaluate_round(
+            state_path=state_path,
+            round_key="2027_jan_jun",
+            submissions=tmp_path / "submissions",
+            artifact_dir=tmp_path / "artifacts",
+            horizon=1,
+            rules=object(),
+            plan_loader=_loader((_plan("team-valid"),)),
+            evaluator=lambda *args, **kwargs: _UsableEvaluation(
+                projection_diagnostics=diagnostics
+            ),
+        )
+
+    assert not state_path.exists()
 
 
 def test_default_plan_loader_keeps_accepted_plans_when_one_file_is_rejected(monkeypatch, tmp_path) -> None:

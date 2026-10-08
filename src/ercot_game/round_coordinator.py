@@ -213,6 +213,7 @@ def evaluate_round(
         raise RoundCoordinatorError(
             "evaluation did not return a usable dispatch result; state was not committed"
         )
+    _validate_projection_team_isolation(evaluation, materialized_plans)
     updated_state = _record_final_storage_soc(advanced_state, materialized_plans, evaluation)
     store.save(updated_state)
     return RoundEvaluationResult(
@@ -221,6 +222,36 @@ def evaluate_round(
         prior_state=prior_state,
         state=updated_state,
     )
+
+
+def _validate_projection_team_isolation(
+    evaluation: Any,
+    materialized_plans: Mapping[str, TeamPlan],
+) -> None:
+    """Reject projection diagnostics that leak rejected or unknown teams."""
+    diagnostics = getattr(evaluation, "projection_diagnostics", None)
+    if diagnostics is None:
+        return
+    valid_team_ids = set(materialized_plans)
+    for field_name in (
+        "service_fraction_by_team",
+        "projected_capacity_mw_by_team",
+        "capped_request_capacity_mw_by_team",
+        "requested_load_mwh_by_team",
+        "projected_load_mwh_by_team",
+    ):
+        values = getattr(diagnostics, field_name, None)
+        if not isinstance(values, Mapping):
+            raise RoundCoordinatorError(
+                f"projection diagnostics field {field_name} must be a mapping; state was not committed"
+            )
+        unknown_team_ids = sorted(set(values) - valid_team_ids)
+        if unknown_team_ids:
+            raise RoundCoordinatorError(
+                "projection diagnostics contain rejected or unknown team(s): "
+                + ", ".join(unknown_team_ids)
+                + "; state was not committed"
+            )
 
 
 def _has_period_collection(evaluation: Any) -> bool:

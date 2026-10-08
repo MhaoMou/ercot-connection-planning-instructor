@@ -10,6 +10,7 @@ from copy import copy
 from pathlib import Path
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
+from itertools import permutations
 import math
 from typing import Any, TYPE_CHECKING, NoReturn
 
@@ -254,6 +255,23 @@ class DispatchRecord:
 
 
 @dataclass(frozen=True)
+class ProjectionDiagnostics:
+    """Audit data for the continuous joint-load projection."""
+
+    service_fraction_by_team: dict[str, float]
+    projected_capacity_mw_by_team: dict[str, float]
+    capped_request_capacity_mw_by_team: dict[str, float]
+    requested_load_mwh_by_team: dict[str, float]
+    projected_load_mwh_by_team: dict[str, float]
+    total_requested_load_mwh: float
+    total_projected_load_mwh: float
+    proportional_fair_utility: float
+    total_load_tolerance_mwh: float
+    objective: str = "total_served_load_then_proportional_fair"
+    cap_policy: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class BatchEvaluation:
     rules_version: str
     competition_scope: str
@@ -268,6 +286,7 @@ class BatchEvaluation:
     input_sha256_by_submission: dict[str, str | None] = field(default_factory=dict)
     dispatch_records: tuple[DispatchRecord, ...] = ()
     source_period_indices: tuple[int, ...] = ()
+    projection_diagnostics: ProjectionDiagnostics | None = None
 
 
 def load_scoring_rules(
@@ -801,8 +820,139 @@ def _scaled_plan(plan: TeamPlan, alpha: float) -> TeamPlan:
     )
 
 
+def _scaled_plan_to_cap(capped_plan: TeamPlan, alpha: float) -> TeamPlan:
+    """Scale a pre-capped plan without changing its assets or profiles."""
+    return _scaled_plan(capped_plan, alpha)
+
+
+@dataclass(frozen=True)
+class FairProjectionResult:
+    """Continuous projection result with a compatibility tuple interface."""
+
+    dispatch: BatchDispatchResult
+    service_fraction_by_team: dict[str, float]
+    projected_capacity_mw_by_team: dict[str, float]
+    projected_plans: tuple[TeamPlan, ...]
+    diagnostics: ProjectionDiagnostics
+
+    @property
+    def capped_request_capacity_mw_by_team(self) -> dict[str, float]:
+        return self.diagnostics.capped_request_capacity_mw_by_team
+
+    @property
+    def total_projected_load_mwh(self) -> float:
+        return self.diagnostics.total_projected_load_mwh
+
+    @property
+    def proportional_fair_utility(self) -> float:
+        return self.diagnostics.proportional_fair_utility
+
+    def __iter__(self):
+        """Preserve the old three-value unpacking for existing callers/tests."""
+        yield self.dispatch
+        if len(self.service_fraction_by_team) == 1:
+            yield next(iter(self.service_fraction_by_team.values()))
+        else:
+            yield self.service_fraction_by_team
+        yield self.projected_plans
+
+
 _FAIR_PROJECTION_MIN_SERVICE_FRACTION = 1e-6
 _FAIR_PROJECTION_TOLERANCE = 1e-6
+_FAIR_PROJECTION_TOTAL_LOAD_TOLERANCE = 1e-6
+_FAIR_PROJECTION_SITE_CAPACITY_MW = 100.0
+_FAIR_PROJECTION_MAX_TEAM_CAPACITY_MW = 500.0
+_FAIR_PROJECTION_MAX_TEAM_REQUEST_SHARE = 0.5
+
+
+def _projection_capped_plans(
+    plans: Sequence[TeamPlan],
+) -> tuple[tuple[TeamPlan, ...], dict[str, float]]:
+    """Apply fixed site, team, and multi-team share caps before projection."""
+    prelim: dict[str, TeamPlan] = {}
+    prelim_capacity: dict[str, float] = {}
+    for plan in plans:
+        connections = tuple(
+            ConnectionPlan(
+                connection.connection_id,
+                connection.bus_id,
+                min(connection.capacity_mw, _FAIR_PROJECTION_SITE_CAPACITY_MW),
+                connection.profile,
+            )
+            for connection in plan.connections
+        )
+        capped_plan = TeamPlan(
+            plan.team_id,
+            connections=connections,
+            generators=plan.generators,
+            storages=plan.storages,
+            sites=plan.sites,
+        )
+        prelim[plan.team_id] = capped_plan
+        prelim_capacity[plan.team_id] = sum(connection.capacity_mw for connection in connections)
+
+    total_prelim_capacity = sum(prelim_capacity.values())
+    capped_capacity: dict[str, float] = {}
+    for team_id, capacity in prelim_capacity.items():
+        team_cap = min(capacity, _FAIR_PROJECTION_MAX_TEAM_CAPACITY_MW)
+        if len(plans) > 1:
+            team_cap = min(
+                team_cap,
+                _FAIR_PROJECTION_MAX_TEAM_REQUEST_SHARE * total_prelim_capacity,
+            )
+        capped_capacity[team_id] = team_cap
+
+    capped_plans: list[TeamPlan] = []
+    for plan in plans:
+        capacity = prelim_capacity[plan.team_id]
+        factor = 0.0 if capacity <= 0.0 else capped_capacity[plan.team_id] / capacity
+        capped_plans.append(_scaled_plan(prelim[plan.team_id], factor))
+    return tuple(capped_plans), capped_capacity
+
+
+def _projection_requested_load_mwh(
+    plan: TeamPlan,
+    period_indices: tuple[int, ...],
+) -> float:
+    total = 0.0
+    for connection in plan.connections:
+        for period_index in period_indices:
+            profile_value = (
+                1.0
+                if not connection.profile
+                else connection.profile[period_index]
+            )
+            total += connection.capacity_mw * profile_value
+    return total
+
+
+def _projection_utility(
+    alphas: Sequence[float],
+    requested_load_mwh_by_team: Mapping[str, float],
+    team_ids: Sequence[str],
+) -> float:
+    utility = 0.0
+    for index, team_id in enumerate(team_ids):
+        load = requested_load_mwh_by_team[team_id] * alphas[index]
+        if load <= 0.0:
+            return -math.inf
+        utility += math.log(load)
+    return utility
+
+
+def _projection_orders(
+    team_ids: tuple[str, ...],
+    weights: Mapping[str, float],
+) -> tuple[tuple[int, ...], ...]:
+    indices = tuple(range(len(team_ids)))
+    if len(indices) <= 4:
+        return tuple(permutations(indices))
+    descending = tuple(sorted(indices, key=lambda index: (-weights[team_ids[index]], team_ids[index])))
+    ascending = tuple(reversed(descending))
+    orders = [descending, ascending]
+    for index in indices:
+        orders.append((index,) + tuple(item for item in descending if item != index))
+    return tuple(dict.fromkeys(orders))
 
 
 def _fair_continuous_projection(
@@ -812,63 +962,222 @@ def _fair_continuous_projection(
     source_period_indices: tuple[int, ...],
     *,
     projection_iterations: int = 10,
-) -> tuple[BatchDispatchResult, float, tuple[TeamPlan, ...]] | None:
-    """Find the largest common team service fraction using continuous bisection.
+) -> FairProjectionResult | None:
+    """Project valid plans continuously using total-load then PF objectives.
 
-    The zero-service endpoint is evaluated explicitly and is retained as a
-    fair result when no positive service fraction is feasible.  The caller's
-    iteration count is treated as a lower bound; the evaluator always runs
-    enough iterations to resolve ``_FAIR_PROJECTION_TOLERANCE``.  This makes
-    the minimum positive service fraction explicit instead of inheriting the
-    old implicit ``1 / 2**projection_iterations`` cutoff.
+    Feasibility is supplied by the existing fixed-load DCOPF adapter.  The
+    projection searches only continuous team fractions; no integer
+    curtailment variables or team-removal ordering are introduced.
     """
     if projection_iterations <= 0:
         raise ValueError("projection_iterations must be positive")
-    if not (Path(artifact_dir) / "bus.csv").is_file():
+    if not plans or not (Path(artifact_dir) / "bus.csv").is_file():
         return None
 
-    zero_plans = tuple(_scaled_plan(plan, 0.0) for plan in plans)
-    try:
-        zero_dispatch = _dispatch_plans(
-            artifact_dir,
-            zero_plans,
-            period_indices,
-            source_period_indices=source_period_indices,
-            stop_on_infeasible=True,
+    capped_plans, capped_capacity = _projection_capped_plans(plans)
+    team_ids = tuple(plan.team_id for plan in capped_plans)
+    requested_loads = {
+        plan.team_id: _projection_requested_load_mwh(plan, period_indices)
+        for plan in capped_plans
+    }
+    weights = requested_loads
+    search_iterations = max(projection_iterations, 20)
+    cache: dict[tuple[float, ...], tuple[BatchDispatchResult, tuple[TeamPlan, ...]] | None] = {}
+
+    def evaluate(alphas: Sequence[float]):
+        normalized = tuple(round(min(1.0, max(0.0, float(alpha))), 12) for alpha in alphas)
+        if normalized in cache:
+            return cache[normalized]
+        projected_plans = tuple(
+            _scaled_plan_to_cap(capped_plan, normalized[index])
+            for index, capped_plan in enumerate(capped_plans)
         )
-    except (DCOPFInfeasible, DCOPFUnresolved, ValueError, NotImplementedError):
-        return None
-
-    low, high = 0.0, 1.0
-    best: tuple[BatchDispatchResult, float, tuple[TeamPlan, ...]] | None = (
-        zero_dispatch,
-        0.0,
-        zero_plans,
-    )
-    minimum_iterations = math.ceil(math.log2(1.0 / _FAIR_PROJECTION_TOLERANCE))
-    iterations = max(projection_iterations, minimum_iterations)
-    for _ in range(iterations):
-        alpha = (low + high) / 2.0
-        candidate_plans = tuple(_scaled_plan(plan, alpha) for plan in plans)
         try:
-            candidate_dispatch = _dispatch_plans(
+            dispatch = _dispatch_plans(
                 artifact_dir,
-                candidate_plans,
+                projected_plans,
                 period_indices,
                 source_period_indices=source_period_indices,
                 stop_on_infeasible=True,
             )
         except (DCOPFInfeasible, DCOPFUnresolved, ValueError, NotImplementedError):
-            high = alpha
+            result = None
         else:
-            if alpha >= _FAIR_PROJECTION_MIN_SERVICE_FRACTION:
-                low = alpha
-                best = (candidate_dispatch, alpha, candidate_plans)
+            result = (dispatch, projected_plans)
+        cache[normalized] = result
+        return result
+
+    zero = tuple(0.0 for _ in team_ids)
+    zero_result = evaluate(zero)
+    if zero_result is None:
+        return None
+
+    def max_component(base: Sequence[float], index: int) -> float:
+        candidate = list(base)
+        candidate[index] = 1.0
+        if evaluate(candidate) is not None:
+            return 1.0
+        low, high = 0.0, 1.0
+        for _ in range(search_iterations):
+            midpoint = (low + high) / 2.0
+            candidate[index] = midpoint
+            if evaluate(candidate) is None:
+                high = midpoint
             else:
-                low = alpha
-        if high - low <= _FAIR_PROJECTION_TOLERANCE:
-            break
-    return best
+                low = midpoint
+            if high - low <= _FAIR_PROJECTION_TOLERANCE:
+                break
+        return low
+
+    def total_load(alphas: Sequence[float]) -> float:
+        return sum(weights[team_id] * alphas[index] for index, team_id in enumerate(team_ids))
+
+    candidate_vectors: list[tuple[float, ...]] = [zero]
+    for order in _projection_orders(team_ids, weights):
+        current = [0.0] * len(team_ids)
+        for index in order:
+            current[index] = max_component(current, index)
+        candidate_vectors.append(tuple(current))
+
+    # A two-team continuous boundary search captures interior optima that are
+    # not exposed by a greedy vertex order; larger batches use the same
+    # deterministic order set to keep DCOPF call counts bounded.
+    if len(team_ids) == 2:
+        first, second = 0, 1
+        upper = max_component(zero, first)
+
+        def boundary_value(first_alpha: float):
+            current = [0.0, 0.0]
+            current[first] = first_alpha
+            current[second] = max_component(current, second)
+            result = evaluate(current)
+            return total_load(current), tuple(current), result
+
+        low, high = 0.0, upper
+        for _ in range(max(12, projection_iterations)):
+            left = low + (high - low) / 3.0
+            right = high - (high - low) / 3.0
+            left_value = boundary_value(left)
+            right_value = boundary_value(right)
+            candidate_vectors.extend((left_value[1], right_value[1]))
+            if left_value[0] < right_value[0]:
+                low = left
+            else:
+                high = right
+
+    feasible_candidates = [
+        (vector, evaluate(vector))
+        for vector in candidate_vectors
+        if evaluate(vector) is not None
+    ]
+    if not feasible_candidates:
+        return None
+    best_total = max(total_load(vector) for vector, _result in feasible_candidates)
+    total_tolerance = max(
+        _FAIR_PROJECTION_TOTAL_LOAD_TOLERANCE,
+        best_total * _FAIR_PROJECTION_TOTAL_LOAD_TOLERANCE,
+    )
+    total_optimal = [
+        (vector, result)
+        for vector, result in feasible_candidates
+        if best_total - total_load(vector) <= total_tolerance
+    ]
+    best_vector, best_result = max(
+        total_optimal,
+        key=lambda item: _projection_utility(item[0], requested_loads, team_ids),
+    )
+
+    # Pairwise block updates maximize the log-load utility while preserving
+    # the total-load optimum.  For the network feasibility sets used here,
+    # this is a deterministic proportional-fair tie-break over continuous
+    # fractions rather than a common-alpha rule.
+    if len(team_ids) > 1 and all(weights.values()):
+        current = list(best_vector)
+        current_utility = _projection_utility(current, requested_loads, team_ids)
+        for _ in range(2):
+            changed = False
+            for first in range(len(team_ids)):
+                for second in range(first + 1, len(team_ids)):
+                    base = list(current)
+                    base[first] = 0.0
+                    base[second] = 0.0
+                    upper = max_component(base, first)
+                    if upper <= 0.0:
+                        continue
+                    grid_count = max(24, min(48, projection_iterations * 2))
+                    step = upper / grid_count
+                    pair_best = None
+                    for grid_index in range(grid_count + 1):
+                        first_alpha = step * grid_index
+                        candidate = list(base)
+                        candidate[first] = first_alpha
+                        candidate[second] = max_component(candidate, second)
+                        candidate_result = evaluate(candidate)
+                        if candidate_result is None:
+                            continue
+                        candidate_total = total_load(candidate)
+                        if best_total - candidate_total > total_tolerance:
+                            continue
+                        utility = _projection_utility(candidate, requested_loads, team_ids)
+                        if pair_best is None or utility > pair_best[0]:
+                            pair_best = (utility, tuple(candidate))
+                    if pair_best is not None and pair_best[0] > current_utility + 1e-9:
+                        current = list(pair_best[1])
+                        current_utility = pair_best[0]
+                        changed = True
+            if not changed:
+                break
+        final_result = evaluate(current)
+        if final_result is not None and best_total - total_load(current) <= total_tolerance:
+            best_vector = tuple(current)
+            best_result = final_result
+
+    dispatch, projected_plans = best_result
+    projected_capacity = {
+        team_id: capped_capacity[team_id] * best_vector[index]
+        for index, team_id in enumerate(team_ids)
+    }
+    projected_loads = {
+        team_id: requested_loads[team_id] * best_vector[index]
+        for index, team_id in enumerate(team_ids)
+    }
+    proportional_fair_utility = _projection_utility(best_vector, requested_loads, team_ids)
+    diagnostics = ProjectionDiagnostics(
+        service_fraction_by_team={team_id: best_vector[index] for index, team_id in enumerate(team_ids)},
+        projected_capacity_mw_by_team=projected_capacity,
+        capped_request_capacity_mw_by_team=dict(capped_capacity),
+        requested_load_mwh_by_team=dict(requested_loads),
+        projected_load_mwh_by_team=projected_loads,
+        total_requested_load_mwh=sum(requested_loads.values()),
+        total_projected_load_mwh=sum(projected_loads.values()),
+        proportional_fair_utility=(
+            proportional_fair_utility if math.isfinite(proportional_fair_utility) else 0.0
+        ),
+        total_load_tolerance_mwh=total_tolerance,
+        cap_policy={
+            "site_capacity_mw": _FAIR_PROJECTION_SITE_CAPACITY_MW,
+            "max_team_capacity_mw": _FAIR_PROJECTION_MAX_TEAM_CAPACITY_MW,
+            "max_team_request_share": _FAIR_PROJECTION_MAX_TEAM_REQUEST_SHARE,
+        },
+    )
+    try:
+        dispatch_with_projection = replace(
+            dispatch,
+            service_fraction_by_team=diagnostics.service_fraction_by_team,
+        )
+    except TypeError:
+        dispatch_with_projection = copy(dispatch)
+        try:
+            dispatch_with_projection.service_fraction_by_team = diagnostics.service_fraction_by_team
+        except AttributeError:
+            dispatch_with_projection = dispatch
+    return FairProjectionResult(
+        dispatch=dispatch_with_projection,
+        service_fraction_by_team=diagnostics.service_fraction_by_team,
+        projected_capacity_mw_by_team=projected_capacity,
+        projected_plans=projected_plans,
+        diagnostics=diagnostics,
+    )
 
 
 def _dispatch_plans(
@@ -1135,6 +1444,7 @@ def evaluate_csv_batch(
     dispatch_records: list[DispatchRecord] = []
     scores: list[TeamScore] = []
     dispatch: BatchDispatchResult | None = None
+    projection_diagnostics: ProjectionDiagnostics | None = None
     batch_scope = "not_evaluated"
     batch_failure_reason: str | None = None
 
@@ -1176,8 +1486,8 @@ def evaluate_csv_batch(
                 projection_iterations=projection_iterations,
             )
             if projection is not None:
-                projected_dispatch, service_fraction, projected_plans = projection
-                dispatch = projected_dispatch
+                dispatch = projection.dispatch
+                projection_diagnostics = projection.diagnostics
                 batch_scope = "joint_projection"
                 dispatch_records.append(
                     DispatchRecord(
@@ -1185,7 +1495,7 @@ def evaluate_csv_batch(
                         attempted_team_ids=attempted_ids,
                         attempted_submission_keys=attempted_submission_keys,
                         status="feasible",
-                        dispatch=projected_dispatch,
+                        dispatch=dispatch,
                     )
                 )
                 isolation_events.append(
@@ -1194,12 +1504,21 @@ def evaluate_csv_batch(
                         removed_team_id=None,
                         outcome="joint_projected",
                         reason=(
-                            "continuous common service fraction="
-                            f"{service_fraction:.12g}; "
+                            "continuous team service fractions="
+                            + ",".join(
+                                f"{team_id}:{fraction:.12g}"
+                                for team_id, fraction in sorted(
+                                    projection.service_fraction_by_team.items()
+                                )
+                            )
+                            + "; service fraction="
+                            f"{min(projection.service_fraction_by_team.values()):.12g}; "
                             "minimum positive service fraction="
                             f"{_FAIR_PROJECTION_MIN_SERVICE_FRACTION:.12g}; "
                             "bisection tolerance="
-                            f"{_FAIR_PROJECTION_TOLERANCE:.12g}"
+                            f"{_FAIR_PROJECTION_TOLERANCE:.12g}; "
+                            "total projected load="
+                            f"{projection.total_projected_load_mwh:.12g}"
                         ),
                     )
                 )
@@ -1207,7 +1526,7 @@ def evaluate_csv_batch(
                     replace(
                         _score_team(
                             original_plan,
-                            projected_dispatch,
+                            dispatch,
                             rules,
                             submission_key=record_by_team[original_plan.team_id].submission_key,
                             capital_cost_scope=capital_cost_scope,
@@ -1220,7 +1539,7 @@ def evaluate_csv_batch(
                     for original_plan in plans
                 )
                 # Skip discrete team-removal isolation: all valid teams receive
-                # the same continuously projected service fraction.
+                # the same joint projected dispatch with team-specific fractions.
                 projection = None
                 recovered = True
             else:
@@ -1516,6 +1835,7 @@ def evaluate_csv_batch(
         input_sha256_by_submission=input_hashes_by_submission,
         dispatch_records=tuple(dispatch_records),
         source_period_indices=selected_source_periods,
+        projection_diagnostics=projection_diagnostics,
     )
 
 
@@ -1833,6 +2153,17 @@ def _serialized_team_diagnostic(
     )
     return {
         "team_score": asdict(score),
+        "projection": (
+            None
+            if evaluation.projection_diagnostics is None
+            else {
+                "service_fraction": evaluation.projection_diagnostics.service_fraction_by_team.get(score.team_id),
+                "projected_capacity_mw": evaluation.projection_diagnostics.projected_capacity_mw_by_team.get(score.team_id),
+                "capped_request_capacity_mw": evaluation.projection_diagnostics.capped_request_capacity_mw_by_team.get(score.team_id),
+                "requested_load_mwh": evaluation.projection_diagnostics.requested_load_mwh_by_team.get(score.team_id),
+                "projected_load_mwh": evaluation.projection_diagnostics.projected_load_mwh_by_team.get(score.team_id),
+            }
+        ),
         "submission_key": score.submission_key,
         "input_sha256": input_sha256_by_submission.get(score.submission_key),
         "submission": (
@@ -2056,6 +2387,11 @@ def write_batch_outputs(
     scoring_configuration = evaluation.rules_payload or {"rules_version": evaluation.rules_version}
     evaluation_metadata = {
         "competition_scope": evaluation.competition_scope,
+        "projection_diagnostics": (
+            None
+            if evaluation.projection_diagnostics is None
+            else asdict(evaluation.projection_diagnostics)
+        ),
         "period_indices": list(period_indices),
         "source_period_indices": list(source_period_indices),
         "accepted_submission_keys": [record.submission_key for record in evaluation.accepted_submissions],
@@ -2079,6 +2415,11 @@ def write_batch_outputs(
         "input_sha256_by_team": _sorted_mapping(evaluation.input_sha256_by_team),
         "input_sha256_by_submission": _sorted_mapping(evaluation.input_sha256_by_submission),
         "competition_scope": evaluation.competition_scope,
+        "projection_diagnostics": (
+            None
+            if evaluation.projection_diagnostics is None
+            else asdict(evaluation.projection_diagnostics)
+        ),
         "team_scores": [asdict(score) for score in evaluation.team_scores],
         "accepted_submissions": serialized_accepted,
         "rejected_submissions": serialized_rejected,
@@ -2099,6 +2440,11 @@ def write_batch_outputs(
         "input_sha256_by_team": _sorted_mapping(evaluation.input_sha256_by_team),
         "input_sha256_by_submission": _sorted_mapping(evaluation.input_sha256_by_submission),
         "competition_scope": evaluation.competition_scope,
+        "projection_diagnostics": (
+            None
+            if evaluation.projection_diagnostics is None
+            else asdict(evaluation.projection_diagnostics)
+        ),
         "isolation_events": [asdict(event) for event in evaluation.isolation_events],
         "team_scores": [asdict(score) for score in evaluation.team_scores],
         "accepted_submissions": serialized_accepted,

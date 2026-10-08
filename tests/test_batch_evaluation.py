@@ -737,6 +737,142 @@ def test_zero_service_projection_prevents_order_dependent_team_removal(
     )
 
 
+def _projection_plan(team_id: str, capacity_mw: float) -> TeamPlan:
+    return TeamPlan(
+        team_id,
+        (ConnectionPlan(f"site-{team_id}", "b0001", capacity_mw, (1.0,)),),
+    )
+
+
+def _run_projection_with_capacity_oracle(
+    monkeypatch,
+    tmp_path,
+    plans,
+    feasible,
+):
+    artifact_dir = _write_artifact_catalogs(tmp_path)
+    calls = []
+
+    def dispatch(_artifact_dir, candidate_plans, period_indices, **_kwargs):
+        capacities = {
+            plan.team_id: sum(connection.capacity_mw for connection in plan.connections)
+            for plan in candidate_plans
+        }
+        calls.append(capacities)
+        if not feasible(capacities):
+            raise DCOPFInfeasible("synthetic projected overload")
+        return _fake_dispatch(
+            tuple(sorted(capacities)),
+            load_by_team=capacities,
+            period_indices=tuple(period_indices),
+        )
+
+    monkeypatch.setattr(batch_evaluation, "_dispatch_plans", dispatch)
+    projection = batch_evaluation._fair_continuous_projection(
+        artifact_dir,
+        tuple(plans),
+        (0,),
+        (0,),
+        projection_iterations=12,
+    )
+    return projection, calls
+
+
+def test_fair_projection_computes_heterogeneous_team_fractions(tmp_path, monkeypatch):
+    projection, _calls = _run_projection_with_capacity_oracle(
+        monkeypatch,
+        tmp_path,
+        (_projection_plan("team-a", 4.0), _projection_plan("team-b", 4.0)),
+        lambda capacities: capacities["team-a"] + 2.0 * capacities["team-b"] <= 8.0 + 1e-8,
+    )
+
+    assert projection is not None
+    assert projection.service_fraction_by_team["team-a"] == pytest.approx(1.0, abs=2e-5)
+    assert projection.service_fraction_by_team["team-b"] == pytest.approx(0.5, abs=2e-5)
+    assert projection.projected_capacity_mw_by_team == pytest.approx(
+        {"team-a": 4.0, "team-b": 2.0}, abs=2e-4
+    )
+
+
+def test_fair_projection_maximizes_total_load_before_fair_tie_break(tmp_path, monkeypatch):
+    projection, _calls = _run_projection_with_capacity_oracle(
+        monkeypatch,
+        tmp_path,
+        (_projection_plan("team-a", 4.0), _projection_plan("team-b", 4.0)),
+        lambda capacities: sum(capacities.values()) <= 5.0 + 1e-8,
+    )
+
+    assert projection is not None
+    assert projection.total_projected_load_mwh == pytest.approx(5.0, abs=2e-4)
+    assert projection.projected_capacity_mw_by_team["team-b"] == pytest.approx(2.5, abs=2e-4)
+    assert projection.projected_capacity_mw_by_team["team-a"] == pytest.approx(2.5, abs=2e-4)
+    assert projection.service_fraction_by_team["team-a"] == pytest.approx(0.625, abs=3e-5)
+    assert projection.service_fraction_by_team["team-b"] == pytest.approx(0.625, abs=3e-5)
+
+
+def test_fair_projection_uses_proportional_fair_tie_break(tmp_path, monkeypatch):
+    projection, _calls = _run_projection_with_capacity_oracle(
+        monkeypatch,
+        tmp_path,
+        (_projection_plan("team-a", 4.0), _projection_plan("team-b", 4.0)),
+        lambda capacities: sum(capacities.values()) <= 5.0 + 1e-8,
+    )
+
+    assert projection is not None
+    assert projection.total_projected_load_mwh == pytest.approx(5.0, abs=2e-4)
+    assert projection.projected_capacity_mw_by_team == pytest.approx(
+        {"team-a": 2.5, "team-b": 2.5}, abs=3e-4
+    )
+    assert projection.proportional_fair_utility == pytest.approx(2 * math.log(2.5), abs=2e-3)
+
+
+def test_fair_projection_caps_oversized_requests_before_scaling(tmp_path, monkeypatch):
+    projection, _calls = _run_projection_with_capacity_oracle(
+        monkeypatch,
+        tmp_path,
+        (_projection_plan("team-adversarial", 10_000.0), _projection_plan("team-small", 10.0)),
+        lambda capacities: sum(capacities.values()) <= 60.0 + 1e-8,
+    )
+
+    assert projection is not None
+    capped = projection.capped_request_capacity_mw_by_team
+    assert capped["team-adversarial"] < 10_000.0
+    assert capped["team-adversarial"] <= batch_evaluation._FAIR_PROJECTION_MAX_TEAM_CAPACITY_MW
+    assert projection.projected_capacity_mw_by_team["team-adversarial"] <= capped["team-adversarial"]
+    assert all(0.0 <= alpha <= 1.0 for alpha in projection.service_fraction_by_team.values())
+
+
+def test_evaluation_records_projection_diagnostics_and_preserves_valid_team_isolation(
+    tmp_path, monkeypatch
+):
+    valid = tmp_path / "valid.csv"
+    malformed = tmp_path / "malformed.csv"
+    _write_submission(valid, "team-valid")
+    malformed.write_text("not,a,valid,submission\n", encoding="utf-8")
+
+    def dispatch(_artifact_dir, plans, *, period_indices, **_kwargs):
+        if sum(connection.capacity_mw for plan in plans for connection in plan.connections) > 0.0:
+            raise DCOPFInfeasible("synthetic overload")
+        return _fake_dispatch(
+            tuple(sorted(plan.team_id for plan in plans)),
+            load_by_team={plan.team_id: 0.0 for plan in plans},
+            period_indices=tuple(period_indices),
+        )
+
+    result = _evaluate_paths(tmp_path, monkeypatch, (valid, malformed), dispatch)
+    assert result.projection_diagnostics is not None
+    assert set(result.projection_diagnostics.service_fraction_by_team) == {"team-valid"}
+    assert set(result.projection_diagnostics.projected_capacity_mw_by_team) == {"team-valid"}
+    assert result.team_scores[0].team_id == "team-valid"
+    assert result.team_scores[0].valid is True
+    assert result.team_scores[1].valid is False
+
+    output_dir = tmp_path / "outputs"
+    _write_outputs(result, output_dir)
+    payload = json.loads((output_dir / "evaluation.json").read_text(encoding="utf-8"))
+    assert payload["projection_diagnostics"]["service_fraction_by_team"] == {"team-valid": 0.0}
+
+
 def test_evaluate_csv_batch_keeps_malformed_submission_out_of_solver(tmp_path, monkeypatch):
     valid = tmp_path / "valid.csv"
     malformed = tmp_path / "malformed.csv"
