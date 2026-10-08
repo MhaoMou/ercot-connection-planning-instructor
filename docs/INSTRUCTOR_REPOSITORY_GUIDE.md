@@ -5,6 +5,11 @@ ACTIVSg2000-based data-center connection-planning game. Its active
 responsibility is to validate student CSV files, run joint DCOPF dispatch on a
 validated scenario block, and produce auditable team scores.
 
+Full six-block/hour DCOPF validation is currently pending and unverified because
+the optional `highspy` dependency is unavailable in this environment. The
+checked-in manifests are fail-closed and must not be described as passed until a
+HiGHS-backed validation run succeeds.
+
 ## Production boundary
 
 ```text
@@ -79,10 +84,11 @@ records the six blocks and their validation state.
 The CSV uses source `bus_id` values directly. Site capacities are specified in
 MW/MWh, and each team's submitted resources serve only that team. The score
 includes IT value, site cost, generator capital/operating cost, and storage
-capital cost. Use `--submission-number 1` for practice; it omits
+capital cost. Use `--submission-number 1` for practice; it has no
 energy-purchase cost. Use `--submission-number 2` for scored evaluation; it
-includes that cost. The CLI defaults explicitly to Submission 2, and
-`--submission-number` is not a CSV field.
+settles energy purchases at the selected joint dispatch LMP. The CLI defaults explicitly to Submission 2, and
+`--submission-number` is not a CSV field. Submission 1 is practice; Submission
+2 is scored.
 
 ## Data and privacy
 

@@ -46,7 +46,13 @@ ERCOT telemetry, an official ERCOT model, or a forecast.
 
 ## Hourly validation
 
-Before a block can be used, run:
+Full six-block DCOPF validation is pending in this environment: the optional
+`highspy` dependency is unavailable, so the checked-in root and block manifests
+are explicitly `validation_status: unverified_dependency`. This is not a
+successful validation claim, and the evaluator fails closed until a complete
+HiGHS-backed run succeeds.
+
+Before a block can be used, install `highspy` and run:
 
     PYTHONPATH=/path/to/highspy:.:src python3 \
       tools/activsg2000/validate_scenario_package.py \
@@ -54,11 +60,17 @@ Before a block can be used, run:
 
 The validator materializes all 26,304 hourly states, solves a DCOPF for each
 state, records failed periods, and changes the root and block manifests to
-validation_status: passed only if every state is feasible. The evaluator
-fails closed when a block manifest is missing or not passed.
+`validation_status: passed` only if every state is feasible. A missing-`highspy`
+runtime error remains `unverified_dependency` rather than becoming a generic
+solver failure. The evaluator fails closed when a block manifest is missing or
+not passed.
 
 A partial smoke run can be requested with --max-hours, but it never produces
 a usable production manifest.
+
+The released half-year horizons are 4,344 hours for January--June in
+non-leap years (2027 and 2029), 4,368 hours for January--June in the leap year
+2028, and 4,416 hours for July--December in every released year.
 
 ## Provenance
 

@@ -13,6 +13,18 @@ PRODUCTION_BATCH_DOCS = (
     REPOSITORY_ROOT / "docs" / "INSTRUCTOR_REPOSITORY_GUIDE.md",
     REPOSITORY_ROOT / "docs" / "instructor_manual" / "main.tex",
 )
+SCENARIO_PACKAGE_ROOT = REPOSITORY_ROOT / "data" / "processed" / "activsg2000_scenarios_v1"
+SCENARIO_BLOCK_MANIFESTS = tuple(
+    sorted(SCENARIO_PACKAGE_ROOT.glob("20??/*/manifest.json"))
+)
+ACTIVE_SETTLEMENT_DOCS = (
+    REPOSITORY_ROOT / "README.md",
+    REPOSITORY_ROOT / "docs" / "ERCOT_INSTRUCTOR_BATCH_EVALUATION.md",
+    REPOSITORY_ROOT / "docs" / "INSTRUCTOR_REPOSITORY_GUIDE.md",
+    REPOSITORY_ROOT / "docs" / "student_manual" / "HYPERPARAMETERS.md",
+    REPOSITORY_ROOT / "docs" / "student_manual" / "main.tex",
+    REPOSITORY_ROOT / "docs" / "instructor_manual" / "main.tex",
+)
 
 
 @pytest.mark.parametrize("path", PRODUCTION_BATCH_DOCS)
@@ -44,6 +56,44 @@ def test_activsg2000_manifest_distinguishes_missing_highspy_from_validation_fail
     assert "highspy" in validation["reason"]
     assert validation["release_status"] == "blocked_pending_highspy_validation"
     assert "successful HiGHS-backed validation" in validation["required_before_release"]
+
+
+def test_all_activsg2000_block_manifests_are_unverified_without_highspy():
+    assert len(SCENARIO_BLOCK_MANIFESTS) == 6
+    for path in SCENARIO_BLOCK_MANIFESTS:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        assert manifest["validation_status"] == "unverified_dependency"
+        assert "highspy" in manifest["validation_reason"]
+
+
+@pytest.mark.parametrize("path", ACTIVE_SETTLEMENT_DOCS)
+def test_active_settlement_docs_match_joint_dispatch_modes(path: Path):
+    text = path.read_text(encoding="utf-8")
+    assert "Submission 1" in text
+    assert "energy-purchase cost" in text
+    assert "Submission 2" in text
+    assert "joint dispatch" in text
+    assert "LMP" in text
+
+
+def test_active_student_lmp_docs_do_not_call_joint_dispatch_prices_exogenous():
+    for path in (
+        REPOSITORY_ROOT / "docs" / "student_manual" / "HYPERPARAMETERS.md",
+        REPOSITORY_ROOT / "docs" / "student_manual" / "main.tex",
+    ):
+        text = path.read_text(encoding="utf-8").lower()
+        assert "exogenous" not in text
+
+
+def test_dispatch_calibration_documents_all_half_year_horizons():
+    text = (REPOSITORY_ROOT / "docs" / "ERCOT_DISPATCH_SCORING_CALIBRATION.md").read_text(
+        encoding="utf-8"
+    )
+    assert "4,344 hours" in text
+    assert "4,368 hours" in text
+    assert "4,416 hours" in text
+    assert "non-leap" in text
+    assert "leap" in text
 
 
 def test_calibration_note_labels_superseded_values_and_points_to_active_economics():

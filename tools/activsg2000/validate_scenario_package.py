@@ -15,6 +15,9 @@ from ercot_game.scenario_package import EXPECTED_HORIZONS
 from tools.activsg2000.dcopf import Branch, Bus, Generator, DCOPFInfeasible, solve_dcopf
 
 
+_MISSING_HIGHSPY_MARKER = "optional project dependency 'highspy'"
+
+
 def _read(path: Path) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
@@ -58,6 +61,11 @@ def _state_hash(demand: dict[str, float], availability: dict[str, float]) -> str
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _is_missing_highspy(exc: RuntimeError) -> bool:
+    """Return whether a runtime error is the known missing-HiGHS dependency."""
+    return _MISSING_HIGHSPY_MARKER in str(exc).lower()
+
+
 def _validate_block(package: Path, block: str, horizon: int, limit: int | None = None) -> dict[str, Any]:
     buses, generators, branches = _network(package)
     load_profile_inputs(package)
@@ -66,8 +74,11 @@ def _validate_block(package: Path, block: str, horizon: int, limit: int | None =
     digest = hashlib.sha256()
     passed = 0
     failures: list[dict[str, Any]] = []
-    hour_count = horizon if limit is None else min(horizon, limit)
-    for period_index in range(hour_count):
+    unverified: list[dict[str, Any]] = []
+    hour_limit = horizon if limit is None else min(horizon, limit)
+    attempted = 0
+    for period_index in range(hour_limit):
+        attempted += 1
         demand, availability = hourly_state(
             package, year=year, calendar_block=calendar_block, period_index=period_index
         )
@@ -89,17 +100,33 @@ def _validate_block(package: Path, block: str, horizon: int, limit: int | None =
                 branches=branches,
                 base_mva=100.0,
             )
-        except (DCOPFInfeasible, ValueError, RuntimeError) as exc:
+        except RuntimeError as exc:
+            event = {"block": block, "period_index": period_index, "reason": str(exc)}
+            if _is_missing_highspy(exc):
+                unverified.append(event)
+                break
+            failures.append(event)
+        except (DCOPFInfeasible, ValueError) as exc:
             failures.append({"block": block, "period_index": period_index, "reason": str(exc)})
         else:
             passed += 1
+    if unverified:
+        status = "unverified_dependency"
+    elif failures:
+        status = "failed"
+    elif attempted == horizon:
+        status = "passed"
+    else:
+        status = "partial"
     return {
         "block": block,
         "digest": digest.hexdigest(),
+        "status": status,
         "passed": passed,
         "failed": len(failures),
-        "hour_count": hour_count,
-        "complete": hour_count == horizon,
+        "unverified": unverified,
+        "hour_count": attempted,
+        "complete": attempted == horizon and not unverified,
         "failures": failures,
     }
 
@@ -142,34 +169,76 @@ def validate_package(
                 remaining -= result["hour_count"]
     passed = 0
     failures: list[dict[str, Any]] = []
-    block_hashes: dict[str, str] = {}
+    unverified: list[dict[str, Any]] = []
     for result in results:
         block = result["block"]
-        block_hashes[block] = result["digest"]
         passed += result["passed"]
         failures.extend(result["failures"])
-        if result["complete"] and result["failed"] == 0:
-            year_text, calendar_block = block.split("-", 1)
-            block_manifest_path = package / year_text / calendar_block / "manifest.json"
-            if block_manifest_path.is_file():
-                block_manifest = json.loads(block_manifest_path.read_text(encoding="utf-8"))
+        unverified.extend(result["unverified"])
+        year_text, calendar_block = block.split("-", 1)
+        block_manifest_path = package / year_text / calendar_block / "manifest.json"
+        if block_manifest_path.is_file():
+            block_manifest = json.loads(block_manifest_path.read_text(encoding="utf-8"))
+            block_manifest["validation_status"] = result["status"]
+            if result["status"] == "unverified_dependency":
+                block_manifest["validation_reason"] = result["unverified"][0]["reason"]
+                block_manifest["validation"] = {
+                    "classification": "dependency_limited",
+                    "unverified_hour_count": len(result["unverified"]),
+                    "unverified": result["unverified"],
+                    "reason": result["unverified"][0]["reason"],
+                }
+            elif result["status"] == "failed":
+                block_manifest["validation_reason"] = result["failures"][0]["reason"]
+                block_manifest["validation"] = {
+                    "classification": "solver_or_input_failure",
+                    "failed_hour_count": len(result["failures"]),
+                    "failures": result["failures"],
+                }
+            elif result["status"] == "passed":
+                block_manifest.pop("validation_reason", None)
+                block_manifest.pop("validation", None)
                 block_manifest["validation_status"] = "passed"
                 block_manifest["validated_state_hash"] = result["digest"]
-                block_manifest_path.write_text(json.dumps(block_manifest, indent=2) + "\n", encoding="utf-8")
+            block_manifest_path.write_text(json.dumps(block_manifest, indent=2) + "\n", encoding="utf-8")
 
-    status = "passed" if passed == total_expected and not failures else "failed" if failures else "partial"
+    status = (
+        "unverified_dependency"
+        if unverified
+        else "passed"
+        if passed == total_expected and not failures
+        else "failed"
+        if failures
+        else "partial"
+    )
     manifest_path = package / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["validation_status"] = status
     manifest["validation"] = {
-        "hour_count": passed + len(failures),
+        "hour_count": passed + len(failures) + len(unverified),
         "expected_hour_count": total_expected,
         "passed_hour_count": passed,
         "failed_hour_count": len(failures),
+        "unverified_hour_count": len(unverified),
         "failures": failures[:100],
     }
-    for block, block_hash in block_hashes.items():
-        manifest["blocks"][block]["validated_state_hash"] = block_hash
+    if unverified:
+        reason = unverified[0]["reason"]
+        manifest["validation"]["classification"] = "dependency_limited"
+        manifest["validation"]["reason"] = reason
+        manifest["validation"]["unverified"] = unverified[:100]
+        manifest["validation"]["release_status"] = "blocked_pending_highspy_validation"
+        manifest["validation"]["required_before_release"] = (
+            f"Run successful HiGHS-backed validation for all {total_expected} hours with highspy installed; "
+            "only then may validation_status become passed and this package be released."
+        )
+        manifest["validation_reason"] = reason
+    for result in results:
+        block = result["block"]
+        if result["status"] == "passed" and result["complete"]:
+            manifest["blocks"][block]["validated_state_hash"] = result["digest"]
+        else:
+            manifest["blocks"][block].pop("validated_state_hash", None)
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return manifest
 
@@ -182,7 +251,7 @@ def main() -> None:
     args = parser.parse_args()
     manifest = validate_package(args.package, max_hours=args.max_hours, workers=args.workers)
     print(json.dumps(manifest["validation"], indent=2))
-    if manifest["validation_status"] == "failed":
+    if manifest["validation_status"] != "passed":
         raise SystemExit(1)
 
 

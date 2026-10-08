@@ -11,18 +11,22 @@ curtailment.
 
 ### Energy price
 
-Use a baseline ACTIVSg2000 DCOPF to generate the released energy-price surface.
-The evaluator operates on one-hour periods across a complete half-year, and the
-final artifact must provide one price for every bus and hour. These are
-instructional model-derived LMPs, not official ERCOT market prices.
+The scored evaluator settles Submission 2 grid purchases at the nonnegative LMP
+from the selected joint dispatch at the selected bus and hour. Submission 1 is
+practice and has no energy-purchase cost. These are instructional model-derived
+LMPs, not official ERCOT market prices. Baseline ACTIVSg2000 LMP artifacts are
+released economic-profile references and fallbacks, not a replacement for the
+joint-dispatch settlement when a dispatch LMP is available.
 
 Sources:
 
 - [ERCOT 2024 ORDC report](https://www.ercot.com/files/docs/2024/10/31/2024-biennial-ercot-report-on-the-ordc-20241031.pdf)
 - [ERCOT real-time SPP display](https://www.ercot.com/content/cdr/html/20241107_real_time_spp.html)
 
-The two active rule files reference the hourly baseline ACTIVSg2000 DCOPF LMP
-artifact. No repeated six-value price vector is used in production scoring.
+The two active rule files reference the hourly economic-profile artifacts used
+to describe the price surface. Production Submission 2 settlement uses the
+joint-dispatch LMP; no repeated six-value price vector is used in production
+scoring.
 
 ### Existing and candidate generator costs
 
@@ -119,8 +123,9 @@ The released IT-service value is a complete, deterministic vector:
 IT_value[t] = 1,500 USD/MWh, for every hour t in the selected block
 ```
 
-The January--June rule contains 4,368 values and the July--December rule
-contains 4,416 values. This is an instructor-chosen opportunity value for
+January--June contains 4,344 hours/values in non-leap years and 4,368 hours/values in the leap year; July--December contains 4,416 hours/values in
+every released year. This is
+an instructor-chosen opportunity value for
 served computational load. It is deliberately constant in the first release;
 it is not a repeated six-hour cycle and is not an electricity price. See
 [`docs/IT_SERVICE_VALUE_PROFILE.md`](IT_SERVICE_VALUE_PROFILE.md) for the
@@ -137,7 +142,7 @@ The following cannot be responsibly inferred as a single market number:
 | Maximum load per site/team | Choose from DCOPF feasibility sweeps so both feasible and infeasible plans exist. |
 | Maximum candidate-generator capacity | Set relative to site peak load. |
 | Number of sites/generators | Decide whether assets are unlimited or bounded. |
-| Period horizon and price artifact | The submission horizon is the complete released half-year; final energy prices must come from the validated hourly LMP artifact. |
+| Period horizon and price artifact | The submission horizon is the complete released half-year: 4,344 non-leap Jan-Jun, 4,368 leap Jan-Jun, or 4,416 Jul-Dec; Submission 2 energy prices come from the selected joint-dispatch LMP. |
 | Weekly submission aggregation | Decide replace-versus-accumulate policy before student release. |
 | Tie breaking | Confirm deterministic team-ID ordering or choose an explicit secondary metric. |
 

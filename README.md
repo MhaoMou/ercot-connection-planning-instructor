@@ -2,13 +2,16 @@
 
 Instructor-facing implementation of a competitive connection-planning game
 based on the public synthetic Texas ACTIVSg2000 2,000-bus system. The active
-workflow uses a validated three-year ACTIVSg2000 scenario package rather than the retired
-prototype or its abstract teaching network.
+workflow uses the checked-in three-year ACTIVSg2000 scenario package rather than
+the retired prototype or its abstract teaching network. Full six-block DCOPF
+validation is currently unverified in this environment because the optional
+`highspy` dependency is unavailable; the evaluator remains fail-closed until
+the manifests report `validation_status: passed`.
 
 ## Current production pipeline
 
 ```text
-Validated ACTIVSg2000 scenario package (2,000 buses; 3 years)
+ACTIVSg2000 scenario package (full DCOPF validation pending/unverified here)
         -> student canonical site-level CSV submissions
         -> CSV/catalog validation
         -> joint DCOPF dispatch
@@ -30,7 +33,7 @@ capital cost of \$1.3m/MW, and storage capital costs of \$350k/MW plus
 | --- | --- |
 | `src/ercot_game/` | Canonical CSV reader, validator, batch evaluator, and CLI |
 | `tools/activsg2000/` | Scenario construction, hourly validation, DCOPF, storage scheduling, and joint dispatch |
-| `data/processed/activsg2000_scenarios_v1/` | Validated six-block ACTIVSg2000 scenario package |
+| `data/processed/activsg2000_scenarios_v1/` | Six-block ACTIVSg2000 scenario package; validation is currently unverified |
 | `data/teaching/` | Half-year scoring rules |
 | `scripts/` | CSV checks, fixture generation, simulation, and summary utilities |
 | `tests/` | Active CSV, batch, DCOPF, storage, and ACTIVSg2000 adapter tests |
@@ -92,9 +95,11 @@ ercot-game-batch run \
 ```
 
 `--submission-number 2` is the explicit scored-evaluation default and includes
-locational energy-purchase cost. Use `--submission-number 1` for a practice
-run; it excludes energy-purchase cost while retaining the other active scoring
-terms. Submission number is evaluator-side metadata and is not a CSV column.
+locational energy-purchase cost settled at the LMP from the selected joint
+dispatch. Use `--submission-number 1` for a practice run; it has no
+energy-purchase cost while retaining the other active scoring terms.
+Submission 1 is practice and Submission 2 is scored; submission number is evaluator-side
+metadata and is not a CSV column.
 
 Use `--year 2027 --round jul_dec` for July--December. The evaluator derives
 the correct half-year length and source-row offset from the calendar. For

@@ -140,7 +140,10 @@ scenario package. The scenario provides deterministic bus-level load; active
 generator status, PMIN, and PMAX values come directly from the dataset. Because
 ACTIVSg2000 does not provide technology labels or hourly availability data, the
 active release does not apply synthetic wind/solar deratings. Each block is
-validated hour by hour with DCOPF.
+intended to be validated hour by hour with DCOPF. In the current repository
+environment, full validation is pending and unverified because the optional
+\code{highspy} dependency is unavailable; the checked-in manifests do not claim
+a passed release.
 It is an instructional scenario, not historical ERCOT telemetry or an official
 ERCOT operating model.
 
@@ -388,9 +391,9 @@ The components are:
   \item $V_i^{\mathrm{IT}}$: cleared load multiplied by the full-horizon hourly
   \code{IT value} vector announced for the round. The current release uses
   \USD1500/MWh at every hour;
-  \item $C_i^{\mathrm{energy}}$: grid purchase multiplied by the locational
-  hourly \code{energy price} artifact for the selected bus. The final artifact
-  is generated from baseline ACTIVSg2000 DCOPF LMPs;
+  \item $C_i^{\mathrm{energy}}$: for Submission 2, grid purchase multiplied by
+  the nonnegative LMP from the selected joint dispatch at the selected bus and
+  hour. Submission 1 has no energy-purchase cost;
   \item $C_i^{\mathrm{gen,op}}$: private-generator dispatch multiplied by the
   dataset-derived marginal cost;
   \item $C_i^{\mathrm{gen,cap}}$: submitted generator MW multiplied by the
@@ -415,7 +418,7 @@ Parameter & Current release value & Basis\\
 Generator capital & \USD1.3m/MW & Current instructional coefficient for team-built generation.\\
 Site cost & \USD20m/MW & Current capacity-dependent instructional connection coefficient.\\
 Generator operating cost & Piecewise \$60/100/160 per MWh at 25/50/25\% & Common team-built curve; same at every site.\\
-Energy price & Baseline LMP artifact & Exogenous ACTIVSg2000 DCOPF price surface, one price per bus and hour.\\
+Energy price & Submission 2 joint-dispatch LMP & Locational price at the selected bus and hour; Submission 1 has no energy-purchase cost.\\
 IT value & \USD1500/MWh hourly & Full-horizon instructor-chosen opportunity value; see the profile documentation.\\
 Storage power capital & \USD350,000/MW & Current power-capacity coefficient.\\
 Storage energy capital & \USD200,000/MWh & Current energy-capacity coefficient; together with power capital gives \USD1.15m/MW for a four-hour system.\\

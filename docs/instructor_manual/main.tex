@@ -134,8 +134,10 @@ Year & Round & Evaluator hours & CSV rows\\
 The released artifacts are under
 \sloppy\code{data/processed/activsg2000\_scenarios\_v1/<year>/<block>}. The root and
 block manifests record validation status, scenario hashes, and artifact
-metadata. A block must report \code{validation\_status: passed} before it is
-used for a classroom round.
+metadata. Full six-block/hour DCOPF validation is currently pending and
+unverified because \code{highspy} is unavailable in this environment. A block
+must report \code{validation\_status: passed} after a successful HiGHS-backed
+run before it is used for a classroom round.
 
 \section{Student submission contract}
 
@@ -211,8 +213,10 @@ The submission number is evaluator-side metadata, not a CSV column. The CLI
 accepts \code{1} or \code{2} and defaults explicitly to \code{2}. Use
 \code{--submission-number 1} for a practice run: it excludes energy-purchase
 cost while retaining the other active scoring terms. Use
-\code{--submission-number 2} for the scored run, which includes locational
-energy-purchase cost from the joint dispatch.
+\code{--submission-number 2} for the scored run, which settles grid purchases
+at the locational marginal price (LMP) from the selected joint dispatch.
+Submission 1 is practice and has no energy-purchase cost while retaining the
+other active scoring terms.
 
 Validate the complete scenario package:
 \begin{lstlisting}
@@ -263,16 +267,15 @@ of \USD350,000/MW plus \USD200,000/MWh. A four-hour storage device therefore
 has a \USD1.15m/MW capital equivalent, and storage operating cost is not
 charged.
 
-Energy purchase cost uses the validated baseline DCOPF LMP at the selected bus
-and hour. The six released LMP artifacts are stored as deterministic NPZ
-matrices with one row per hour and one column per bus. Raw balance duals are
-retained for audit, while nonnegative LMPs are used for scoring. IT value is a
-complete full-horizon vector supplied in the corresponding economic-profile
-JSON. These prices are instructional model outputs, not official ERCOT market
-prices. Submission 1 is the practice mode and sets energy-purchase cost to
-zero; Submission 2 is the scored mode and includes the locational energy
-purchase term. The submission number is selected on the instructor CLI and is
-never represented by an extra CSV column.
+For Submission 2, energy purchase cost uses the nonnegative LMP from the
+selected joint dispatch at the selected bus and hour. The released LMP
+artifacts are deterministic economic-profile references with one row per hour
+and one column per bus; raw balance duals are retained for audit. Submission 1
+is practice and has no energy-purchase cost. IT value is a complete
+full-horizon vector supplied in the corresponding economic-profile JSON. These
+are instructional model outputs, not official ERCOT market prices. The
+submission number is selected on the instructor CLI and is never represented by
+an extra CSV column.
 
 \section{Concrete multi-team example}
 

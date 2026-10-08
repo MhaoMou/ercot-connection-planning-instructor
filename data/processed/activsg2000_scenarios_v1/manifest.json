@@ -35,8 +35,7 @@
       "horizon": 4344,
       "time_step_hours": 1,
       "profile_recipe_hash": "e54ede2487102450ebe8d97846723a358b3f88e1b55801575704a336e8862f05",
-      "sha256": "42925c29adb5811560a81709aad908b6125ca747e346b1e695552def7ced7c0d",
-      "validated_state_hash": "d754e3cfe01b9f19fc0102c162f10f56141ba875703ca62a3711b7c226b75188"
+      "sha256": "42925c29adb5811560a81709aad908b6125ca747e346b1e695552def7ced7c0d"
     },
     "2027-jul_dec": {
       "year": 2027,
@@ -44,8 +43,7 @@
       "horizon": 4416,
       "time_step_hours": 1,
       "profile_recipe_hash": "ea3d4dec4c8c66f5b3b7127f0002364f9fbc7d468699b7e58423d41ffd132566",
-      "sha256": "c5a7f493a3a83a3dfa3154b2efec69e04c274f8b8969afc095945b061381a21e",
-      "validated_state_hash": "af717e6c5fccb7e762d54c3cf087f044097cf51d997648b5b66b2be8487912c1"
+      "sha256": "c5a7f493a3a83a3dfa3154b2efec69e04c274f8b8969afc095945b061381a21e"
     },
     "2028-jan_jun": {
       "year": 2028,
@@ -53,8 +51,7 @@
       "horizon": 4368,
       "time_step_hours": 1,
       "profile_recipe_hash": "3f1b39e9a26af7f04f2e035adb2c421c710bd0f05e92ffbfa49ac5d8f440c433",
-      "sha256": "475708fdf48274c68c2d060d897c7a8a3a755db35582639b51ccdf5d712cb482",
-      "validated_state_hash": "13487b48787d1db52bb2fb1d4f0bf3e6a4d18d60c4ad39aa122d2339beac8c56"
+      "sha256": "475708fdf48274c68c2d060d897c7a8a3a755db35582639b51ccdf5d712cb482"
     },
     "2028-jul_dec": {
       "year": 2028,
@@ -62,8 +59,7 @@
       "horizon": 4416,
       "time_step_hours": 1,
       "profile_recipe_hash": "2f7d1cebccee3d4e3a9008e3db7cd590c4c4b572d9e1aa8c5474a47cb256822e",
-      "sha256": "a82d22662c7d9717b0780e89b9aada3389035589636b1324a8a322d37348e42d",
-      "validated_state_hash": "e5b0e6e9530620067b5e237cd7534749b46dda121770ddc7056c4fe032d79a0a"
+      "sha256": "a82d22662c7d9717b0780e89b9aada3389035589636b1324a8a322d37348e42d"
     },
     "2029-jan_jun": {
       "year": 2029,
@@ -71,8 +67,7 @@
       "horizon": 4344,
       "time_step_hours": 1,
       "profile_recipe_hash": "6bad9ca23c63b11e05599a2b5cfd6427e33a24c77ce966bf5ef0a94a5d20b520",
-      "sha256": "dd7f28dff8f1bc348785cc0c405888fa32c0cc0bed125ec5ffef1080523ef07b",
-      "validated_state_hash": "4049d182c3299c0a4841775c9c8604c637fbe0400bc14616d5d8906cc5e15b39"
+      "sha256": "dd7f28dff8f1bc348785cc0c405888fa32c0cc0bed125ec5ffef1080523ef07b"
     },
     "2029-jul_dec": {
       "year": 2029,
@@ -80,8 +75,7 @@
       "horizon": 4416,
       "time_step_hours": 1,
       "profile_recipe_hash": "ae1db8bb723cd7380226abff97104418a34a3547a27dcadacfecbbc0501c47f8",
-      "sha256": "50f28112ab9cfaeccba8f11ff52dea19b993c0ce9e9fa0fc40010c36600f9e57",
-      "validated_state_hash": "af717e6c5fccb7e762d54c3cf087f044097cf51d997648b5b66b2be8487912c1"
+      "sha256": "50f28112ab9cfaeccba8f11ff52dea19b993c0ce9e9fa0fc40010c36600f9e57"
     }
   },
   "validation": {

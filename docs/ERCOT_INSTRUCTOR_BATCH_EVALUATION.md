@@ -5,6 +5,11 @@ against one validated ACTIVSg2000 scenario block. It writes the ranked leaderboa
 and audit artifacts to one output directory; that directory is the source of
 truth for the ranking and audit record.
 
+In the current repository state, full six-block/hour DCOPF validation is pending
+and unverified because `highspy` is unavailable in this environment. Do not
+treat the checked-in manifests as passed; a block must be revalidated with
+HiGHS before classroom use.
+
 The production data path is the public synthetic Texas ACTIVSg2000 system.
 Student files use source `bus_id` values from the selected block. The active
 seven-column CSV has no asset-ID columns, including no generator- or storage-ID
@@ -69,7 +74,7 @@ ACTIVSg2000 source buses directly with `bus_id`, one site per data row.
 `1` or `2` and defaults explicitly to `2` (scored evaluation). Use
 `--submission-number 1` for a practice run with no energy-purchase cost; use
 `--submission-number 2` for the scored run, which settles grid purchases at
-the locational marginal prices from the joint dispatch. All other active
+the locational marginal prices (LMPs) from the joint dispatch. All other active
 scoring terms still apply to Submission 1.
 
 `--period-indices`, when supplied, selects local scoring periods and is reserved
@@ -136,7 +141,7 @@ The score includes IT value, generator operating cost, generator capital cost,
 capacity-dependent connection-site cost, and storage capital cost (power and
 energy components). Submission 1 in each weekly match is practice and excludes
 energy-purchase cost. Submission 2 settles each team's grid purchases at the
-locational marginal prices from that submission's joint dispatch. Storage has
+locational marginal prices (LMPs) from that submission's joint dispatch. Storage has
 no operating-cost term. The evaluator's scoring-rules JSON is the authoritative
 source for the numerical coefficients.
 
