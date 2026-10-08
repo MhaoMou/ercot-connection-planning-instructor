@@ -38,7 +38,21 @@ class StorageAsset:
     bus_id: str
     power_mw: float
     energy_mwh: float
-    state_of_charge_mwh: float
+    state_of_charge_mwh: float | None = None
+
+    def __post_init__(self) -> None:
+        state_of_charge_mwh = (
+            self.energy_mwh * 0.5
+            if self.state_of_charge_mwh is None
+            else self.state_of_charge_mwh
+        )
+        _validate_storage_soc(
+            state_of_charge_mwh,
+            self.energy_mwh,
+            team_id=self.team_id,
+            storage_id=self.storage_id,
+        )
+        object.__setattr__(self, "state_of_charge_mwh", float(state_of_charge_mwh))
 
 
 @dataclass(frozen=True)
@@ -385,6 +399,29 @@ def _storage_asset(
             else state_of_charge_mwh
         ),
     )
+
+
+def _validate_storage_soc(
+    value: Any,
+    energy_mwh: float,
+    *,
+    team_id: str,
+    storage_id: str,
+) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise AssetStateError(
+            f"storage state of charge must be finite for {team_id}/{storage_id}"
+        )
+    if value < energy_mwh * 0.5:
+        raise AssetStateError(
+            f"storage state of charge for {team_id}/{storage_id} "
+            "must be at least half of energy capacity"
+        )
+    if value > energy_mwh:
+        raise AssetStateError(
+            f"storage state of charge for {team_id}/{storage_id} "
+            "exceeds energy capacity"
+        )
 
 
 def _same_storage_spec(left: StorageAsset, right: StorageAsset) -> bool:

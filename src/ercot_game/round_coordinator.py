@@ -194,7 +194,24 @@ def _record_final_storage_soc(
     if not storages_by_team:
         return state
 
-    periods = evaluation.dispatch.periods
+    dispatch = evaluation.dispatch
+    try:
+        dispatched_team_ids = frozenset(dispatch.team_ids)
+    except AttributeError:
+        # Lightweight evaluator doubles from earlier stages do not expose the
+        # BatchDispatchResult team set, so retain the original strict behavior.
+        expected_storages_by_team = storages_by_team
+    else:
+        expected_storages_by_team = {
+            team_id: storages
+            for team_id, storages in storages_by_team.items()
+            if team_id in dispatched_team_ids
+        }
+
+    if not expected_storages_by_team:
+        return state
+
+    periods = dispatch.periods
     final_period = periods[-1]
     reported = getattr(final_period, "storage_soc_mwh_by_team", None)
     if not isinstance(reported, Mapping):
@@ -203,7 +220,7 @@ def _record_final_storage_soc(
         )
 
     soc_by_team: dict[str, dict[str, float]] = {}
-    for team_id, storages in storages_by_team.items():
+    for team_id, storages in expected_storages_by_team.items():
         values = reported.get(team_id)
         if not isinstance(values, Mapping):
             raise RoundCoordinatorError(

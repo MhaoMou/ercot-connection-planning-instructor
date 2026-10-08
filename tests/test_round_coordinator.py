@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 
 import pytest
@@ -107,6 +107,70 @@ def test_round_commit_records_final_storage_soc_and_reuses_it_next_round(tmp_pat
     )
 
     assert seen[1]["team-a"].storages[0].initial_state_of_charge_mwh == 15.0
+
+
+def test_partial_dispatch_carries_forward_soc_for_absent_storage_team(tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    prior = GameState.new().advance("2027_jan_jun", (_asset_plan("team-b"),))
+    prior = replace(
+        prior,
+        asset_ledger=prior.asset_ledger.update_storage_soc(
+            {"team-b": {"store-old": 15.0}}
+        ),
+    )
+    GameStateStore(state_path).save(prior)
+
+    def evaluator(*args, **kwargs):
+        return _UsableEvaluation(
+            dispatch=SimpleNamespace(
+                team_ids=("team-a",),
+                periods=(
+                    SimpleNamespace(
+                        storage_soc_mwh_by_team={"team-a": {"store-old": 15.0}}
+                    ),
+                ),
+            )
+        )
+
+    result = evaluate_round(
+        state_path=state_path,
+        round_key="2027_jul_dec",
+        submissions=tmp_path / "submissions",
+        artifact_dir=tmp_path / "artifacts",
+        horizon=1,
+        rules=object(),
+        plan_loader=_loader((_asset_plan("team-a"), TeamPlan("team-b", connections=()))),
+        evaluator=evaluator,
+    )
+
+    assert result.state.asset_ledger.team("team-a").storages["store-old"].state_of_charge_mwh == 15.0
+    assert result.state.asset_ledger.team("team-b").storages["store-old"].state_of_charge_mwh == 15.0
+
+
+def test_dispatched_storage_team_still_requires_final_soc_report(tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+
+    def evaluator(*args, **kwargs):
+        return _UsableEvaluation(
+            dispatch=SimpleNamespace(
+                team_ids=("team-a",),
+                periods=(SimpleNamespace(storage_soc_mwh_by_team={}),),
+            )
+        )
+
+    with pytest.raises(RoundCoordinatorError, match="missing final storage state of charge for team team-a"):
+        evaluate_round(
+            state_path=state_path,
+            round_key="2027_jan_jun",
+            submissions=tmp_path / "submissions",
+            artifact_dir=tmp_path / "artifacts",
+            horizon=1,
+            rules=object(),
+            plan_loader=_loader((_asset_plan("team-a"), TeamPlan("team-b", connections=()))),
+            evaluator=evaluator,
+        )
+
+    assert not state_path.exists()
 
 
 @pytest.mark.parametrize(

@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from ercot_game.asset_state import AssetLedger, AssetStateError
+from ercot_game.asset_state import AssetLedger, AssetStateError, StorageAsset
 from ercot_game.models import ConnectionPlan, GeneratorPlan, StoragePlan, TeamPlan
 
 
@@ -66,6 +66,28 @@ def test_legacy_storage_asset_without_soc_loads_half_full() -> None:
     restored = AssetLedger.from_dict(payload)
 
     assert restored.team("team-a").storages["store-1"].state_of_charge_mwh == 10.0
+
+
+@pytest.mark.parametrize("value", [9.0, 21.0, float("nan"), float("inf")])
+def test_persisted_storage_soc_must_be_finite_and_within_terminal_bounds(value) -> None:
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    payload = ledger.to_dict()
+    payload["teams"]["team-a"]["storages"]["store-1"]["state_of_charge_mwh"] = value
+
+    with pytest.raises(AssetStateError, match="storage state of charge"):
+        AssetLedger.from_dict(payload)
+
+
+def test_legacy_six_argument_storage_asset_defaults_to_half_full() -> None:
+    asset = StorageAsset("team-a", "store-1", "site-1", "b0001", 5.0, 20.0)
+
+    assert asset.state_of_charge_mwh == 10.0
+
+
+@pytest.mark.parametrize("value", [9.0, 21.0, float("nan")])
+def test_direct_storage_asset_rejects_invalid_explicit_soc(value) -> None:
+    with pytest.raises(AssetStateError, match="storage state of charge"):
+        StorageAsset("team-a", "store-1", "site-1", "b0001", 5.0, 20.0, value)
 
 
 def test_update_storage_soc_returns_new_ledger_and_round_trips() -> None:
