@@ -105,21 +105,22 @@ is close to published utility-scale four-hour battery benchmarks
 
 The legacy schema field default_generator_cost_per_mwh = 100 remains only for
 backwards-compatible parsing. It is not the production operating cost for a
-team-built generator. Team-built generator IDs are self-defined labels and use
-the common piecewise curve above. Existing public generators, when used by the
-dispatch model, retain their dataset-defined costs; they are distinct from
-team-built generators.
+team-built generator. Team-built generator IDs are evaluator-derived private
+labels based on the submitting team and site; students do not submit a public
+generator-catalog ID. Existing public generators, when used by the dispatch
+model, retain their dataset-defined costs; they are distinct from team-built
+generators.
 
 ## Student assets and ownership rules
 
 | Rule | Current value | Source category | Operational meaning |
 |---|---|---|---|
 | Student bus IDs | Must exist in the ACTIVSg2000 bus catalog | **DATASET-SPECIFIED** | A CSV cannot invent a bus |
-| Student generator IDs | Any clear nonempty team-defined label, used consistently | **INSTRUCTOR-CHOSEN** | The ID names a private team asset; it is not a public-catalog lookup |
+| Student generator IDs | Derived by the evaluator from team and site IDs | **INSTRUCTOR-CHOSEN** | The canonical CSV has no generator-ID column; the derived ID names a private team asset and is not a public-catalog lookup |
 | Student generator capacity | Submitted in MW; nonnegative and attached to a submitted site | **INSTRUCTOR-CHOSEN** | Evaluator adds a team-owned candidate unit |
 | Student storage power | Positive MW when specified | **INSTRUCTOR-CHOSEN** | Maximum charge/discharge power |
 | Student storage energy | Positive MWh when specified | **INSTRUCTOR-CHOSEN** | Energy capacity |
-| Student storage IDs | Any clear nonempty team-defined label, used consistently | **INSTRUCTOR-CHOSEN** | The ID names a private team asset; no public storage catalog is required |
+| Student storage IDs | Derived by the evaluator from team and site IDs | **INSTRUCTOR-CHOSEN** | The canonical CSV has no storage-ID column; the derived ID names a private team asset and no public storage catalog is required |
 | Generator ownership | Private to the submitting team | **INSTRUCTOR-CHOSEN** | Cannot serve another team |
 | Storage ownership | Private to the submitting team | **INSTRUCTOR-CHOSEN** | Cannot serve another team |
 | Team load | Fixed and inelastic | **INSTRUCTOR-CHOSEN** | No load shedding or load curtailment |
@@ -182,8 +183,12 @@ the batch output identifies the projection scope.
 
 ## What students can tune
 
-Students choose plan variables: sites, hourly load, team-defined generator IDs and
-capacities, and storage IDs and capacities. They do not choose prices,
+Students choose canonical site-level plan variables: site IDs, catalog bus IDs,
+connection capacities, generator capacities, and storage power and energy
+capacities. The CSV has one row per site; students do not submit hourly load,
+generator-ID, or storage-ID columns. The evaluator selects the hourly horizon
+and derives private generator and storage asset IDs from each team/site pair.
+Students do not choose prices,
 IT values, network limits, generator marginal costs, projection tolerance, or
 scoring coefficients.
 

@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import csv
 import json
+import os
+from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -148,6 +152,36 @@ def test_cli_accepts_canonical_submission_with_only_file(tmp_path, capsys):
 
     assert exit_code == 0
     assert "VALID:" in capsys.readouterr().out
+
+
+def test_tools_checker_runs_without_optional_numpy_import(tmp_path):
+    path = tmp_path / "team.csv"
+    _submission(path, [["team-a", "site-1", "3002041", 40, 20, 0, 0]])
+    blocked_imports = tmp_path / "blocked_imports"
+    blocked_imports.mkdir()
+    (blocked_imports / "numpy.py").write_text(
+        "raise ImportError('numpy must not be imported by canonical CSV validation')\n",
+        encoding="utf-8",
+    )
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(blocked_imports)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).parents[1] / "tools" / "check_submission.py"),
+            "--file",
+            str(path),
+        ],
+        cwd=Path(__file__).parents[1],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "VALID:" in result.stdout
 
 
 def test_validator_reports_malformed_quoting_as_file_error(tmp_path):

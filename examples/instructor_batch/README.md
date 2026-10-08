@@ -45,5 +45,6 @@ ercot-game-batch run \
 The shipped files use the real catalog ID and bus schema. The intentionally
 invalid fixture is included so the same command also demonstrates per-file
 rejection and manifest retention. Do not use this one-period command for
-classroom scoring; production requires complete year-specific half-year files
-(4,344, 4,368, or 4,416 one-hour periods, depending on the released calendar).
+classroom scoring. A production CSV contains one row per site and no hourly
+rows; the evaluator selects the released year-specific half-year horizon on
+its side (4,344, 4,368, or 4,416 one-hour periods, depending on the calendar).
