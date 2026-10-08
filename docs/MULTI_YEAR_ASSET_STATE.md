@@ -97,6 +97,12 @@ horizon. This keeps the owned asset visible to the evaluator without inventing
 new demand. If the site is present, its current connection metadata is retained;
 the persisted source bus must still match the asset's immutable record.
 
+The ACTIVSg2000 storage adapter treats such a zero-load placeholder as an
+inactive site: storage attached to it remains idle for the requested horizon,
+with zero charging, zero discharging, and state of charge fixed at one-half of
+its energy capacity. Storage at active sites retains the normal continuous
+peak-shaving schedule.
+
 Materialization also:
 
 - accepts an exact re-declaration of an existing asset;

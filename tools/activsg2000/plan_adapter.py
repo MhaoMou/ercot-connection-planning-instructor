@@ -429,6 +429,11 @@ def _storage_schedule(
         period: sum(load_by_connection[connection_id][period] for connection_id in load_by_connection)
         for period in period_indices
     }
+    inactive_connection_ids = {
+        connection_id
+        for connection_id, loads in load_by_connection.items()
+        if not any(amount > 0.0 for amount in loads.values())
+    }
     threshold = sorted(load_by_period.values())[len(load_by_period) // 2]
     storage_by_connection: dict[str, list[str]] = {}
     for storage in sorted(plan.storages, key=lambda item: item.storage_id):
@@ -438,6 +443,13 @@ def _storage_schedule(
     result: dict[str, dict[str, object]] = {}
     for storage in sorted(plan.storages, key=lambda item: item.storage_id):
         connection = next(item for item in connections if item.connection_id == storage.connection_id)
+        if storage.connection_id in inactive_connection_ids:
+            result[storage.storage_id] = _idle_storage_entry(
+                storage,
+                connection,
+                period_indices,
+            )
+            continue
         soc = storage.energy_mwh * 0.5
         charge: dict[int, float] = {}
         discharge: dict[int, float] = {}
@@ -487,13 +499,25 @@ def _idle_storage_schedule(
 ) -> dict[str, dict[str, object]]:
     connection_by_id = {connection.connection_id: connection for connection in connections}
     return {
-        storage.storage_id: {
-            "bus_id": connection_by_id[storage.connection_id].bus_id,
-            "charge": {period: 0.0 for period in period_indices},
-            "discharge": {period: 0.0 for period in period_indices},
-            "soc": {period: storage.energy_mwh * 0.5 for period in period_indices},
-        }
+        storage.storage_id: _idle_storage_entry(
+            storage,
+            connection_by_id[storage.connection_id],
+            period_indices,
+        )
         for storage in sorted(plan.storages, key=lambda item: item.storage_id)
+    }
+
+
+def _idle_storage_entry(
+    storage,
+    connection: ConnectionPlan,
+    period_indices: tuple[int, ...],
+) -> dict[str, object]:
+    return {
+        "bus_id": connection.bus_id,
+        "charge": {period: 0.0 for period in period_indices},
+        "discharge": {period: 0.0 for period in period_indices},
+        "soc": {period: storage.energy_mwh * 0.5 for period in period_indices},
     }
 
 

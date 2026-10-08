@@ -83,21 +83,14 @@ class AssetLedger:
         """
         if not round_key or not round_key.strip():
             raise AssetStateError("round_key must be a non-empty string")
-        connections = {connection.connection_id: connection for connection in plan.connections}
+        connections = _unique_connections(plan.connections)
         current = self.teams.get(plan.team_id, TeamAssetState(team_id=plan.team_id))
         generators = dict(current.generators)
         storages = dict(current.storages)
 
-        for generator in plan.generators:
+        for generator in _unique_assets(plan.generators, kind="generator").values():
             connection = _connection_for_asset(connections, generator.connection_id)
-            candidate = GeneratorAsset(
-                team_id=plan.team_id,
-                generator_id=generator.generator_id,
-                connection_id=generator.connection_id,
-                bus_id=connection.bus_id,
-                capacity_mw=generator.capacity_mw,
-                marginal_cost_per_mwh=generator.marginal_cost_per_mwh,
-            )
+            candidate = _generator_asset(plan.team_id, generator, connection)
             previous = generators.get(generator.generator_id)
             if previous is not None and previous != candidate:
                 raise AssetStateError(
@@ -105,16 +98,9 @@ class AssetLedger:
                 )
             generators[generator.generator_id] = candidate
 
-        for storage in plan.storages:
+        for storage in _unique_assets(plan.storages, kind="storage").values():
             connection = _connection_for_asset(connections, storage.connection_id)
-            candidate = StorageAsset(
-                team_id=plan.team_id,
-                storage_id=storage.storage_id,
-                connection_id=storage.connection_id,
-                bus_id=connection.bus_id,
-                power_mw=storage.power_mw,
-                energy_mwh=storage.energy_mwh,
-            )
+            candidate = _storage_asset(plan.team_id, storage, connection)
             previous = storages.get(storage.storage_id)
             if previous is not None and previous != candidate:
                 raise AssetStateError(

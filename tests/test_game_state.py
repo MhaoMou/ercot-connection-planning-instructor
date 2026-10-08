@@ -6,7 +6,7 @@ import pytest
 
 from ercot_game.asset_state import AssetStateError
 from ercot_game.game_state import GameState, RoundTransitionError
-from ercot_game.models import ConnectionPlan, GeneratorPlan, TeamPlan
+from ercot_game.models import ConnectionPlan, GeneratorPlan, StoragePlan, TeamPlan
 
 
 def _plan(team_id: str = "team-a") -> TeamPlan:
@@ -59,6 +59,48 @@ def test_duplicate_team_plans_are_rejected_before_asset_updates() -> None:
 
     assert state.current_round_key is None
     assert state.asset_ledger.team_ids() == ()
+
+
+@pytest.mark.parametrize(
+    ("plan", "message"),
+    (
+        (
+            TeamPlan(
+                team_id="team-a",
+                connections=(
+                    ConnectionPlan("site-1", "b0001", 40.0, (1.0,)),
+                    ConnectionPlan("site-1", "b0002", 40.0, (1.0,)),
+                ),
+            ),
+            "duplicate connection site: site-1",
+        ),
+        (
+            TeamPlan(
+                team_id="team-a",
+                connections=(ConnectionPlan("site-1", "b0001", 40.0, (1.0,)),),
+                generators=(
+                    GeneratorPlan("gen-1", "site-1", 10.0, 16.0),
+                    GeneratorPlan("gen-1", "site-1", 10.0, 16.0),
+                ),
+            ),
+            "duplicate generator asset: gen-1",
+        ),
+        (
+            TeamPlan(
+                team_id="team-a",
+                connections=(ConnectionPlan("site-1", "b0001", 40.0, (1.0,)),),
+                storages=(
+                    StoragePlan("store-1", "site-1", 5.0, 20.0),
+                    StoragePlan("store-1", "site-1", 5.0, 20.0),
+                ),
+            ),
+            "duplicate storage asset: store-1",
+        ),
+    ),
+)
+def test_advance_rejects_duplicate_asset_ids(plan: TeamPlan, message: str) -> None:
+    with pytest.raises(AssetStateError, match=message):
+        GameState.new().advance("2027_jan_jun", (plan,))
 
 
 def test_state_round_trip_is_json_safe() -> None:

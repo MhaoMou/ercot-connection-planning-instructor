@@ -85,3 +85,49 @@ def test_asset_ids_are_scoped_to_team_ownership() -> None:
 def test_unknown_team_lookup_is_explicit() -> None:
     with pytest.raises(KeyError, match="team-x"):
         AssetLedger.empty().team("team-x")
+
+
+@pytest.mark.parametrize(
+    ("connections", "generators", "storages", "message"),
+    (
+        (
+            (
+                ConnectionPlan("site-1", "b0001", 40.0, (1.0,)),
+                ConnectionPlan("site-1", "b0002", 40.0, (1.0,)),
+            ),
+            (),
+            (),
+            "duplicate connection site: site-1",
+        ),
+        (
+            (ConnectionPlan("site-1", "b0001", 40.0, (1.0,)),),
+            (
+                GeneratorPlan("gen-1", "site-1", 10.0, 16.0),
+                GeneratorPlan("gen-1", "site-1", 10.0, 16.0),
+            ),
+            (),
+            "duplicate generator asset: gen-1",
+        ),
+        (
+            (ConnectionPlan("site-1", "b0001", 40.0, (1.0,)),),
+            (),
+            (
+                StoragePlan("store-1", "site-1", 5.0, 20.0),
+                StoragePlan("store-1", "site-1", 5.0, 20.0),
+            ),
+            "duplicate storage asset: store-1",
+        ),
+    ),
+)
+def test_register_plan_rejects_duplicate_ids(
+    connections, generators, storages, message
+) -> None:
+    plan = TeamPlan(
+        team_id="team-a",
+        connections=connections,
+        generators=generators,
+        storages=storages,
+    )
+
+    with pytest.raises(AssetStateError, match=message):
+        AssetLedger.empty().register_plan(plan, round_key="2027_jan_jun")
