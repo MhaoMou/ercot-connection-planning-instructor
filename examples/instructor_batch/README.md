@@ -1,10 +1,10 @@
 # Instructor batch examples
 
-These deterministic CSVs are teaching fixtures for the current long-form
-submission schema. They are not real student submissions. They are deliberately
+These deterministic CSVs are historical ten-column hourly compatibility
+fixtures. They are not current student submissions. They are deliberately
 small one-period smoke fixtures for demonstrating parser errors and the
-failure-isolation path; they are not valid production half-year submissions.
-Use the instructor guide for the 4,368-hour and 4,416-hour production runs.
+failure-isolation path. Current submissions use the canonical seven-column,
+one-row-per-site format shown in the student and instructor manuals.
 
 The files demonstrate the approved joint-infeasibility behavior:
 
@@ -17,16 +17,16 @@ The files demonstrate the approved joint-infeasibility behavior:
   negative load. It is retained in `submission_manifest.csv`, excluded from
   the DCOPF, and assigned the configured infeasible score.
 
-The active production header is the bus-based schema from
-`ercot_game.csv_submission.BUS_CSV_COLUMNS`:
+Historical fixture header (not the active production header):
 
 ```text
 team_id,submission_id,period,bus_id,load_mw,generator_id,generator_capacity_mw,storage_id,storage_power_mw,storage_energy_mwh
 ```
 
-The examples use Zenodo bus `3001003`, valid generator `14023`, and period `1`,
-so they can be evaluated with a one-period smoke-test horizon. Storage columns
-are active in the current schema; these particular fixtures leave them blank.
+The historical examples use Zenodo bus `3001003`, generator `14023`, and period
+`1`, so they can be evaluated with a one-period smoke-test horizon. Do not copy
+this header into a current submission; the canonical format has no hourly
+period/load rows or public generator ID field.
 There are no curtailment or load-shedding fields, and the fixed submitted load
 is not curtailed.
 

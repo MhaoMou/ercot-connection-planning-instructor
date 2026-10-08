@@ -140,6 +140,16 @@ def test_cli_accepts_compact_submission_without_hourly_rows(tmp_path, capsys):
     assert payload["site_count"] == 1
 
 
+def test_cli_accepts_canonical_submission_with_only_file(tmp_path, capsys):
+    path = tmp_path / "team.csv"
+    _submission(path, [["team-a", "site-1", "3002041", 40, 20, 0, 0]])
+
+    exit_code = main(["--file", str(path)])
+
+    assert exit_code == 0
+    assert "VALID:" in capsys.readouterr().out
+
+
 def test_validator_reports_malformed_quoting_as_file_error(tmp_path):
     path = tmp_path / "malformed.csv"
     path.write_text(

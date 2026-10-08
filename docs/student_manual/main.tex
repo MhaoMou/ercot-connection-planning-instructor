@@ -92,7 +92,7 @@ controlling energy, interconnection, generation, and storage costs.
 \subsection{Deliverables}
 \begin{enumerate}[leftmargin=*]
   \item one \code{UTF-8 CSV} file for your team;
-  \item validator output showing that the file passes the selected \code{horizon};
+  \item validator output showing that the canonical file passes the checker;
   \item a short strategy note explaining your main bus, load, generator, and
   storage choices and the trade-offs you considered;
   \item the exact final CSV and any code used to generate it.
@@ -103,12 +103,13 @@ not submit a screenshot in place of the CSV.
 
 \subsection{Assignment rules at a glance}
 \begin{itemize}[leftmargin=*]
-  \item Submit exactly one complete \code{half-year horizon}. The released calendar determines
-  the length: 2028 has 4,368/4,416 hours and 2027/2029 have 4,344/4,416 hours
-  for January--June/July--December.
-  \item Use \code{bus IDs} from the supplied ACTIVSg2000 scenario block. Team-built
-  generator and storage IDs are labels chosen by your team.
-  \item Load is nonnegative and is specified directly in \code{MW} for every hour.
+  \item Submit one canonical site-level CSV row for each selected site. The CSV has no
+  hourly period, load, or horizon rows.
+  \item Use \code{bus IDs} from the supplied ACTIVSg2000 scenario block. Site
+  capacities are specified in MW/MWh.
+  \item The released calendar still determines the evaluator's half-year hourly
+  scenario: 2028 has 4,368/4,416 hours and 2027/2029 have 4,344/4,416 hours
+  for January--June/July--December. Those hours are not CSV rows.
   \item \code{Generators} and \code{storage} are private to the submitting team.
   \item The current release has no student-controlled \code{curtailment} decision.
   \item The instructor evaluates valid teams jointly and ranks teams by \code{score}.
@@ -187,34 +188,24 @@ Year & Round & Hours & Zero-based period indices\\
 \end{center}
 
 The source year contains one full calendar year's hourly records. A submission therefore has
-access to roughly 2,000 possible buses and roughly 4,400 hourly decision slots,
-but it does \emph{not} need to contain 2,000$\times$4,500 CSV rows. The long-form
-CSV lists only the buses used by your team. For every bus that appears in the
-file, however, the release evaluator requires one row for every hour in the
-selected half-year; use a zero load in a row when that bus is idle. Buses that
-never participate may be omitted entirely.
+access to roughly 2,000 possible buses and roughly 4,400 hourly evaluation
+states, but it does \emph{not} encode those states as CSV rows. The canonical
+CSV lists only the sites used by your team; the evaluator combines those site
+decisions with the selected hourly scenario and economic artifacts.
 
-For each selected \code{bus} $s$ and hour $t$, you may request load $d_{s,t}\ge 0$.
-You may also submit one or more private \code{generators} and one or more private
-\code{storage devices} attached to your selected connection sites. A team's resources
-serve only that team. They cannot export energy to another team or become a
-shared pool. The \code{bus\_id} must come from the supplied bus catalog. In
-contrast, \code{generator\_id} and \code{storage\_id} are team-defined labels:
-any clear, nonempty identifier is acceptable, provided the same identifier is
-used consistently for that asset throughout the file and across submissions.
+For each selected site $s$, submit a nonnegative connection capacity and
+optional private generation and storage capacities. A team's resources serve
+only that team. They cannot export energy to another team or become a shared
+pool. The \code{bus\_id} must come from the supplied bus catalog.
 
 \section{Mathematical model}
 
 \subsection{Connection load}
 
-Let $d_{i,s,t} \geq 0$ be the load requested by team $i$ at bus $s$ in hour
-$t$. The corresponding connection capacity is
-\[
-  C_{i,s}=\max_t d_{i,s,t},\qquad
-  p_{i,s,t}=\begin{cases}d_{i,s,t}/C_{i,s},&C_{i,s}>0,\\0,&C_{i,s}=0.\end{cases}
-\]
-The CSV stores the hourly load directly; the evaluator reconstructs the
-capacity and normalized profile internally.
+Let $C_{i,s}\geq 0$ be the connection capacity submitted by team $i$ for site
+$s$. The canonical CSV stores $C_{i,s}$ directly, together with optional
+generator and storage capacities; it does not store an hourly load profile.
+The evaluator uses the site-level plan when constructing each hourly dispatch.
 
 \subsection{Private generation}
 
@@ -283,78 +274,63 @@ there is no integer unit commitment and no ordinary load-shedding variable.
 
 \section{CSV submission format}\label{sec:csv}
 
-Submit one \code{UTF-8 CSV} file per team. The canonical header is:
+Submit one \code{UTF-8 CSV} file per team. The canonical header is exactly:
 
 \begin{lstlisting}
-team_id,submission_id,period,bus_id,load_mw,generator_id,generator_capacity_mw,storage_id,storage_power_mw,storage_energy_mwh
+team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
 \end{lstlisting}
 
-Each row contains a one-based hour \code{period} and an ACTIVSg2000 \code{bus\_id}. A \code{generator}
-or \code{storage} specification may be repeated on rows for the same team; its
-capacity and attachment must remain consistent. The load for a given
-bus--period must also remain consistent across repeated resource rows.
-
-For a released half-year submission, each selected bus must cover every period
-at least once; additional rows may declare distinct generator or storage
-resources, provided the load and resource specifications remain consistent. The short table below illustrates
-the column format only; it is not a complete half-year submission. A file that
-contains only the illustrated rows will be rejected when checked against a
-released year and round.
+Each data row is one site. The file has no \code{period}, hourly \code{load\_mw},
+\code{submission\_id}, \code{generator\_id}, or \code{storage\_id} columns and
+contains no hourly horizon rows. The \code{site\_id} is a team-defined site
+label; \code{bus\_id} must come from the supplied scenario block.
 
 Example:
 \begin{lstlisting}
-team_id,submission_id,period,bus_id,load_mw,generator_id,generator_capacity_mw,storage_id,storage_power_mw,storage_energy_mwh
-team-blue,half_year_1,1,1001,40,GEN_A,20,STORE_A,10,20
-team-blue,half_year_1,2,1001,35,GEN_A,20,STORE_A,10,20
-team-blue,half_year_1,1,1002,25,,,,,
+team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
+team-blue,site-north,3002041,40,20,10,40
+team-blue,site-south,3002042,15,0,0,0
 \end{lstlisting}
 
-Use empty fields for resources that are not present on a row. Values use MW,
-MWh, and decimal notation. Periods are one-based in the CSV even though the
-internal evaluator uses zero-based indices.
-
-The \code{validator} also checks complete horizon coverage. This prevents a short
-pilot file from silently becoming a mostly-zero half-year plan. The released
-checker accepts the horizon implied by the selected year and round.
+Values use MW, MWh, and decimal notation. The \code{validator} checks the exact
+seven-column header, site identifiers, scenario bus identifiers, finite
+nonnegative capacities, and the storage ratio.
 
 \textbf{Before submitting, run the provided \code{CSV validator}.} From the project
 root, run with the released ACTIVSg2000 scenario-block path:
 \begin{lstlisting}
 PYTHONPATH=src python scripts/check_submission.py \\
-  --file team-blue.csv \\
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2027/jan_jun \\
-  --year 2027 --round jan\_jun
+  --file team-blue.csv
 \end{lstlisting}
-Use \code{--year 2027 --round jul\_dec} for the July--December submission. The \code{checker} is
-also available after installation as \code{ercot-game-check-csv}. It checks UTF-8
-encoding, the exact header, numeric fields, public bus IDs, team-defined asset IDs, duplicate
-keys, consistent resource specifications, horizon bounds, and nonnegative
-values. The validator is a convenience check; the instructor evaluator remains
-authoritative.
+The \code{checker} is also available after installation as
+\code{ercot-game-check-csv}. Add \code{--artifact-dir} when you want the checker
+to verify scenario bus IDs; \code{--year}, \code{--round}, and \code{--horizon}
+are optional historical/report context. The validator is a convenience check;
+the instructor evaluator remains authoritative.
+
+\textbf{Historical compatibility note.} The retired ten-column hourly format
+with \code{period} and \code{load\_mw} is retained only for explicitly marked
+legacy fixtures and compatibility tests. Do not use it for a current submission.
 
 \subsection{Complete small example}
-The following illustrates a valid two-hour pattern, but it is not a valid
-course submission because it is shorter than either released horizon:
+The following is a complete canonical two-site example. It is intentionally
+small for format testing; a course submission may contain more site rows but
+still never contains hourly horizon rows:
 \begin{lstlisting}
-team_id,submission_id,period,bus_id,load_mw,generator_id,generator_capacity_mw,storage_id,storage_power_mw,storage_energy_mwh
-team-demo,demo-1,1,3002041,4,12875,2,BATT_1,1,2
-team-demo,demo-1,2,3002041,3,12875,2,BATT_1,1,2
-team-demo,demo-1,1,3002042,2,,,,,
-team-demo,demo-1,2,3002042,0,,,,,
+team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
+team-demo,site-north,3002041,4,2,1,4
+team-demo,site-south,3002042,2,0,0,0
 \end{lstlisting}
-The resource specifications are repeated consistently for the first bus. The
-second bus has no generator or storage, so those fields are empty. In an actual
-submission, this coverage pattern continues through period 4,368 or 4,416.
+The second site has no generation or storage. The half-year hourly scenario is
+selected by the instructor and is not expanded into repeated rows in this file.
 
 \subsection{Checker troubleshooting}
 \begin{itemize}[leftmargin=*]
 \item \textbf{Unknown bus:} copy the \code{bus\_id} from the supplied ACTIVSg2000
- bus catalog. Team-defined generator and storage IDs may be invented, but must be
- consistent within the submission.
-  \item \textbf{Incomplete horizon:} add rows for every missing period on each
-  selected bus, using zero load when the bus is idle.
-  \item \textbf{Inconsistent resource specification:} repeat the same
-  capacity and attachment values on every row for that resource.
+ bus catalog.
+  \item \textbf{Duplicate site:} give every site row a distinct \code{site\_id}.
+  \item \textbf{Storage ratio:} use storage energy equal to four times storage
+  power, or set both storage fields to zero.
   \item \textbf{Malformed CSV:} save as UTF-8 CSV and inspect commas,
   quotation marks, and the exact header.
 \end{itemize}
@@ -464,9 +440,9 @@ vector is constant by policy; the energy price is not a student-chosen value.
 
 \section{Practical workflow}
 \begin{enumerate}[leftmargin=*]
-  \item Read the round configuration and identify the horizon.
+  \item Read the round configuration and identify the evaluator's scenario block.
   \item Inspect the ACTIVSg2000 bus and generator tables supplied by the instructor.
-  \item Choose one or more buses and build hourly load profiles.
+  \item Choose one or more buses and specify site capacities in the canonical CSV.
   \item Decide whether private generation or storage improves your score.
   \item Generate the \code{CSV} and run the \code{validator}.
   \item Keep the exact submitted file and validator output for reproducibility.
@@ -488,12 +464,11 @@ Read the result in this order:
 Before uploading, confirm:
 \begin{itemize}[leftmargin=*]
   \item the file is \code{UTF-8 CSV} with the exact header;
-  \item every selected bus has one row for every required period;
-  \item all bus IDs come from the supplied catalog; team-built generator and storage
-    IDs are self-defined labels;
-  \item generator and storage specifications are consistent across rows;
-  \item all loads and capacities are finite and nonnegative;
-  \item the \code{checker} passes with the correct half-year horizon;
+  \item each data row has a distinct site ID and the exact seven-column header;
+  \item all bus IDs come from the supplied catalog;
+  \item all capacities are finite and nonnegative, with storage energy equal to
+    four times storage power when storage is present;
+  \item the \code{checker} passes without requiring hourly context arguments;
   \item you retained the exact submitted file and checker output;
   \item your strategy note explains the main economic and physical trade-offs.
 \end{itemize}

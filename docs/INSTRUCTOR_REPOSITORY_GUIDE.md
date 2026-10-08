@@ -9,8 +9,8 @@ validated scenario block, and produce auditable team scores.
 
 ```text
 Validated ACTIVSg2000 scenario block (~2,000 buses)
-        -> canonical long-form student CSV
-        -> catalog and horizon validation
+        -> canonical seven-column site-level student CSV
+        -> catalog validation (optional checker context)
         -> joint hourly DCOPF
         -> fair continuous projection when needed
         -> score components, ranking, and audit outputs
@@ -41,9 +41,7 @@ python -m pip install -e .
 
 ```bash
 ercot-game-check-csv \
-  --file path/to/team.csv \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2027/jan_jun \
-  --year 2027 --round jan_jun
+  --file path/to/team.csv
 
 ercot-game-batch run \
   --submissions-dir path/to/submissions \
@@ -55,15 +53,26 @@ ercot-game-batch run \
   --output-dir work/batch_results_jan_jun
 ```
 
+The current CSV header is:
+
+```text
+team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
+```
+
+Each data row is one site. There are no `period`, hourly `load_mw`,
+`submission_id`, `generator_id`, or `storage_id` columns, and no horizon rows to
+generate. `--artifact-dir`, `--horizon`, `--year`, and `--round` remain optional
+historical/catalog context for the checker. The retired hourly schema is kept
+only for explicitly marked compatibility fixtures.
+
 Use `data/processed/activsg2000_scenarios_v1/2027/jul_dec` with the
 July--December rules for the second half-year. The scenario package manifest
 records the six blocks and their validation state.
 
-The CSV uses source `bus_id` values directly. Generator operating costs come
-from `generator_limits.csv`; storage is specified in MW/MWh. Each team’s
-generator and storage serve only that team. The score includes IT value,
-energy cost, site cost, generator capital/operating cost, and storage
-capital/operating cost.
+The CSV uses source `bus_id` values directly. Site capacities are specified in
+MW/MWh, and each team's submitted resources serve only that team. The score
+includes IT value, energy cost, site cost, generator capital/operating cost, and
+storage capital/operating cost.
 
 ## Data and privacy
 
@@ -74,5 +83,5 @@ large local outputs remain outside version control according to `.gitignore`.
 Run the active suite with:
 
 ```bash
-PYTHONPATH=src pytest -q
+PYTHONPATH=.:src pytest -q
 ```

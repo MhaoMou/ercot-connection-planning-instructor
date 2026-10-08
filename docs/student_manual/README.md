@@ -18,17 +18,21 @@ blocks for CSV examples and technical identifiers. The instructor should
 update the round-specific hourly price/value vectors and storage-cost
 coefficients before distributing a final release.
 
-Students can check a submission before uploading it with:
+The current submission is a canonical site-level CSV: exactly one row per site
+and no hourly horizon rows. Students can check a submission before uploading it
+with only the file path:
 
 ```bash
 PYTHONPATH=src python scripts/check_submission.py \
-  --file team-blue.csv \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2027/jan_jun \
-  --year 2027 --round jan_jun
+  --file team-blue.csv
 ```
 
-Use `--year 2027 --round jul_dec` for the July--December half-year. The
-The released calendar determines whether January--June has 4,368 hours (2028)
-or 4,344 hours (2027/2029); July--December has 4,416 hours. The checker
-validates the canonical `bus_id` schema against the released ACTIVSg2000 bus and
-generator catalogs; the instructor-side evaluator remains authoritative.
+The optional `--artifact-dir` checks `bus_id` values against a released catalog;
+optional `--year`, `--round`, or `--horizon` values add historical report
+context. The released calendar still determines the evaluator's hourly scenario
+length, but students do not encode those hours as CSV rows. The
+instructor-side evaluator remains authoritative.
+
+The retired ten-column hourly format is retained only for clearly marked
+historical fixtures and compatibility tests. Do not use it for a current
+submission.

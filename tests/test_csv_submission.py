@@ -3,6 +3,9 @@ from __future__ import annotations
 import pytest
 
 from ercot_game.csv_submission import (
+    BUS_CSV_COLUMNS,
+    CANONICAL_CSV_COLUMNS,
+    CSV_COLUMNS,
     LEGACY_CSV_COLUMNS,
     load_generator_costs,
     load_bus_ids,
@@ -20,6 +23,12 @@ CANONICAL_COLUMNS = (
     "storage_power_mw",
     "storage_energy_mwh",
 )
+
+
+def test_public_csv_column_names_share_the_canonical_seven_column_contract():
+    assert CANONICAL_CSV_COLUMNS == CANONICAL_COLUMNS
+    assert CSV_COLUMNS is CANONICAL_CSV_COLUMNS
+    assert BUS_CSV_COLUMNS is CANONICAL_CSV_COLUMNS
 
 
 def _write(path, rows: str) -> None:

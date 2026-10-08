@@ -1,6 +1,6 @@
 # ERCOT Instructor Batch Evaluation
 
-`ercot-game-batch` evaluates a directory of long-form student CSV submissions
+`ercot-game-batch` evaluates a directory of canonical site-level student CSV submissions
 against one validated ACTIVSg2000 scenario block. It writes the ranked leaderboard
 and audit artifacts to one output directory; that directory is the source of
 truth for the ranking and audit record.
@@ -55,11 +55,10 @@ ercot-game-batch run \
 ```
 
 The command requires a submission directory, prepared year-specific dispatch
-artifact, scoring-rules JSON, output directory, and either an explicit
-positive horizon or `--year` plus `--round`. Student files
-identify ACTIVSg2000 source buses directly with `bus_id`. Every bus appearing in a
-production CSV must have one row for every period in the selected half-year.
-Partial pilot files are rejected before dispatch.
+artifact, scoring-rules JSON, and output directory. The batch evaluator's
+`--year`/`--round` or `--horizon` options remain evaluator context; they do not
+describe rows that must appear in a student CSV. Student files identify
+ACTIVSg2000 source buses directly with `bus_id`, one site per data row.
 
 `--period-indices`, when supplied, selects local scoring periods and is reserved
 for explicitly labeled smoke tests or debugging. `--source-period-offset`
@@ -75,20 +74,23 @@ old `1/1024` service cutoff does not apply.
 
 ## CSV and resource contract
 
-Use the active bus-based header:
+Use the active canonical site-level header:
 
 ```text
-team_id,submission_id,period,bus_id,load_mw,generator_id,generator_capacity_mw,storage_id,storage_power_mw,storage_energy_mwh
+team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
+team-blue,site-north,3002041,40,20,10,40
+team-blue,site-south,3002042,15,0,0,0
 ```
 
-`period` is one-based in the CSV (`1..4344`, `1..4368`, or `1..4416`, depending
-on the released calendar). Each submitted bus
-must be present for every period, including periods with zero load. Generator
-IDs must be present in `generator_limits.csv`; their marginal operating costs
-come from that public-data catalog rather than from a student-supplied cost.
-Storage fields are active: a storage device has a positive power capacity in
-MW and energy capacity in MWh, and its specification must remain consistent
-across rows.
+Each data row is one site. The CSV contains no `period`, hourly `load_mw`,
+`submission_id`, `generator_id`, or `storage_id` columns, and no hourly horizon
+rows. Site capacities are specified in MW/MWh; the evaluator combines the
+site-level plan with the selected hourly scenario and economic artifacts.
+
+The retired ten-column hourly schema is historical compatibility input only and
+must not be used as a current student submission. In Python, use
+`CANONICAL_CSV_COLUMNS`; `CSV_COLUMNS` and `BUS_CSV_COLUMNS` remain deprecated
+aliases to the same tuple.
 
 The dispatch model uses fixed submitted load and does not model curtailment.
 Student generators and storage are team-owned local resources and cannot serve

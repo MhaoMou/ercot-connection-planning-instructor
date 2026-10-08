@@ -1,6 +1,7 @@
-"""Strict long-form CSV submission reader for the dispatch game.
+"""Strict CSV submission reader for the dispatch game.
 
-Team-owned storage is represented explicitly in the submission schema.
+Current submissions are one row per site. Historical hourly CSVs remain
+available through the explicit legacy parser below.
 """
 
 from __future__ import annotations
@@ -17,6 +18,9 @@ from collections.abc import Mapping
 from .models import ConnectionPlan, GeneratorPlan, SitePlan, StoragePlan, TeamPlan
 
 
+# Canonical public submission contract: exactly one row per site. The legacy
+# names below are retained as identity aliases so existing imports continue to
+# resolve to the canonical seven-column tuple.
 CANONICAL_CSV_COLUMNS = (
     "team_id", "site_id", "bus_id", "connection_capacity_mw",
     "generator_capacity_mw", "storage_power_mw", "storage_energy_mwh",
@@ -30,11 +34,8 @@ LEGACY_BUS_CSV_COLUMNS = tuple(
     "bus_id" if column == "site_id" else column for column in LEGACY_CSV_COLUMNS
 )
 
-# Public submission-header names now describe the canonical contract. The
-# retired hourly names remain available under explicit LEGACY_* constants for
-# historical fixtures and opt-in compatibility parsing.
-CSV_COLUMNS = CANONICAL_CSV_COLUMNS
-BUS_CSV_COLUMNS = CANONICAL_CSV_COLUMNS
+CSV_COLUMNS = CANONICAL_CSV_COLUMNS  # Deprecated compatibility alias.
+BUS_CSV_COLUMNS = CANONICAL_CSV_COLUMNS  # Deprecated compatibility alias.
 STORAGE_DURATION_HOURS = 4.0
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _CANONICAL_HEADER_MESSAGE = (

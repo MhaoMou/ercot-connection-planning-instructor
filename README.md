@@ -2,14 +2,14 @@
 
 Instructor-facing implementation of a competitive connection-planning game
 based on the public synthetic Texas ACTIVSg2000 2,000-bus system. The active
-workflow uses a validated three-year ACTIVSg2000 scenario package rather than the retired prototype
+workflow uses a validated three-year ACTIVSg2000 scenario package rather than the retired
 prototype or its abstract teaching network.
 
 ## Current production pipeline
 
 ```text
 Validated ACTIVSg2000 scenario package (2,000 buses; 3 years)
-        -> student long-form CSV submissions
+        -> student canonical site-level CSV submissions
         -> CSV/catalog validation
         -> joint DCOPF dispatch
         -> fair continuous projection if required
@@ -49,20 +49,29 @@ python -m pip install -e .
 
 ```bash
 ercot-game-check-csv \
-  --file path/to/team.csv \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2027/jan_jun \
-  --year 2027 --round jan_jun
+  --file path/to/team.csv
 ```
 
-The active header is:
+The active canonical header is exactly seven columns, with one data row per
+site:
 
 ```text
-team_id,submission_id,period,bus_id,load_mw,generator_id,generator_capacity_mw,storage_id,storage_power_mw,storage_energy_mwh
+team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
+team-blue,site-north,3002041,40,20,10,40
+team-blue,site-south,3002042,15,0,0,0
 ```
 
-Each submitted bus must cover every period in the selected half-year. Public bus
-IDs come from the selected scenario block; team-built generator and storage IDs
-are self-defined labels. Storage uses MW power capacity and MWh energy capacity.
+Canonical submissions contain no hourly `period`/`load_mw` rows and no
+`submission_id`, `generator_id`, or `storage_id` columns. `bus_id` values come
+from the selected scenario block; capacities use MW/MWh. The released
+year/round and half-year horizon describe evaluator context, not CSV row
+coverage. `--artifact-dir`, `--horizon`, `--year`, and `--round` remain optional
+checker context when an instructor wants catalog or historical report details.
+
+For Python callers, `CANONICAL_CSV_COLUMNS` is the named active constant.
+`CSV_COLUMNS` and `BUS_CSV_COLUMNS` remain deprecated compatibility aliases to
+that same tuple. The retired ten-column hourly names are available only for
+explicit historical/legacy parsing and are not current submission examples.
 
 ## Evaluate a half-year round
 
@@ -99,7 +108,7 @@ for the complete CSV, dispatch, projection, scoring, and privacy contract.
 ## Tests
 
 ```bash
-PYTHONPATH=src pytest -q
+PYTHONPATH=.:src pytest -q
 ```
 
 The active test suite covers the production ACTIVSg2000 CSV/DCOPF/scoring path. The

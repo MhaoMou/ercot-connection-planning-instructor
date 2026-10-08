@@ -1,12 +1,21 @@
 # Multi-team instructor example
 
-This directory is a compact, reproducible example of one four-team round.
-It uses the current 2,000-bus ACTIVSg2000 release for **2028 January--June**
-(`4368` one-hour periods) and the `dispatch-scoring-jan_jun-v1` rules.
+This directory is a compact, reproducible **historical compatibility example**
+of one four-team round. Its checked-in submissions use the retired long-form
+hourly schema and matching historical results; they do not define the current
+student submission format. Current submissions use one canonical row per site:
+
+```text
+team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
+team-blue,site-north,3002041,40,20,10,40
+```
+
+The active CSV has no hourly horizon rows. Use the student/instructor manuals
+for the current contract.
 
 ## Included artifacts
 
-- `submissions/`: four complete long-form team CSV files;
+- `submissions/`: four retained historical long-form team CSV files;
 - `rules/`: the exact scoring-rule file used for the run;
 - `results/leaderboard.csv`: ranks, feasibility, scores, and cost/value fields;
 - `results/submission_manifest.csv`: accepted-input hashes;

@@ -1,4 +1,4 @@
-"""Student-facing validator for the canonical long-form submission CSV."""
+"""Student-facing validator for the canonical one-row-per-site CSV."""
 
 from __future__ import annotations
 
@@ -247,25 +247,27 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Check a student dispatch-game CSV submission.")
     parser.add_argument("--file", required=True, type=Path, help="CSV submission to validate")
     parser.add_argument("--artifact-dir", type=Path, help="validated scenario block containing bus.csv and generator_limits.csv")
-    parser.add_argument("--horizon", type=int, help="explicit submission horizon; use --year/--round for released calendars")
-    parser.add_argument("--year", type=int, choices=(2027, 2028, 2029), help="released instructional scenario year")
-    parser.add_argument("--round", dest="round_name", choices=("jan_jun", "jul_dec"), help="released half-year")
+    parser.add_argument("--horizon", type=int, help="optional historical horizon context for the report")
+    parser.add_argument("--year", type=int, choices=(2027, 2028, 2029), help="optional released instructional scenario year")
+    parser.add_argument("--round", dest="round_name", choices=("jan_jun", "jul_dec"), help="optional released half-year context")
     parser.add_argument("--json", action="store_true", help="print a machine-readable JSON report")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    if args.horizon is None:
-        if args.year is None or args.round_name is None:
-            print("CONFIGURATION ERROR: provide --horizon or both --year and --round")
-            return 2
-        horizon = half_year_calendar(args.year, args.round_name).horizon
-    else:
+    if args.horizon is not None:
         if args.horizon <= 0:
             print("CONFIGURATION ERROR: horizon must be positive")
             return 2
         horizon = args.horizon
+    elif args.year is not None or args.round_name is not None:
+        if args.year is None or args.round_name is None:
+            print("CONFIGURATION ERROR: provide both --year and --round when either is supplied")
+            return 2
+        horizon = half_year_calendar(args.year, args.round_name).horizon
+    else:
+        horizon = None
     try:
         report = validate_csv_submission(args.file, artifact_dir=args.artifact_dir, horizon=horizon)
     except (OSError, ValueError) as exc:

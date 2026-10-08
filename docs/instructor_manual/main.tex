@@ -59,9 +59,9 @@ game. It is the operational companion to the student assignment handout.
 
 \section{Instructor overview}
 
-Each group represents a data-center operator. A group chooses connection buses,
-hourly computational load, optional private generation, and optional private
-storage. The instructor collects one long-form CSV per group and evaluates the
+Each group represents a data-center operator. A group chooses connection sites,
+site capacities, optional private generation, and optional private storage. The
+instructor collects one canonical site-level CSV per group and evaluates the
 submissions jointly with a fixed-load DC optimal power flow (\code{DCOPF}).
 Groups are ranked by their final score.
 
@@ -106,11 +106,10 @@ wind/solar derating. The package is not historical ERCOT telemetry, an official
 ERCOT planning model, or a forecast.
 
 Team-built resources follow a separate convention. A team's \code{bus\_id} must
-refer to a public bus in the selected scenario block, but its \code{generator\_id}
-and \code{storage\_id} are self-defined labels. Any clear, nonempty ID is valid
-as long as the team uses it consistently throughout the CSV and across rounds.
-The ID is only an identity label; it does not select an existing public generator
-or storage device. Every team-built generator uses the same convex piecewise-linear
+refer to a public bus in the selected scenario block. The canonical CSV submits
+generator and storage capacities directly; it does not select an existing public
+generator or storage device by ID. Every team-built generator uses the same
+convex piecewise-linear
 operating curve at every bus: 25\% of capacity at \$12/MWh, the next 50\% at
 \$16/MWh, and the final 25\% at \$24/MWh. Students submit capacities; the
 evaluator determines hourly dispatch. Team-built generators and storage serve only
@@ -122,12 +121,12 @@ Each round covers one half-year with a one-hour time step.
 \begin{center}
 \begin{tabularx}{0.8\textwidth}{l l Y Y}
 \toprule
-Year & Round & Hours & Periods in CSV\\
+Year & Round & Evaluator hours & CSV rows\\
 \midrule
-2028 & January--June & 4,368 & $1,\ldots,4368$\\
-2028 & July--December & 4,416 & $1,\ldots,4416$\\
-2027 or 2029 & January--June & 4,344 & $1,\ldots,4344$\\
-2027 or 2029 & July--December & 4,416 & $1,\ldots,4416$\\
+2028 & January--June & 4,368 & one row per site\\
+2028 & July--December & 4,416 & one row per site\\
+2027 or 2029 & January--June & 4,344 & one row per site\\
+2027 or 2029 & July--December & 4,416 & one row per site\\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -140,18 +139,29 @@ used for a classroom round.
 
 \section{Student submission contract}
 
-The active CSV header is:
+The active CSV header is exactly seven columns:
 \begin{lstlisting}
-team_id,submission_id,period,bus_id,load_mw,generator_id,generator_capacity_mw,storage_id,storage_power_mw,storage_energy_mwh
+team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
 \end{lstlisting}
 
-The file is long-form. A team may use one or many buses, and each used bus
-must have one row for every period in the selected half-year. Zero-load rows
-are required when a listed bus is idle. Bus IDs must come from the selected
-block's bus catalog. Generator and storage IDs are team-defined labels, not
-public-catalog IDs; the evaluator applies the common team-built generator curve
-described above. Generator and storage assets are private to the submitting team
-and cannot serve another team.
+The file has one data row per site and no hourly horizon rows. It has no
+\code{period}, hourly \code{load\_mw}, \code{submission\_id},
+\code{generator\_id}, or \code{storage\_id} columns. \code{site\_id} is a
+team-defined site label; \code{bus\_id} must come from the selected block's bus
+catalog. The evaluator uses the submitted site capacities with the released
+hourly scenario and applies the common team-built generator curve described
+above. Generator and storage assets are private to the submitting team and
+cannot serve another team.
+
+Example:
+\begin{lstlisting}
+team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
+team-blue,site-north,3002041,40,20,10,40
+team-blue,site-south,3002042,15,0,0,0
+\end{lstlisting}
+
+The retired ten-column hourly format is historical compatibility input only.
+Do not distribute it as a current student template.
 
 Storage uses MW power capacity and MWh energy capacity. With ideal charging and
 discharging efficiency, the evaluator enforces power and energy bounds, no
@@ -182,10 +192,7 @@ Recommended sequence:
 
 Check one submission:
 \begin{lstlisting}
-ercot-game-check-csv \
-  --file path/to/team.csv \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
-  --year 2028 --round jan_jun
+ercot-game-check-csv --file path/to/team.csv
 \end{lstlisting}
 
 Evaluate a frozen round:
@@ -253,34 +260,26 @@ prices.
 \section{Concrete multi-team example}
 
 The complete example package is in
-\code{docs/instructor\_manual/examples/multi\_team\_round/}. It was generated
-from the current 2028 January--June ACTIVSg2000 block. It contains four valid teams, complete 4,368-hour CSV
-files, a copy of the exact scoring rules, the leaderboard, compact evaluation
-metadata, and representative diagnostics. The full raw evaluation record is
-not checked into the repository because it is very large.
+\code{docs/instructor\_manual/examples/multi\_team\_round/}. It is retained as
+a historical long-form compatibility package with matching results. It is not
+a current student CSV template; current submissions use the canonical
+one-row-per-site contract above. The full raw evaluation record is not checked
+into the repository because it is very large.
 
 \subsection{Single-team CSV excerpt}
 
-Each student group submits one CSV file. The complete file contains 4,368 rows
-per used bus; the following excerpt shows one team's multi-site submission at
-the beginning and end of the January--June horizon. Middle periods are omitted
-for readability.
+Each student group submits one CSV file. The current format contains one row
+per site and no hourly horizon rows:
 \begin{lstlisting}
-team_id,submission_id,period,bus_id,load_mw,generator_id,generator_capacity_mw,storage_id,storage_power_mw,storage_energy_mwh
-sim-04-r01-team-01,sim-04-r01,1,7108,9.523800,GEN_A,3.419000,,,
-sim-04-r01-team-01,sim-04-r01,2,7108,9.713411,GEN_A,3.419000,,,
-...
-sim-04-r01-team-01,sim-04-r01,4368,7108,8.940000,GEN_A,3.419000,,,
-sim-04-r01-team-01,sim-04-r01,1,7110,4.250000,,,STORE_A,2.365000,4.730000
-sim-04-r01-team-01,sim-04-r01,2,7110,4.100000,,,STORE_A,2.365000,4.730000
-...
-sim-04-r01-team-01,sim-04-r01,4368,7110,4.050000,,,STORE_A,2.365000,4.730000
+team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
+team-blue,site-north,3002041,40,20,10,40
+team-blue,site-south,3002042,15,0,0,0
 \end{lstlisting}
 
-The public \code{bus\_id} values must come from the current 2,000-bus artifact.
-\code{GEN\_A} and \code{STORE\_A} are labels invented by this team; they do not
-refer to public generator or storage catalogs. The same resource metadata is
-repeated on every period row for the corresponding team/site.
+The public \code{bus\_id} values must come from the current 2,000-bus artifact;
+\code{site\_id} is a team-defined label. The checked-in CSVs in the historical
+example directory retain the retired hourly format solely to preserve a
+reproducible old result and must be labeled legacy whenever shown.
 
 \subsection{Batch collection example}
 
@@ -362,10 +361,9 @@ Before release, verify:
   \item[Malformed CSV] Run the checker and return the error to the CSV-format
   section of the student handout. Do not repair a student's file silently.
   \item[Unknown bus] Confirm that the \code{bus\_id} comes from the selected
-  half-year artifact, not from a retired prototype. Team-built generator and
-  storage IDs are self-defined and are not looked up in the public catalog.
-  \item[Incomplete horizon] Check that every listed bus has one row for every
-  period in the selected block.
+  half-year artifact, not from a retired prototype.
+  \item[Duplicate site] Ensure that every canonical data row has a distinct
+  \code{site\_id}.
   \item[Joint infeasibility] Inspect projection metadata and binding diagnostics.
   A valid team may still receive a projected score.
   \item[Missing economic profile] Confirm that the selected block contains
