@@ -109,6 +109,16 @@ def _validate_plan(
             raise ValueError(f"storage {storage.storage_id} power must be finite and positive")
         if not math.isfinite(storage.energy_mwh) or storage.energy_mwh <= 0:
             raise ValueError(f"storage {storage.storage_id} energy must be finite and positive")
+        if storage.initial_state_of_charge_mwh is not None:
+            if (
+                not math.isfinite(storage.initial_state_of_charge_mwh)
+                or storage.initial_state_of_charge_mwh < 0
+                or storage.initial_state_of_charge_mwh > storage.energy_mwh
+            ):
+                raise ValueError(
+                    f"storage {storage.storage_id} initial state of charge must be finite "
+                    "and within its energy capacity"
+                )
     return connection_by_id
 
 
@@ -450,7 +460,7 @@ def _storage_schedule(
                 period_indices,
             )
             continue
-        soc = storage.energy_mwh * 0.5
+        soc = _initial_storage_soc(storage)
         charge: dict[int, float] = {}
         discharge: dict[int, float] = {}
         soc_by_period: dict[int, float] = {}
@@ -517,8 +527,27 @@ def _idle_storage_entry(
         "bus_id": connection.bus_id,
         "charge": {period: 0.0 for period in period_indices},
         "discharge": {period: 0.0 for period in period_indices},
-        "soc": {period: storage.energy_mwh * 0.5 for period in period_indices},
+        "soc": {
+            period: _initial_storage_soc(storage)
+            for period in period_indices
+        },
     }
+
+
+def _initial_storage_soc(storage) -> float:
+    initial = storage.initial_state_of_charge_mwh
+    if initial is None:
+        return storage.energy_mwh * 0.5
+    if (
+        not math.isfinite(initial)
+        or initial < 0
+        or initial > storage.energy_mwh
+    ):
+        raise ValueError(
+            f"storage {storage.storage_id} initial state of charge must be finite "
+            "and within its energy capacity"
+        )
+    return initial
 
 
 def _storage_schedule_has_activity(schedule: dict[str, dict[str, object]]) -> bool:

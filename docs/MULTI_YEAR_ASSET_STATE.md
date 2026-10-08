@@ -99,9 +99,9 @@ the persisted source bus must still match the asset's immutable record.
 
 The ACTIVSg2000 storage adapter treats such a zero-load placeholder as an
 inactive site: storage attached to it remains idle for the requested horizon,
-with zero charging, zero discharging, and state of charge fixed at one-half of
-its energy capacity. Storage at active sites retains the normal continuous
-peak-shaving schedule.
+with zero charging, zero discharging, and state of charge fixed at its carried
+state. Storage at active sites retains the normal continuous peak-shaving
+schedule.
 
 Materialization also:
 
@@ -162,3 +162,32 @@ requires a Stage 6-aware evaluator that accepts `plan_overrides`,
 arbitrary keyword arguments). A legacy evaluator with an explicit signature
 that lacks any of these arguments is rejected before it is called, and the
 state file is not advanced.
+
+## Stage 7: persistent storage state of charge
+
+Storage construction specifications remain immutable in `StorageAsset`, while
+the mutable `state_of_charge_mwh` field records the end-of-round energy carried
+by that asset. A newly constructed storage asset starts at one-half of its
+energy capacity. Ledgers written before Stage 7, which do not contain this
+field, load compatibly with the same half-full default.
+
+`StoragePlan` has an optional internal
+`initial_state_of_charge_mwh` field. It is omitted by the public CSV schema and
+defaults to `None`, which preserves existing positional constructors and
+one-round behavior. Materialization injects the persisted SOC into both
+omitted and exactly re-declared existing storage assets; a new current-round
+asset keeps the default `None` and therefore starts half full in the adapter.
+
+The ACTIVSg2000 adapter validates an explicitly supplied initial SOC, starts
+its continuous ideal-efficiency schedule from that value, and keeps inactive
+zero-load placeholders idle at that value. Discharge cannot exceed the current
+SOC, and a valid schedule must finish at or above one-half of the storage
+energy capacity.
+
+After a usable round evaluation, `evaluate_round()` reads the final dispatch
+period's `storage_soc_mwh_by_team` mapping. Every materialized storage asset
+must have a finite reported final SOC within its energy capacity and at least
+half full. Missing or malformed SOC prevents the state file from being saved,
+so the prior state remains intact. Valid final SOC values are then written to
+the next immutable ledger snapshot and are available to the next released
+half-year round.

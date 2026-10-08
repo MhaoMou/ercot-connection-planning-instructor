@@ -33,7 +33,7 @@ def _asset_plan(team_id: str = "team-a") -> TeamPlan:
 
 @dataclass(frozen=True)
 class _MinimalDispatch:
-    periods: tuple = (object(),)
+    periods: tuple = (SimpleNamespace(storage_soc_mwh_by_team={}),)
 
 
 @dataclass(frozen=True)
@@ -71,6 +71,107 @@ def test_successful_round_commits_advanced_state(tmp_path) -> None:
     assert seen["called"] is True
     assert result.state.current_round_key == "2027_jan_jun"
     assert GameStateStore(state_path).load().current_round_key == "2027_jan_jun"
+
+
+def test_round_commit_records_final_storage_soc_and_reuses_it_next_round(tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    seen: list[object] = []
+
+    def evaluator(*args, **kwargs):
+        seen.append(kwargs["plan_overrides"])
+        return _UsableEvaluation(
+            dispatch=SimpleNamespace(
+                periods=(SimpleNamespace(storage_soc_mwh_by_team={"team-a": {"store-old": 15.0}}),)
+            )
+        )
+
+    evaluate_round(
+        state_path=state_path,
+        round_key="2027_jan_jun",
+        submissions=tmp_path / "submissions",
+        artifact_dir=tmp_path / "artifacts",
+        horizon=1,
+        rules=object(),
+        plan_loader=_loader((_asset_plan(),)),
+        evaluator=evaluator,
+    )
+    evaluate_round(
+        state_path=state_path,
+        round_key="2027_jul_dec",
+        submissions=tmp_path / "submissions",
+        artifact_dir=tmp_path / "artifacts",
+        horizon=1,
+        rules=object(),
+        plan_loader=_loader((TeamPlan("team-a", connections=()),)),
+        evaluator=evaluator,
+    )
+
+    assert seen[1]["team-a"].storages[0].initial_state_of_charge_mwh == 15.0
+
+
+@pytest.mark.parametrize(
+    "reported, message",
+    [
+        ({}, "missing final storage state of charge"),
+        ({"team-a": {"store-old": 21.0}}, "final storage state of charge"),
+        ({"team-a": {"store-old": 9.0}}, "must be at least half"),
+    ],
+)
+def test_invalid_final_storage_soc_leaves_state_unchanged(tmp_path, reported, message) -> None:
+    state_path = tmp_path / "state.json"
+
+    def evaluator(*args, **kwargs):
+        return _UsableEvaluation(
+            dispatch=SimpleNamespace(
+                periods=(SimpleNamespace(storage_soc_mwh_by_team=reported),)
+            )
+        )
+
+    with pytest.raises(RoundCoordinatorError, match=message):
+        evaluate_round(
+            state_path=state_path,
+            round_key="2027_jan_jun",
+            submissions=tmp_path / "submissions",
+            artifact_dir=tmp_path / "artifacts",
+            horizon=1,
+            rules=object(),
+            plan_loader=_loader((_asset_plan(),)),
+            evaluator=evaluator,
+        )
+
+    assert not state_path.exists()
+
+
+def test_invalid_final_storage_soc_preserves_existing_state_file(tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    store = GameStateStore(state_path)
+    store.save(GameState.new().advance("2027_jan_jun", (_asset_plan(),)))
+    before = state_path.read_bytes()
+
+    def evaluator(*args, **kwargs):
+        return _UsableEvaluation(
+            dispatch=SimpleNamespace(
+                periods=(
+                    SimpleNamespace(
+                        storage_soc_mwh_by_team={"team-a": {"store-old": 21.0}}
+                    ),
+                )
+            )
+        )
+
+    with pytest.raises(RoundCoordinatorError, match="exceeds energy capacity"):
+        evaluate_round(
+            state_path=state_path,
+            round_key="2027_jul_dec",
+            submissions=tmp_path / "submissions",
+            artifact_dir=tmp_path / "artifacts",
+            horizon=1,
+            rules=object(),
+            plan_loader=_loader((TeamPlan("team-a", connections=()),)),
+            evaluator=evaluator,
+        )
+
+    assert state_path.read_bytes() == before
 
 
 def test_evaluation_failure_does_not_change_existing_state(tmp_path) -> None:
@@ -274,7 +375,17 @@ def test_later_round_materializes_prior_assets_and_scopes_new_capital_costs(tmp_
 
     def evaluator(*args, **kwargs):
         seen.update(kwargs)
-        return _UsableEvaluation()
+        return _UsableEvaluation(
+            dispatch=SimpleNamespace(
+                periods=(
+                    SimpleNamespace(
+                        storage_soc_mwh_by_team={
+                            "team-a": {"store-new": 8.0, "store-old": 10.0},
+                        }
+                    ),
+                )
+            )
+        )
 
     result = evaluate_round(
         state_path=state_path,
@@ -294,7 +405,7 @@ def test_later_round_materializes_prior_assets_and_scopes_new_capital_costs(tmp_
     )
     assert overrides["team-a"].storages == (
         StoragePlan("store-new", "site-new", 4.0, 16.0),
-        StoragePlan("store-old", "site-old", 5.0, 20.0),
+        StoragePlan("store-old", "site-old", 5.0, 20.0, 10.0),
     )
     assert seen["capital_cost_scope"] == CapitalCostScope(
         generator_ids_by_team={"team-a": {"gen-new"}},

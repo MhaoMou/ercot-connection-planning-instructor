@@ -64,8 +64,34 @@ def test_materialize_restores_omitted_assets_with_zero_load_placeholder() -> Non
         GeneratorPlan("gen-old", "site-old", 10.0, 16.0),
     )
     assert materialized.storages == (
-        StoragePlan("store-old", "site-old", 5.0, 20.0),
+        StoragePlan("store-old", "site-old", 5.0, 20.0, 10.0),
     )
+
+
+def test_materialization_injects_persisted_soc_for_omitted_and_redeclared_storage() -> None:
+    ledger = AssetLedger.empty().register_plan(_asset_plan(), round_key="2027_jan_jun")
+    ledger = ledger.update_storage_soc({"team-a": {"store-old": 15.0}})
+
+    omitted = ledger.materialize_plan(_plan(connections=()), horizon=2)
+    redeclared = ledger.materialize_plan(
+        _plan(
+            connections=(ConnectionPlan("site-old", "b0001", 40.0, (1.0, 1.0)),),
+            storages=(StoragePlan("store-old", "site-old", 5.0, 20.0),),
+        ),
+        horizon=2,
+    )
+
+    assert omitted.storages[0].initial_state_of_charge_mwh == 15.0
+    assert redeclared.storages[0].initial_state_of_charge_mwh == 15.0
+
+
+def test_new_storage_materialization_keeps_default_initial_soc() -> None:
+    materialized = AssetLedger.empty().materialize_plan(
+        _plan(storages=(StoragePlan("store-new", "site-1", 5.0, 20.0),)),
+        horizon=2,
+    )
+
+    assert materialized.storages[0].initial_state_of_charge_mwh is None
 
 
 def test_materialize_keeps_current_metadata_and_new_asset_specification() -> None:
@@ -98,7 +124,12 @@ def test_materialize_accepts_exact_repeat_of_persisted_asset() -> None:
 
     materialized = ledger.materialize_plan(plan, horizon=2)
 
-    assert materialized == plan
+    assert materialized.team_id == plan.team_id
+    assert materialized.connections == plan.connections
+    assert materialized.generators == plan.generators
+    assert materialized.storages == (
+        StoragePlan("store-old", "site-old", 5.0, 20.0, 10.0),
+    )
 
 
 def test_materialize_rejects_changed_persisted_asset() -> None:

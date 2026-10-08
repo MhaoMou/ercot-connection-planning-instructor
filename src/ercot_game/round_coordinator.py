@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 import inspect
+import math
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +16,7 @@ from .batch_evaluation import (
     _collect_evaluation_inputs,
     evaluate_csv_batch,
 )
+from .asset_state import AssetStateError
 from .csv_submission import load_bus_ids
 from .game_state import GameState
 from .game_state_store import GameStateStore
@@ -149,12 +152,13 @@ def evaluate_round(
         raise RoundCoordinatorError(
             "evaluation did not return a usable dispatch result; state was not committed"
         )
-    store.save(advanced_state)
+    updated_state = _record_final_storage_soc(advanced_state, materialized_plans, evaluation)
+    store.save(updated_state)
     return RoundEvaluationResult(
         round_key=round_key,
         evaluation=evaluation,
         prior_state=prior_state,
-        state=advanced_state,
+        state=updated_state,
     )
 
 
@@ -174,6 +178,70 @@ def _has_period_collection(evaluation: Any) -> bool:
     except (TypeError, ValueError):
         return False
     return period_count > 0
+
+
+def _record_final_storage_soc(
+    state: GameState,
+    materialized_plans: Mapping[str, TeamPlan],
+    evaluation: Any,
+) -> GameState:
+    """Validate and persist final SOC only after a usable round evaluation."""
+    storages_by_team = {
+        team_id: tuple(plan.storages)
+        for team_id, plan in materialized_plans.items()
+        if plan.storages
+    }
+    if not storages_by_team:
+        return state
+
+    periods = evaluation.dispatch.periods
+    final_period = periods[-1]
+    reported = getattr(final_period, "storage_soc_mwh_by_team", None)
+    if not isinstance(reported, Mapping):
+        raise RoundCoordinatorError(
+            "missing final storage state of charge; state was not committed"
+        )
+
+    soc_by_team: dict[str, dict[str, float]] = {}
+    for team_id, storages in storages_by_team.items():
+        values = reported.get(team_id)
+        if not isinstance(values, Mapping):
+            raise RoundCoordinatorError(
+                f"missing final storage state of charge for team {team_id}; state was not committed"
+            )
+        team_soc: dict[str, float] = {}
+        for storage in storages:
+            if storage.storage_id not in values:
+                raise RoundCoordinatorError(
+                    f"missing final storage state of charge for {team_id}/{storage.storage_id}; "
+                    "state was not committed"
+                )
+            value = values[storage.storage_id]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise RoundCoordinatorError(
+                    f"malformed final storage state of charge for {team_id}/{storage.storage_id}; "
+                    "state was not committed"
+                )
+            if value < storage.energy_mwh * 0.5:
+                raise RoundCoordinatorError(
+                    f"final storage state of charge for {team_id}/{storage.storage_id} "
+                    "must be at least half of energy capacity; state was not committed"
+                )
+            if value > storage.energy_mwh:
+                raise RoundCoordinatorError(
+                    f"final storage state of charge for {team_id}/{storage.storage_id} "
+                    "exceeds energy capacity; state was not committed"
+                )
+            team_soc[storage.storage_id] = float(value)
+        soc_by_team[team_id] = team_soc
+
+    try:
+        ledger = state.asset_ledger.update_storage_soc(soc_by_team)
+    except AssetStateError as exc:
+        raise RoundCoordinatorError(
+            f"could not persist final storage state of charge; state was not committed: {exc}"
+        ) from exc
+    return replace(state, asset_ledger=ledger)
 
 
 def _require_stage6_evaluator(

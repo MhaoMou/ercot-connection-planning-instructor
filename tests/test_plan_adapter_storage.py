@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from ercot_game.models import ConnectionPlan, StoragePlan, TeamPlan
 from tools.activsg2000.plan_adapter import _storage_schedule
 
@@ -11,7 +13,7 @@ def test_zero_load_placeholder_storage_stays_idle() -> None:
             ConnectionPlan("active-site", "b0001", 40.0, (0.25, 0.75, 0.25, 0.75)),
             ConnectionPlan("placeholder-site", "b0002", 0.0, (0.0, 0.0, 0.0, 0.0)),
         ),
-        storages=(StoragePlan("persisted-store", "placeholder-site", 5.0, 20.0),),
+        storages=(StoragePlan("persisted-store", "placeholder-site", 5.0, 20.0, 16.0),),
     )
 
     schedule = _storage_schedule(
@@ -22,7 +24,32 @@ def test_zero_load_placeholder_storage_stays_idle() -> None:
 
     assert schedule["charge"] == {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}
     assert schedule["discharge"] == {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}
-    assert schedule["soc"] == {0: 10.0, 1: 10.0, 2: 10.0, 3: 10.0}
+    assert schedule["soc"] == {0: 16.0, 1: 16.0, 2: 16.0, 3: 16.0}
+
+
+def test_active_storage_schedule_starts_from_optional_initial_soc() -> None:
+    plan = TeamPlan(
+        team_id="team-a",
+        connections=(ConnectionPlan("active-site", "b0001", 40.0, (0.75,)),),
+        storages=(StoragePlan("active-store", "active-site", 5.0, 20.0, 16.0),),
+    )
+
+    schedule = _storage_schedule(plan, plan.connections, (0,))["active-store"]
+
+    assert schedule["soc"][0] == 11.0
+    assert schedule["discharge"][0] == 5.0
+
+
+@pytest.mark.parametrize("initial_soc", (-0.1, 20.1, float("nan")))
+def test_storage_initial_soc_is_validated(initial_soc) -> None:
+    plan = TeamPlan(
+        team_id="team-a",
+        connections=(ConnectionPlan("site", "b0001", 10.0, (1.0,)),),
+        storages=(StoragePlan("store", "site", 2.0, 20.0, initial_soc),),
+    )
+
+    with pytest.raises(ValueError, match="initial state of charge"):
+        _storage_schedule(plan, plan.connections, (0,))
 
 
 def test_active_site_storage_keeps_peak_shaving_schedule() -> None:

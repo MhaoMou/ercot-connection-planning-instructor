@@ -39,6 +39,7 @@ class StoragePlan:
     connection_id: str
     power_mw: float
     energy_mwh: float
+    initial_state_of_charge_mwh: float | None = None
 
 
 @dataclass(frozen=True)

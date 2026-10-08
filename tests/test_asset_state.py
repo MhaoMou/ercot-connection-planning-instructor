@@ -45,6 +45,7 @@ def test_register_plan_persists_team_owned_assets_and_round_metadata() -> None:
     assert ledger.team("team-a").generators["gen-1"].bus_id == "b0001"
     assert ledger.team("team-a").generators["gen-1"].capacity_mw == 10.0
     assert ledger.team("team-a").storages["store-1"].energy_mwh == 20.0
+    assert ledger.team("team-a").storages["store-1"].state_of_charge_mwh == 10.0
     assert ledger.team("team-a").last_round_key == "2027_jan_jun"
 
 
@@ -55,6 +56,43 @@ def test_round_trip_json_preserves_assets_deterministically() -> None:
     restored = AssetLedger.from_dict(json.loads(json.dumps(payload)))
 
     assert restored.to_dict() == payload
+
+
+def test_legacy_storage_asset_without_soc_loads_half_full() -> None:
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    payload = ledger.to_dict()
+    del payload["teams"]["team-a"]["storages"]["store-1"]["state_of_charge_mwh"]
+
+    restored = AssetLedger.from_dict(payload)
+
+    assert restored.team("team-a").storages["store-1"].state_of_charge_mwh == 10.0
+
+
+def test_update_storage_soc_returns_new_ledger_and_round_trips() -> None:
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+
+    updated = ledger.update_storage_soc({"team-a": {"store-1": 15.0}})
+
+    assert ledger.team("team-a").storages["store-1"].state_of_charge_mwh == 10.0
+    assert updated.team("team-a").storages["store-1"].state_of_charge_mwh == 15.0
+    assert AssetLedger.from_dict(updated.to_dict()) == updated
+
+
+@pytest.mark.parametrize(
+    "mapping, message",
+    [
+        ({"team-a": {"store-1": -1.0}}, "between 0 and energy capacity"),
+        ({"team-a": {"store-1": 21.0}}, "between 0 and energy capacity"),
+        ({"team-a": {"store-1": float("nan")}}, "finite"),
+        ({"team-x": {"store-1": 10.0}}, "unknown team"),
+        ({"team-a": {"store-x": 10.0}}, "unknown storage asset"),
+    ],
+)
+def test_update_storage_soc_validates_bounds_and_ownership(mapping, message) -> None:
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+
+    with pytest.raises(AssetStateError, match=message):
+        ledger.update_storage_soc(mapping)
 
 
 def test_same_asset_id_can_be_reused_only_with_identical_specification() -> None:
@@ -68,6 +106,15 @@ def test_same_asset_id_can_be_reused_only_with_identical_specification() -> None
             _plan(generator_capacity=11.0),
             round_key="2027_jul_dec",
         )
+
+
+def test_register_plan_preserves_existing_storage_soc() -> None:
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    ledger = ledger.update_storage_soc({"team-a": {"store-1": 15.0}})
+
+    repeated = ledger.register_plan(_plan(), round_key="2027_jul_dec")
+
+    assert repeated.team("team-a").storages["store-1"].state_of_charge_mwh == 15.0
 
 
 def test_asset_ids_are_scoped_to_team_ownership() -> None:

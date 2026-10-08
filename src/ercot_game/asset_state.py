@@ -10,6 +10,7 @@ to a team because student teams choose those identifiers themselves.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+import math
 from typing import Any, Mapping
 
 from .models import ConnectionPlan, GeneratorPlan, StoragePlan, TeamPlan
@@ -37,6 +38,7 @@ class StorageAsset:
     bus_id: str
     power_mw: float
     energy_mwh: float
+    state_of_charge_mwh: float
 
 
 @dataclass(frozen=True)
@@ -100,9 +102,18 @@ class AssetLedger:
 
         for storage in _unique_assets(plan.storages, kind="storage").values():
             connection = _connection_for_asset(connections, storage.connection_id)
-            candidate = _storage_asset(plan.team_id, storage, connection)
             previous = storages.get(storage.storage_id)
-            if previous is not None and previous != candidate:
+            candidate = _storage_asset(
+                plan.team_id,
+                storage,
+                connection,
+                state_of_charge_mwh=(
+                    previous.state_of_charge_mwh
+                    if previous is not None
+                    else storage.energy_mwh * 0.5
+                ),
+            )
+            if previous is not None and not _same_storage_spec(previous, candidate):
                 raise AssetStateError(
                     f"storage {storage.storage_id} conflicts with its persisted specification"
                 )
@@ -148,7 +159,7 @@ class AssetLedger:
             connection = _connection_for_asset(connections, storage.connection_id)
             persisted = current.storages.get(storage.storage_id)
             candidate = _storage_asset(plan.team_id, storage, connection)
-            if persisted is not None and persisted != candidate:
+            if persisted is not None and not _same_storage_spec(persisted, candidate):
                 raise AssetStateError(
                     f"storage {storage.storage_id} conflicts with its persisted specification"
                 )
@@ -188,6 +199,7 @@ class AssetLedger:
                 connection_id=asset.connection_id,
                 power_mw=asset.power_mw,
                 energy_mwh=asset.energy_mwh,
+                initial_state_of_charge_mwh=asset.state_of_charge_mwh,
             )
             for storage_id, asset in current.storages.items()
         }
@@ -205,6 +217,59 @@ class AssetLedger:
             generators=tuple(generators[key] for key in sorted(generators)),
             storages=tuple(storages[key] for key in sorted(storages)),
         )
+
+    def update_storage_soc(
+        self,
+        state_of_charge_mwh_by_team: Mapping[str, Mapping[str, float]],
+    ) -> "AssetLedger":
+        """Return a copy with validated end-of-round storage SOC values."""
+        if not isinstance(state_of_charge_mwh_by_team, Mapping):
+            raise AssetStateError("storage state of charge must be a mapping by team")
+        updated = dict(self.teams)
+        for team_id, storage_values in state_of_charge_mwh_by_team.items():
+            if team_id not in self.teams:
+                raise AssetStateError(f"unknown team in storage state of charge: {team_id}")
+            if not isinstance(storage_values, Mapping):
+                raise AssetStateError(
+                    f"storage state of charge for team {team_id} must be a mapping"
+                )
+            current = self.teams[team_id]
+            storages = dict(current.storages)
+            for storage_id, value in storage_values.items():
+                if storage_id not in storages:
+                    raise AssetStateError(
+                        f"unknown storage asset for team {team_id}: {storage_id}"
+                    )
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    raise AssetStateError(
+                        f"storage state of charge must be finite for {team_id}/{storage_id}"
+                    )
+                if not math.isfinite(value):
+                    raise AssetStateError(
+                        f"storage state of charge must be finite for {team_id}/{storage_id}"
+                    )
+                asset = storages[storage_id]
+                if value < 0.0 or value > asset.energy_mwh:
+                    raise AssetStateError(
+                        f"storage state of charge must be between 0 and energy capacity "
+                        f"for {team_id}/{storage_id}"
+                    )
+                storages[storage_id] = StorageAsset(
+                    team_id=asset.team_id,
+                    storage_id=asset.storage_id,
+                    connection_id=asset.connection_id,
+                    bus_id=asset.bus_id,
+                    power_mw=asset.power_mw,
+                    energy_mwh=asset.energy_mwh,
+                    state_of_charge_mwh=float(value),
+                )
+            updated[team_id] = TeamAssetState(
+                team_id=current.team_id,
+                generators=current.generators,
+                storages=storages,
+                last_round_key=current.last_round_key,
+            )
+        return AssetLedger(version=self.version, teams=updated)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -300,6 +365,7 @@ def _storage_asset(
     team_id: str,
     storage: StoragePlan,
     connection: Any,
+    state_of_charge_mwh: float | None = None,
 ) -> StorageAsset:
     return StorageAsset(
         team_id=team_id,
@@ -308,6 +374,29 @@ def _storage_asset(
         bus_id=connection.bus_id,
         power_mw=storage.power_mw,
         energy_mwh=storage.energy_mwh,
+        state_of_charge_mwh=(
+            storage.energy_mwh * 0.5
+            if state_of_charge_mwh is None
+            else state_of_charge_mwh
+        ),
+    )
+
+
+def _same_storage_spec(left: StorageAsset, right: StorageAsset) -> bool:
+    return (
+        left.team_id,
+        left.storage_id,
+        left.connection_id,
+        left.bus_id,
+        left.power_mw,
+        left.energy_mwh,
+    ) == (
+        right.team_id,
+        right.storage_id,
+        right.connection_id,
+        right.bus_id,
+        right.power_mw,
+        right.energy_mwh,
     )
 
 
@@ -334,6 +423,11 @@ def _asset_payload(value: Any, kind: str, asset_id: str) -> dict[str, Any]:
         raise AssetStateError(f"{kind} asset must be an object: {asset_id}")
     payload = dict(value)
     payload.setdefault(f"{kind}_id", asset_id)
+    if kind == "storage" and "state_of_charge_mwh" not in payload:
+        try:
+            payload["state_of_charge_mwh"] = float(payload["energy_mwh"]) * 0.5
+        except (KeyError, TypeError, ValueError):
+            pass
     required = {"team_id", f"{kind}_id", "connection_id", "bus_id"}
     missing = sorted(field for field in required if not payload.get(field))
     if missing:
