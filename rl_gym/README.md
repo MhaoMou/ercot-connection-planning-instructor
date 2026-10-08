@@ -36,7 +36,9 @@ not duplicate:
 The current classroom convention is:
 
 - a team may select any public bus listed in the scenario block;
-- team-built `generator_id` and `storage_id` values are self-defined labels;
+- the current student CSV has exactly seven columns and no generator-ID or
+  storage-ID fields; the evaluator assigns deterministic private asset IDs
+  internally from each team/site pair;
 - every team-built generator uses the common convex curve: 25% at $60/MWh,
   50% at $100/MWh, and 25% at $160/MWh;
 - team-built generators and storage serve only their owning team;
@@ -171,6 +173,11 @@ aggregation used for training must be named in the observation and recorded in
 the episode metadata.
 
 ## 6. Action-space design
+
+The action-schema examples in this section and the later API sketch are legacy
+RL/internal design examples, not the current student CSV contract. An RL
+wrapper may generate in-memory IDs for its own serialized plan state, but those
+IDs must not be added to the seven-column student CSV.
 
 The recommended initial action is a structured, bounded action rather than a
 raw 2,000-bus by 4,000-hour dense tensor.

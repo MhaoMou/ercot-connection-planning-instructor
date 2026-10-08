@@ -85,10 +85,16 @@ ercot-game-batch run \
   --artifact-dir data/processed/activsg2000_scenarios_v1/2027/jan_jun \
   --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
   --year 2027 --round jan_jun \
+  --submission-number 2 \
   --workers 8 \
   --projection-iterations 10 \
   --output-dir work/batch_results_jan_jun
 ```
+
+`--submission-number 2` is the explicit scored-evaluation default and includes
+locational energy-purchase cost. Use `--submission-number 1` for a practice
+run; it excludes energy-purchase cost while retaining the other active scoring
+terms. Submission number is evaluator-side metadata and is not a CSV column.
 
 Use `--year 2027 --round jul_dec` for July--December. The evaluator derives
 the correct half-year length and source-row offset from the calendar. For

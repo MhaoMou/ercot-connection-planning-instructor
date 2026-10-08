@@ -202,9 +202,17 @@ ercot-game-batch run \
   --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
   --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
   --year 2028 --round jan_jun \
+  --submission-number 2 \
   --workers 8 --projection-iterations 10 \
   --output-dir work/round_01/results
 \end{lstlisting}
+
+The submission number is evaluator-side metadata, not a CSV column. The CLI
+accepts \code{1} or \code{2} and defaults explicitly to \code{2}. Use
+\code{--submission-number 1} for a practice run: it excludes energy-purchase
+cost while retaining the other active scoring terms. Use
+\code{--submission-number 2} for the scored run, which includes locational
+energy-purchase cost from the joint dispatch.
 
 Validate the complete scenario package:
 \begin{lstlisting}
@@ -261,7 +269,10 @@ matrices with one row per hour and one column per bus. Raw balance duals are
 retained for audit, while nonnegative LMPs are used for scoring. IT value is a
 complete full-horizon vector supplied in the corresponding economic-profile
 JSON. These prices are instructional model outputs, not official ERCOT market
-prices.
+prices. Submission 1 is the practice mode and sets energy-purchase cost to
+zero; Submission 2 is the scored mode and includes the locational energy
+purchase term. The submission number is selected on the instructor CLI and is
+never represented by an extra CSV column.
 
 \section{Concrete multi-team example}
 

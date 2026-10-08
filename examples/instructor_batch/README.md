@@ -39,6 +39,7 @@ ercot-game-batch run \
   --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
   --horizon 1 \
   --period-indices 0 \
+  --submission-number 2 \
   --output-dir work/instructor_batch_example_results
 ```
 

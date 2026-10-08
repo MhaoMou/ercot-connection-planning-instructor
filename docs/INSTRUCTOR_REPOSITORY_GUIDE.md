@@ -51,6 +51,7 @@ ercot-game-batch run \
   --artifact-dir data/processed/activsg2000_scenarios_v1/2027/jan_jun \
   --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
   --year 2027 --round jan_jun \
+  --submission-number 2 \
   --workers 8 \
   --projection-iterations 10 \
   --output-dir work/batch_results_jan_jun
@@ -77,8 +78,11 @@ records the six blocks and their validation state.
 
 The CSV uses source `bus_id` values directly. Site capacities are specified in
 MW/MWh, and each team's submitted resources serve only that team. The score
-includes IT value, energy cost, site cost, generator capital/operating cost, and
-storage capital/operating cost.
+includes IT value, site cost, generator capital/operating cost, and storage
+capital cost. Use `--submission-number 1` for practice; it omits
+energy-purchase cost. Use `--submission-number 2` for scored evaluation; it
+includes that cost. The CLI defaults explicitly to Submission 2, and
+`--submission-number` is not a CSV field.
 
 ## Data and privacy
 

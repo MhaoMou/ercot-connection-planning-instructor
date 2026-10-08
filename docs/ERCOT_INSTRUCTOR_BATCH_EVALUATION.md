@@ -39,6 +39,7 @@ ercot-game-batch run \
   --artifact-dir data/processed/activsg2000_scenarios_v1/2027/jan_jun \
   --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
   --year 2027 --round jan_jun \
+  --submission-number 2 \
   --workers 8 \
   --projection-iterations 10 \
   --output-dir work/batch_results_jan_jun
@@ -52,6 +53,7 @@ ercot-game-batch run \
   --artifact-dir data/processed/activsg2000_scenarios_v1/2027/jul_dec \
   --rules data/teaching/dispatch_scoring_rules_jul_dec_v1.json \
   --year 2027 --round jul_dec \
+  --submission-number 2 \
   --workers 8 \
   --projection-iterations 10 \
   --output-dir work/batch_results_jul_dec
@@ -62,6 +64,13 @@ artifact, scoring-rules JSON, and output directory. The batch evaluator's
 `--year`/`--round` or `--horizon` options remain evaluator context; they do not
 describe rows that must appear in a student CSV. Student files identify
 ACTIVSg2000 source buses directly with `bus_id`, one site per data row.
+
+`--submission-number` is evaluator-side metadata, not a CSV field. It accepts
+`1` or `2` and defaults explicitly to `2` (scored evaluation). Use
+`--submission-number 1` for a practice run with no energy-purchase cost; use
+`--submission-number 2` for the scored run, which settles grid purchases at
+the locational marginal prices from the joint dispatch. All other active
+scoring terms still apply to Submission 1.
 
 `--period-indices`, when supplied, selects local scoring periods and is reserved
 for explicitly labeled smoke tests or debugging. `--source-period-offset`

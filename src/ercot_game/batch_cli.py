@@ -136,6 +136,13 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--year", type=int, choices=(2027, 2028, 2029), help="released instructional scenario year")
     run_parser.add_argument("--round", dest="round_name", choices=("jan_jun", "jul_dec"), help="released half-year")
     run_parser.add_argument(
+        "--submission-number",
+        type=int,
+        choices=(1, 2),
+        default=2,
+        help="weekly submission number: 1 for practice without energy-purchase cost; 2 for scored evaluation (default)",
+    )
+    run_parser.add_argument(
         "--workers",
         required=False,
         type=_positive_int,
@@ -224,6 +231,7 @@ def _run(args: argparse.Namespace) -> int:
         ),
         dispatch_workers=args.workers,
         projection_iterations=args.projection_iterations,
+        submission_number=args.submission_number,
     )
     write_batch_outputs(
         result,

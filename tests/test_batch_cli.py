@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from ercot_game import batch_evaluation
+from ercot_game import batch_cli
 from ercot_game.batch_cli import main
 from ercot_game.csv_submission import CANONICAL_CSV_COLUMNS, LEGACY_CSV_COLUMNS
 
@@ -106,6 +107,7 @@ def _run_args(
     *,
     period_indices: str = "0",
     source_period_offset: str | None = None,
+    submission_number: str | None = None,
 ) -> list[str]:
     args = [
         "run",
@@ -126,6 +128,8 @@ def _run_args(
     ]
     if source_period_offset is not None:
         args.extend(["--source-period-offset", source_period_offset])
+    if submission_number is not None:
+        args.extend(["--submission-number", submission_number])
     return args
 
 
@@ -137,6 +141,64 @@ def test_help_is_available_without_optional_solver_dependencies(capsys):
     assert "--submissions-dir" in captured.out
     assert "--workers" in captured.out
     assert "--projection-iterations" in captured.out
+    assert "--submission-number" in captured.out
+
+
+def test_cli_defaults_to_scored_submission_number_two(tmp_path, monkeypatch, capsys):
+    submissions_dir, artifact_dir, rules_path, region_map_path = _write_inputs(tmp_path)
+    _write_submission(submissions_dir / "team-a.csv", "team-a")
+    observed: list[int | None] = []
+
+    def fake_evaluate(*_args, submission_number, **_kwargs):
+        observed.append(submission_number)
+        return SimpleNamespace(
+            team_scores=(), competition_scope="test", source_period_indices=()
+        )
+
+    monkeypatch.setattr(batch_cli, "evaluate_csv_batch", fake_evaluate)
+    monkeypatch.setattr(batch_cli, "write_batch_outputs", lambda *_args, **_kwargs: None)
+
+    assert main(
+        _run_args(submissions_dir, artifact_dir, rules_path, region_map_path, tmp_path / "output")
+    ) == 0
+
+    assert observed == [2]
+    assert "summary: 0 teams scored, 0 rejected" in capsys.readouterr().out
+
+
+def test_cli_forwards_practice_submission_number_one(tmp_path, monkeypatch, capsys):
+    submissions_dir, artifact_dir, rules_path, region_map_path = _write_inputs(tmp_path)
+    _write_submission(submissions_dir / "team-a.csv", "team-a")
+    observed: list[int | None] = []
+
+    def fake_evaluate(*_args, submission_number, **_kwargs):
+        observed.append(submission_number)
+        return SimpleNamespace(
+            team_scores=(), competition_scope="test", source_period_indices=()
+        )
+
+    monkeypatch.setattr(batch_cli, "evaluate_csv_batch", fake_evaluate)
+    monkeypatch.setattr(batch_cli, "write_batch_outputs", lambda *_args, **_kwargs: None)
+
+    assert main(
+        _run_args(
+            submissions_dir,
+            artifact_dir,
+            rules_path,
+            region_map_path,
+            tmp_path / "output",
+            submission_number="1",
+        )
+    ) == 0
+
+    assert observed == [1]
+    assert "summary: 0 teams scored, 0 rejected" in capsys.readouterr().out
+
+
+def test_cli_rejects_submission_number_other_than_one_or_two(capsys):
+    assert main(["run", "--submission-number", "3"]) == 2
+
+    assert "invalid choice" in capsys.readouterr().err
 
 
 def test_missing_run_arguments_return_exit_code_two(capsys):
