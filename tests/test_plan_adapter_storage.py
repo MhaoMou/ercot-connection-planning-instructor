@@ -367,6 +367,57 @@ def test_legacy_generator_and_storage_labels_share_one_connection(monkeypatch) -
     assert plan.storages[0].storage_id == "legacy-storage"
 
 
+def test_single_plan_adapter_serializes_horizon_schedule_and_final_soc(monkeypatch, tmp_path) -> None:
+    plan = TeamPlan(
+        team_id="team-a",
+        connections=(ConnectionPlan("site-a", "b0001", 4.0, (1.0, 1.0)),),
+        storages=(StoragePlan("store-a", "site-a", 2.0, 8.0, 6.0),),
+    )
+
+    def solve_horizon(*, period_indices, **kwargs):
+        dcopf_periods = tuple(
+            DCOPFResult(
+                status="optimal",
+                objective_cost=0.0,
+                generation_mw={},
+                angle_by_bus={},
+                flow_mw_by_branch={},
+                balance_dual_by_bus={},
+                storage_charge_mw={"store-a": float(period_index + 1)},
+                storage_discharge_mw={"store-a": float(period_index) * 0.25},
+                storage_soc_mwh={"store-a": 6.0 + period_index * 0.75},
+            )
+            for period_index in period_indices
+        )
+        return DCOPFHorizonResult(
+            status="optimal",
+            periods=dcopf_periods,
+            final_soc_mwh_by_storage={"store-a": 6.75},
+        )
+
+    monkeypatch.setattr(plan_adapter, "solve_prepared_horizon", solve_horizon)
+
+    result = evaluate_plan_with_prepared_dcopf(
+        tmp_path,
+        plan,
+        period_indices=(0, 1),
+    )
+
+    assert [period.dcopf.storage_charge_mw for period in result.periods] == [
+        {"store-a": 1.0},
+        {"store-a": 2.0},
+    ]
+    assert [period.dcopf.storage_discharge_mw for period in result.periods] == [
+        {"store-a": 0.0},
+        {"store-a": 0.25},
+    ]
+    assert [period.dcopf.storage_soc_mwh for period in result.periods] == [
+        {"store-a": 6.0},
+        {"store-a": 6.75},
+    ]
+    assert result.final_storage_soc_mwh_by_storage == {"store-a": 6.75}
+
+
 def test_batch_adapter_dispatches_storage_centrally_and_exposes_final_soc(monkeypatch) -> None:
     plans = (
         TeamPlan(
@@ -394,16 +445,25 @@ def test_batch_adapter_dispatches_storage_centrally_and_exposes_final_soc(monkey
                 angle_by_bus={},
                 flow_mw_by_branch={},
                 balance_dual_by_bus={},
-                storage_charge_mw={"store-a": 1.0, "store-b": 0.5},
-                storage_discharge_mw={"store-a": 0.0, "store-b": 0.0},
-                storage_soc_mwh={"store-a": 7.0, "store-b": 6.5},
+                storage_charge_mw={
+                    "store-a": float(period_index + 1),
+                    "store-b": float(period_index) + 0.5,
+                },
+                storage_discharge_mw={
+                    "store-a": float(period_index) * 0.25,
+                    "store-b": float(period_index) * 0.5,
+                },
+                storage_soc_mwh={
+                    "store-a": 7.0 + period_index,
+                    "store-b": 6.5 + period_index,
+                },
             )
-            for _ in period_indices
+            for period_index in period_indices
         )
         return DCOPFHorizonResult(
             status="optimal",
             periods=dcopf_periods,
-            final_soc_mwh_by_storage={"store-a": 7.0, "store-b": 6.5},
+            final_soc_mwh_by_storage={"store-a": 8.0, "store-b": 7.5},
         )
 
     monkeypatch.setattr(plan_adapter, "solve_prepared_horizon", solve_horizon)
@@ -423,11 +483,20 @@ def test_batch_adapter_dispatches_storage_centrally_and_exposes_final_soc(monkey
         "team-a": ({"b0001": 4.0}, {"b0001": 4.0}),
         "team-b": ({"b0001": 4.0}, {"b0001": 4.0}),
     }
-    assert result.periods[0].storage_charge_mw_by_team == {
-        "team-a": {"store-a": 1.0},
-        "team-b": {"store-b": 0.5},
-    }
+    assert [period.storage_charge_mw_by_team for period in result.periods] == [
+        {"team-a": {"store-a": 1.0}, "team-b": {"store-b": 0.5}},
+        {"team-a": {"store-a": 2.0}, "team-b": {"store-b": 1.5}},
+    ]
+    assert [period.storage_discharge_mw_by_team for period in result.periods] == [
+        {"team-a": {"store-a": 0.0}, "team-b": {"store-b": 0.0}},
+        {"team-a": {"store-a": 0.25}, "team-b": {"store-b": 0.5}},
+    ]
+    assert [period.storage_soc_mwh_by_team for period in result.periods] == [
+        {"team-a": {"store-a": 7.0}, "team-b": {"store-b": 6.5}},
+        {"team-a": {"store-a": 8.0}, "team-b": {"store-b": 7.5}},
+    ]
     assert result.final_storage_soc_mwh_by_team == {
-        "team-a": {"store-a": 7.0},
-        "team-b": {"store-b": 6.5},
+        "team-a": {"store-a": 8.0},
+        "team-b": {"store-b": 7.5},
     }
+    assert result.final_soc_mwh_by_team == result.final_storage_soc_mwh_by_team

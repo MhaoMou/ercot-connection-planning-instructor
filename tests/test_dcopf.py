@@ -10,6 +10,7 @@ from tools.activsg2000.dcopf import (
     DCOPFHorizonResult,
     Generator,
     StorageDispatchAsset,
+    solve_dcopf,
     solve_dcopf_horizon,
 )
 
@@ -20,6 +21,50 @@ def _single_bus_period(cost: float, demand: float = 5.0):
         (Generator("grid", "B1", 0.0, 100.0, cost),),
         (),
     )
+
+
+def test_storage_free_horizon_matches_single_period_dcopf() -> None:
+    periods = (
+        (
+            (Bus("B1", 0.0, reference=True), Bus("B2", 4.0)),
+            (Generator("grid-b1", "B1", 0.0, 10.0, 2.0),),
+            (Branch("line", "B1", "B2", 1.0, 10.0),),
+        ),
+        (
+            (Bus("B1", 0.0, reference=True), Bus("B2", 6.0)),
+            (Generator("grid-b1", "B1", 0.0, 10.0, 3.0),),
+            (Branch("line", "B1", "B2", 1.0, 10.0),),
+        ),
+    )
+    fixed_injections = ({"B2": 1.0}, {"B1": 0.5})
+
+    horizon = solve_dcopf_horizon(
+        periods=periods,
+        fixed_injection_mw_by_period=fixed_injections,
+    )
+    individual = tuple(
+        solve_dcopf(
+            buses=buses,
+            generators=generators,
+            branches=branches,
+            fixed_injection_mw_by_bus=injections,
+        )
+        for (buses, generators, branches), injections in zip(periods, fixed_injections)
+    )
+
+    assert horizon.status == "optimal"
+    assert horizon.final_soc_mwh_by_storage == {}
+    assert len(horizon.periods) == len(individual)
+    for actual, expected in zip(horizon.periods, individual):
+        assert actual.status == expected.status
+        assert actual.objective_cost == pytest.approx(expected.objective_cost)
+        assert actual.generation_mw == pytest.approx(expected.generation_mw)
+        assert actual.angle_by_bus == pytest.approx(expected.angle_by_bus)
+        assert actual.flow_mw_by_branch == pytest.approx(expected.flow_mw_by_branch)
+        assert actual.balance_dual_by_bus == pytest.approx(expected.balance_dual_by_bus)
+        assert actual.storage_charge_mw == {}
+        assert actual.storage_discharge_mw == {}
+        assert actual.storage_soc_mwh == {}
 
 
 def test_horizon_dcopf_dispatches_storage_and_returns_final_soc() -> None:

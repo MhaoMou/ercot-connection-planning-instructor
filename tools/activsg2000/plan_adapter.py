@@ -249,11 +249,14 @@ def evaluate_plan_with_prepared_dcopf(
 ) -> PlanDispatchResult:
     """Evaluate a canonical plan against the 2,000-bus dispatch artifact.
 
-    This adapter models fixed load: no curtailment, no load shedding, and no
-    integer recourse. With a prepared artifact, storage dispatch is continuous
-    and team-owned inside one horizon DCOPF solve using ideal efficiency.
-    The deterministic schedule below remains only as a compatibility path for
-    lightweight callers that do not provide a prepared artifact.
+    This adapter models fixed load: no curtailment or load shedding recourse.
+    With a prepared artifact, storage dispatch is team-owned
+    inside one coupled horizon DCOPF mixed-integer program: each storage
+    asset has a binary operating-mode variable that prevents simultaneous
+    charging and discharging. This solver-backed path requires the optional
+    ``highspy`` dependency. The deterministic continuous peak-shaving schedule
+    below is only the legacy compatibility path for callers that do not
+    provide a prepared artifact; it is not the centralized horizon model.
 
     Connection ``bus_id`` values must be source-artifact bus IDs. A connection
     contributes ``capacity_mw * profile[t]`` to its bus demand, or constant
@@ -788,11 +791,14 @@ def _storage_schedule(
     *,
     time_step_hours: float = 1.0,
 ) -> dict[str, dict[str, object]]:
-    """Build a deterministic continuous peak-shaving schedule for owned storage.
+    """Build the legacy deterministic continuous peak-shaving schedule.
 
-    Storage is ideal-efficiency. It starts at half energy, never discharges
-    more than its prior state, and ends at or above half energy. Charging is
-    represented as additional owner load; storage cannot export to another team.
+    This helper is used only by the no-prepared-artifact compatibility path. It
+    is not the centralized prepared-artifact horizon solve, which uses a
+    binary-MIP formulation and requires ``highspy``. Storage is ideal-efficiency.
+    It starts at half energy, never discharges more than its prior state, and
+    ends at or above half energy. Charging is represented as additional owner
+    load; storage cannot export to another team.
     """
     if not plan.storages:
         return {}
