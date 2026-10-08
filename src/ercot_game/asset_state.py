@@ -20,6 +20,9 @@ class AssetStateError(ValueError):
     """Raised when a plan conflicts with previously persisted team assets."""
 
 
+_MISSING_STORAGE_SOC = object()
+
+
 @dataclass(frozen=True)
 class GeneratorAsset:
     team_id: str
@@ -38,12 +41,12 @@ class StorageAsset:
     bus_id: str
     power_mw: float
     energy_mwh: float
-    state_of_charge_mwh: float | None = None
+    state_of_charge_mwh: float | None | object = _MISSING_STORAGE_SOC
 
     def __post_init__(self) -> None:
         state_of_charge_mwh = (
             self.energy_mwh * 0.5
-            if self.state_of_charge_mwh is None
+            if self.state_of_charge_mwh is _MISSING_STORAGE_SOC
             else self.state_of_charge_mwh
         )
         _validate_storage_soc(

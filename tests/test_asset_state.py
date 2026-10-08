@@ -68,6 +68,15 @@ def test_legacy_storage_asset_without_soc_loads_half_full() -> None:
     assert restored.team("team-a").storages["store-1"].state_of_charge_mwh == 10.0
 
 
+def test_persisted_storage_soc_null_is_rejected_instead_of_defaulting() -> None:
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    payload = ledger.to_dict()
+    payload["teams"]["team-a"]["storages"]["store-1"]["state_of_charge_mwh"] = None
+
+    with pytest.raises(AssetStateError, match="storage state of charge must be finite"):
+        AssetLedger.from_dict(payload)
+
+
 @pytest.mark.parametrize("value", [9.0, 21.0, float("nan"), float("inf")])
 def test_persisted_storage_soc_must_be_finite_and_within_terminal_bounds(value) -> None:
     ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")

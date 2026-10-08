@@ -185,9 +185,13 @@ SOC, and a valid schedule must finish at or above one-half of the storage
 energy capacity.
 
 After a usable round evaluation, `evaluate_round()` reads the final dispatch
-period's `storage_soc_mwh_by_team` mapping. Every materialized storage asset
-must have a finite reported final SOC within its energy capacity and at least
-half full. Missing or malformed SOC prevents the state file from being saved,
-so the prior state remains intact. Valid final SOC values are then written to
-the next immutable ledger snapshot and are available to the next released
-half-year round.
+period's `storage_soc_mwh_by_team` mapping. For failure-isolated partial
+dispatches, `BatchDispatchResult.team_ids` defines which teams were actually
+dispatched: only materialized storage-bearing teams present in that set must
+report every final SOC. A materialized storage-bearing team absent from the
+set retains its advanced-state SOC, whether carried from an earlier round or
+defaulted half full for a new asset, so valid teams can still commit. Missing
+or malformed SOC for a dispatched storage team remains a transactional
+failure: the state file is not saved and the prior state remains intact.
+Valid final SOC values are then written to the next immutable ledger snapshot
+and are available to the next released half-year round.
