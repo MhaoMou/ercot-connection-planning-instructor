@@ -602,7 +602,64 @@ def test_site_only_plan_uses_site_cost_scope_and_constant_materialized_load(tmp_
 
     assert seen["site_cost_connection_count_by_team"] == {"team-a": 1}
     assert seen["plan_overrides"]["team-a"].connections == (
-        ConnectionPlan("site-1", "b0001", 40.0),
+        ConnectionPlan("site-1", "b0001", 40.0, (1.0, 1.0)),
+    )
+
+
+def test_site_plan_round_two_keeps_omitted_site_active_and_does_not_recharge_assets(
+    tmp_path,
+) -> None:
+    state_path = tmp_path / "state.json"
+    first_plan = TeamPlan(
+        team_id="team-a",
+        sites=(SitePlan("site-a", "b0001", 40.0, 10.0, 5.0, 20.0),),
+    )
+    second_plan = TeamPlan(team_id="team-a", sites=())
+    seen: list[dict[str, object]] = []
+
+    def evaluator(*args, **kwargs):
+        seen.append(kwargs)
+        storage_ids = [storage.storage_id for storage in kwargs["plan_overrides"]["team-a"].storages]
+        return _UsableEvaluation(
+            dispatch=SimpleNamespace(
+                periods=(
+                    SimpleNamespace(
+                        storage_soc_mwh_by_team={
+                            "team-a": {storage_id: 15.0 for storage_id in storage_ids}
+                        }
+                    ),
+                )
+            )
+        )
+
+    evaluate_round(
+        state_path=state_path,
+        round_key="2027_jan_jun",
+        submissions=tmp_path / "submissions",
+        artifact_dir=tmp_path / "artifacts",
+        horizon=3,
+        rules=object(),
+        plan_loader=_loader((first_plan,)),
+        evaluator=evaluator,
+    )
+    evaluate_round(
+        state_path=state_path,
+        round_key="2027_jul_dec",
+        submissions=tmp_path / "submissions",
+        artifact_dir=tmp_path / "artifacts",
+        horizon=3,
+        rules=object(),
+        plan_loader=_loader((second_plan,)),
+        evaluator=evaluator,
+    )
+
+    assert seen[1]["plan_overrides"]["team-a"].connections == (
+        ConnectionPlan("site-a", "b0001", 40.0, (1.0, 1.0, 1.0)),
+    )
+    assert seen[1]["plan_overrides"]["team-a"].storages[0].initial_state_of_charge_mwh == 15.0
+    assert seen[1]["capital_cost_scope"] == CapitalCostScope(
+        generator_ids_by_team={},
+        storage_ids_by_team={},
     )
 
 

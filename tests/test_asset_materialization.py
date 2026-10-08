@@ -257,8 +257,52 @@ def test_site_only_plan_materializes_constant_connection_without_profile() -> No
     materialized = AssetLedger.empty().materialize_plan(plan, horizon=2)
 
     assert materialized.connections == (
-        ConnectionPlan("site-1", "b0001", 40.0),
+        ConnectionPlan("site-1", "b0001", 40.0, (1.0, 1.0)),
     )
+
+
+def test_site_plans_expand_multiple_sites_and_keep_omitted_sites_active() -> None:
+    first = TeamPlan(
+        team_id="team-a",
+        sites=(
+            SitePlan("site-a", "b0001", 40.0, 10.0, 5.0, 20.0),
+            SitePlan("site-b", "b0002", 30.0, 8.0, 4.0, 16.0),
+        ),
+    )
+    ledger = AssetLedger.empty().register_plan(first, round_key="2027_jan_jun")
+    ledger = ledger.update_storage_soc(
+        {
+            "team-a": {
+                "storage:team-a:site-a": 15.0,
+                "storage:team-a:site-b": 12.0,
+            }
+        }
+    )
+
+    second = ledger.materialize_plan(
+        TeamPlan(team_id="team-a", sites=()),
+        horizon=3,
+    )
+
+    assert second.connections == (
+        ConnectionPlan("site-a", "b0001", 40.0, (1.0, 1.0, 1.0)),
+        ConnectionPlan("site-b", "b0002", 30.0, (1.0, 1.0, 1.0)),
+    )
+    assert {generator.connection_id for generator in second.generators} == {
+        "site-a",
+        "site-b",
+    }
+    assert {storage.connection_id for storage in second.storages} == {
+        "site-a",
+        "site-b",
+    }
+    assert {
+        storage.storage_id: storage.initial_state_of_charge_mwh
+        for storage in second.storages
+    } == {
+        "storage:team-a:site-a": 15.0,
+        "storage:team-a:site-b": 12.0,
+    }
 
 
 def test_materialize_requires_positive_horizon() -> None:

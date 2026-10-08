@@ -378,6 +378,45 @@ def test_evaluate_csv_batch_scores_feasible_joint_set(tmp_path, monkeypatch):
     assert all(score.competition_scope == "joint" for score in result.team_scores)
 
 
+def test_canonical_site_plan_is_expanded_before_batch_dispatch(tmp_path, monkeypatch):
+    path = tmp_path / "team-a.csv"
+    path.write_text(
+        "team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,"
+        "storage_power_mw,storage_energy_mwh\n"
+        "team-a,site-a,b0001,40,10,5,20\n"
+        "team-a,site-b,b0002,30,0,0,0\n",
+        encoding="utf-8",
+    )
+    seen: dict[str, object] = {}
+
+    def dispatch(_artifact_dir, plans, *, period_indices):
+        seen["plans"] = tuple(plans)
+        return _fake_dispatch(("team-a",), period_indices=tuple(period_indices))
+
+    monkeypatch.setattr(batch_evaluation, "evaluate_plans_with_prepared_dcopf", dispatch)
+    artifact_dir = _write_artifact_catalogs(tmp_path)
+    result = evaluate_csv_batch(
+        path,
+        artifact_dir=artifact_dir,
+        bus_ids={"b0001", "b0002"},
+        horizon=3,
+        rules=BatchScoringRules(
+            rules_version="test-v1",
+            it_value_per_mwh=(200.0, 200.0, 200.0),
+            energy_price_per_mwh=(50.0, 50.0, 50.0),
+        ),
+        source_period_indices=(4, 5, 6),
+    )
+
+    plan = seen["plans"][0]
+    assert [connection.profile for connection in plan.connections] == [
+        (0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0),
+        (0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0),
+    ]
+    assert {generator.connection_id for generator in plan.generators} == {"site-a"}
+    assert result.team_scores[0].served_load_mwh == 6.0
+
+
 def test_evaluate_csv_batch_uses_materialized_plan_and_charges_only_new_assets(
     tmp_path, monkeypatch
 ):

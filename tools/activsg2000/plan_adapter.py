@@ -75,7 +75,11 @@ def _student_generator_segment_id(*parts: str, segment: int) -> str:
     return _student_generator_id(*parts, f"segment-{segment}")
 
 
-def _normalize_plan_for_adapter(plan: TeamPlan) -> TeamPlan:
+def _normalize_plan_for_adapter(
+    plan: TeamPlan,
+    *,
+    horizon: int | None = None,
+) -> TeamPlan:
     """Expand site-only plans before any adapter validation or evaluation.
 
     The public adapter accepts both the frozen site schema and the legacy
@@ -84,7 +88,11 @@ def _normalize_plan_for_adapter(plan: TeamPlan) -> TeamPlan:
     """
     if not isinstance(plan, TeamPlan):
         raise ValueError("plan must be a TeamPlan")
-    if not plan.sites:
+    if horizon is not None and (not isinstance(horizon, int) or horizon <= 0):
+        raise ValueError("horizon must be a positive integer")
+    if not plan.sites and not any(
+        connection.profile == () for connection in plan.connections
+    ):
         return plan
 
     connections = list(plan.connections)
@@ -103,6 +111,7 @@ def _normalize_plan_for_adapter(plan: TeamPlan) -> TeamPlan:
             connection_id=site.site_id,
             bus_id=site.bus_id,
             capacity_mw=site.connection_capacity_mw,
+            profile=() if horizon is None else (1.0,) * horizon,
         )
         previous = connection_by_id.get(site.site_id)
         if previous is not None:
@@ -116,6 +125,19 @@ def _normalize_plan_for_adapter(plan: TeamPlan) -> TeamPlan:
         else:
             connections.append(site_connection)
             connection_by_id[site.site_id] = site_connection
+
+    if horizon is not None:
+        connections = [
+            ConnectionPlan(
+                connection_id=connection.connection_id,
+                bus_id=connection.bus_id,
+                capacity_mw=connection.capacity_mw,
+                profile=(1.0,) * horizon
+                if not connection.profile
+                else connection.profile,
+            )
+            for connection in connections
+        ]
 
     generators = list(plan.generators)
     generator_sites = {generator.connection_id for generator in generators}
@@ -148,6 +170,7 @@ def _normalize_plan_for_adapter(plan: TeamPlan) -> TeamPlan:
         connections=tuple(connections),
         generators=tuple(generators),
         storages=tuple(storages),
+        sites=plan.sites,
     )
 
 
@@ -226,8 +249,8 @@ def evaluate_plan_with_prepared_dcopf(
     does not change the existing browser evaluator's abstract planning-model
     semantics.
     """
-    plan = _normalize_plan_for_adapter(plan)
     _validate_period_indices(period_indices)
+    plan = _normalize_plan_for_adapter(plan, horizon=max(period_indices) + 1)
     if not math.isfinite(time_step_hours) or time_step_hours <= 0:
         raise ValueError("time_step_hours must be finite and positive")
     connection_by_id = _validate_plan(plan)
@@ -298,7 +321,10 @@ def evaluate_plans_with_prepared_dcopf(
         raise ValueError("at least one team plan is required")
     ordered_plans = tuple(
         sorted(
-            (_normalize_plan_for_adapter(plan) for plan in plans),
+            (
+                _normalize_plan_for_adapter(plan, horizon=max(period_indices) + 1)
+                for plan in plans
+            ),
             key=lambda plan: plan.team_id,
         )
     )

@@ -20,6 +20,7 @@ from .csv_submission import (
     read_student_csv,
     read_submission_identity,
 )
+from .asset_state import AssetLedger, AssetStateError
 from .models import TeamPlan
 from .models import ConnectionPlan
 from .economic_profiles import (
@@ -692,9 +693,24 @@ def _source_indexed_plans(
                 connections=tuple(connections),
                 generators=plan.generators,
                 storages=plan.storages,
+                sites=plan.sites,
             )
         )
     return tuple(remapped)
+
+
+def _expand_plans_for_horizon(
+    plans: Sequence[TeamPlan],
+    horizon: int,
+) -> tuple[TeamPlan, ...]:
+    """Materialize constant-capacity site plans for the selected horizon."""
+    try:
+        return tuple(
+            AssetLedger.empty().materialize_plan(plan, horizon=horizon)
+            for plan in plans
+        )
+    except AssetStateError as exc:
+        raise ValueError(f"could not expand site plans for evaluation: {exc}") from exc
 
 
 def _relabel_dispatch_periods(
@@ -1030,7 +1046,10 @@ def evaluate_csv_batch(
         require_complete_horizon=True,
     )
     accepted = tuple(collection.accepted)
-    plans = _evaluation_plans(accepted, plan_overrides)
+    plans = _expand_plans_for_horizon(
+        _evaluation_plans(accepted, plan_overrides),
+        horizon,
+    )
     _validate_capital_cost_scope(capital_cost_scope, plans)
     _validate_site_cost_scope(site_cost_connection_count_by_team, plans)
     record_by_team = {record.team_id: record for record in accepted}

@@ -278,11 +278,11 @@ def test_raw_site_only_plan_evaluates_constant_load_through_public_adapter(monke
     result = evaluate_plan_with_prepared_dcopf(
         "unused-artifact",
         plan,
-        period_indices=(0, 1),
+        period_indices=(0, 1, 2),
     )
 
-    assert [period.submitted_load_mw for period in result.periods] == [40.0, 40.0]
-    assert seen == [{"b0001": 40.0}, {"b0001": 40.0}]
+    assert [period.submitted_load_mw for period in result.periods] == [40.0, 40.0, 40.0]
+    assert seen == [{"b0001": 40.0}, {"b0001": 40.0}, {"b0001": 40.0}]
 
 
 def test_raw_site_only_plan_rejects_duplicate_site_ids_at_adapter_boundary() -> None:

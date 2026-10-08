@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass, field
 import math
 from typing import Any, Mapping
 
-from .models import ConnectionPlan, GeneratorPlan, StoragePlan, TeamPlan
+from .models import ConnectionPlan, GeneratorPlan, SitePlan, StoragePlan, TeamPlan
 
 
 ASSET_LEDGER_SCHEMA_VERSION = 2
@@ -158,11 +158,13 @@ class StorageAsset:
 @dataclass(frozen=True)
 class TeamAssetState:
     team_id: str
+    sites: Mapping[str, SitePlan] = field(default_factory=dict)
     generators: Mapping[str, GeneratorAsset] = field(default_factory=dict)
     storages: Mapping[str, StorageAsset] = field(default_factory=dict)
     last_round_key: str | None = None
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "sites", dict(self.sites))
         object.__setattr__(self, "generators", _AssetCollection(self.generators))
         object.__setattr__(self, "storages", _AssetCollection(self.storages))
 
@@ -214,6 +216,14 @@ class AssetLedger:
             raise AssetStateError("round_key must be a non-empty string")
         connections, declared_generators, declared_storages = _plan_components(plan)
         current = self.teams.get(plan.team_id, TeamAssetState(team_id=plan.team_id))
+        sites = dict(current.sites)
+        for site_id, site in _site_plans(plan).items():
+            previous = sites.get(site_id)
+            if previous is not None and not _same_site_connection(previous, site):
+                raise AssetStateError(
+                    f"site {site_id} conflicts with its persisted connection specification"
+                )
+            sites[site_id] = site
         generators = current.generators.canonical_dict()
         storages = current.storages.canonical_dict()
 
@@ -250,6 +260,7 @@ class AssetLedger:
         updated = dict(self.teams)
         updated[plan.team_id] = TeamAssetState(
             team_id=plan.team_id,
+            sites=sites,
             generators=generators,
             storages=storages,
             last_round_key=round_key,
@@ -273,6 +284,13 @@ class AssetLedger:
         current = self.teams.get(plan.team_id, TeamAssetState(team_id=plan.team_id))
         current_generators = declared_generators
         current_storages = declared_storages
+
+        for site_id, site in _site_plans(plan).items():
+            previous = current.sites.get(site_id)
+            if previous is not None and not _same_site_connection(previous, site):
+                raise AssetStateError(
+                    f"site {site_id} conflicts with its persisted connection specification"
+                )
 
         for generator in current_generators.values():
             connection = _connection_for_asset(connections, generator.connection_id)
@@ -298,7 +316,18 @@ class AssetLedger:
 
         _validate_persisted_connection_buses(connections, current)
 
-        materialized_connections = dict(connections)
+        materialized_connections = {
+            connection_id: _expand_constant_connection(connection, horizon)
+            for connection_id, connection in connections.items()
+        }
+        for site_id, site in current.sites.items():
+            if site_id not in materialized_connections:
+                materialized_connections[site_id] = ConnectionPlan(
+                    connection_id=site.site_id,
+                    bus_id=site.bus_id,
+                    capacity_mw=site.connection_capacity_mw,
+                    profile=(1.0,) * horizon,
+                )
         for asset in (*current.generators.values(), *current.storages.values()):
             if asset.connection_id not in materialized_connections:
                 materialized_connections[asset.connection_id] = ConnectionPlan(
@@ -358,7 +387,11 @@ class AssetLedger:
             connections=tuple(materialized_connections[key] for key in sorted(materialized_connections)),
             generators=tuple(sorted(generators.values(), key=lambda item: item.generator_id)),
             storages=tuple(sorted(storages.values(), key=lambda item: item.storage_id)),
-            sites=plan.sites,
+            sites=tuple(
+                current.sites[site_id]
+                for site_id in sorted(current.sites)
+                if site_id not in {site.site_id for site in plan.sites}
+            ) + tuple(sorted(plan.sites, key=lambda item: item.site_id)),
         )
 
     def update_storage_soc(
@@ -414,6 +447,7 @@ class AssetLedger:
                 )
             updated[team_id] = TeamAssetState(
                 team_id=current.team_id,
+                sites=current.sites,
                 generators=current.generators,
                 storages=storages,
                 last_round_key=current.last_round_key,
@@ -427,6 +461,10 @@ class AssetLedger:
                 team_id: {
                     "team_id": state.team_id,
                     "last_round_key": state.last_round_key,
+                    "sites": {
+                        site_id: asdict(site)
+                        for site_id, site in sorted(state.sites.items())
+                    },
                     "generators": {
                         asset_id: asdict(asset)
                         for asset_id, asset in sorted(state.generators.items())
@@ -472,6 +510,7 @@ class AssetLedger:
             )
             teams[team_id] = TeamAssetState(
                 team_id=team_id,
+                sites=_deserialize_sites(raw_state.get("sites", {}), team_id=team_id),
                 generators=generators,
                 storages=storages,
                 last_round_key=raw_state.get("last_round_key"),
@@ -486,6 +525,38 @@ def _connection_for_asset(connections: Mapping[str, Any], connection_id: str) ->
         raise AssetStateError(
             f"asset references unknown connection site: {connection_id}"
         ) from None
+
+
+def _site_plans(plan: TeamPlan) -> dict[str, SitePlan]:
+    sites: dict[str, SitePlan] = {}
+    for site in plan.sites:
+        if site.site_id in sites:
+            raise AssetStateError(f"duplicate site_id: {site.site_id}")
+        sites[site.site_id] = site
+    return sites
+
+
+def _same_site_connection(left: SitePlan, right: SitePlan) -> bool:
+    return (
+        left.site_id,
+        left.bus_id,
+        left.connection_capacity_mw,
+    ) == (
+        right.site_id,
+        right.bus_id,
+        right.connection_capacity_mw,
+    )
+
+
+def _expand_constant_connection(connection: ConnectionPlan, horizon: int) -> ConnectionPlan:
+    if connection.profile:
+        return connection
+    return ConnectionPlan(
+        connection_id=connection.connection_id,
+        bus_id=connection.bus_id,
+        capacity_mw=connection.capacity_mw,
+        profile=(1.0,) * horizon,
+    )
 
 
 def _plan_components(
@@ -730,6 +801,12 @@ def _validate_persisted_connection_buses(
     connections: Mapping[str, Any],
     state: TeamAssetState,
 ) -> None:
+    for site in state.sites.values():
+        connection = connections.get(site.site_id)
+        if connection is not None and connection.bus_id != site.bus_id:
+            raise AssetStateError(
+                f"connection {site.site_id} conflicts with its persisted source bus"
+            )
     for asset in (*state.generators.values(), *state.storages.values()):
         connection = connections.get(asset.connection_id)
         if connection is not None and connection.bus_id != asset.bus_id:
@@ -742,6 +819,30 @@ def _mapping(value: Any, name: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise AssetStateError(f"asset ledger field {name} must be an object")
     return value
+
+
+def _deserialize_sites(value: Any, *, team_id: str) -> dict[str, SitePlan]:
+    raw_sites = _mapping(value, "sites")
+    parsed: dict[str, SitePlan] = {}
+    for serialized_id, raw_site in raw_sites.items():
+        if not isinstance(serialized_id, str) or not serialized_id:
+            raise AssetStateError("site keys must be non-empty strings")
+        if not isinstance(raw_site, Mapping):
+            raise AssetStateError(f"site must be an object: {serialized_id}")
+        payload = dict(raw_site)
+        payload.setdefault("site_id", serialized_id)
+        if payload.get("site_id") != serialized_id:
+            raise AssetStateError(
+                f"site identity mismatch for team {team_id}: {serialized_id}"
+            )
+        try:
+            site = SitePlan(**payload)
+        except (TypeError, ValueError) as exc:
+            raise AssetStateError(f"invalid site state for {team_id}/{serialized_id}: {exc}") from exc
+        if site.site_id in parsed:
+            raise AssetStateError(f"duplicate site identity: {site.site_id}")
+        parsed[site.site_id] = site
+    return parsed
 
 
 def _deserialize_assets(
