@@ -41,8 +41,8 @@ def test_builder_writes_deterministic_scenario_recipe(tmp_path: Path) -> None:
     assert manifest["package_version"] == "activsg2000-scenarios-v1"
     assert manifest["validation_status"] == "pending"
     assert set(manifest["blocks"]) == {
-        "2016-jan_jun", "2016-jul_dec", "2017-jan_jun",
-        "2017-jul_dec", "2018-jan_jun", "2018-jul_dec",
+        "2027-jan_jun", "2027-jul_dec", "2028-jan_jun",
+        "2028-jul_dec", "2029-jan_jun", "2029-jul_dec",
     }
     with (output / "network" / "generator_catalog.csv").open() as handle:
         assert len(list(csv.DictReader(handle))) == 2

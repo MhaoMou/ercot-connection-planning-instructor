@@ -133,7 +133,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--rules", required=True, type=Path)
     run_parser.add_argument("--output-dir", required=True, type=Path)
     run_parser.add_argument("--horizon", type=_positive_int)
-    run_parser.add_argument("--year", type=int, choices=(2016, 2017, 2018), help="released data year")
+    run_parser.add_argument("--year", type=int, choices=(2027, 2028, 2029), help="released instructional scenario year")
     run_parser.add_argument("--round", dest="round_name", choices=("jan_jun", "jul_dec"), help="released half-year")
     run_parser.add_argument(
         "--workers",

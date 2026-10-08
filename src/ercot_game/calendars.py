@@ -23,7 +23,7 @@ class HalfYearCalendar:
         return f"{self.year}_{self.round_name}"
 
 
-SUPPORTED_YEARS = (2016, 2017, 2018)
+SUPPORTED_YEARS = (2027, 2028, 2029)
 _ROUND_MONTHS = {"jan_jun": (1, 6), "jul_dec": (7, 12)}
 
 

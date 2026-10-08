@@ -42,20 +42,20 @@ python -m pip install -e .
 ```bash
 ercot-game-check-csv \
   --file path/to/team.csv \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2017/jan_jun \
-  --year 2017 --round jan_jun
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2027/jan_jun \
+  --year 2027 --round jan_jun
 
 ercot-game-batch run \
   --submissions-dir path/to/submissions \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2017/jan_jun \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2027/jan_jun \
   --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
-  --year 2017 --round jan_jun \
+  --year 2027 --round jan_jun \
   --workers 8 \
   --projection-iterations 10 \
   --output-dir work/batch_results_jan_jun
 ```
 
-Use `data/processed/activsg2000_scenarios_v1/2017/jul_dec` with the
+Use `data/processed/activsg2000_scenarios_v1/2027/jul_dec` with the
 July--December rules for the second half-year. The scenario package manifest
 records the six blocks and their validation state.
 

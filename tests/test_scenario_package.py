@@ -15,12 +15,12 @@ def _write_manifest(root: Path, *, validation_status: str = "passed") -> None:
     blocks = {
         block: {"horizon": horizon, "sha256": "block-hash"}
         for block, horizon in {
-            "2016-jan_jun": 4368,
-            "2016-jul_dec": 4416,
-            "2017-jan_jun": 4344,
-            "2017-jul_dec": 4416,
-            "2018-jan_jun": 4344,
-            "2018-jul_dec": 4416,
+            "2027-jan_jun": 4344,
+            "2027-jul_dec": 4416,
+            "2028-jan_jun": 4368,
+            "2028-jul_dec": 4416,
+            "2029-jan_jun": 4344,
+            "2029-jul_dec": 4416,
         }.items()
     }
     (root / "manifest.json").write_text(
@@ -48,7 +48,7 @@ def test_manifest_requires_passed_validation(tmp_path: Path) -> None:
 def test_manifest_rejects_unknown_block_horizon(tmp_path: Path) -> None:
     _write_manifest(tmp_path)
     payload = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
-    payload["blocks"]["2016-jan_jun"]["horizon"] = 6
+    payload["blocks"]["2028-jan_jun"]["horizon"] = 6
     (tmp_path / "manifest.json").write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ScenarioPackageError, match="horizon"):
         load_scenario_manifest(tmp_path)

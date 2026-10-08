@@ -50,8 +50,8 @@ python -m pip install -e .
 ```bash
 ercot-game-check-csv \
   --file path/to/team.csv \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2017/jan_jun \
-  --year 2017 --round jan_jun
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2027/jan_jun \
+  --year 2027 --round jan_jun
 ```
 
 The active header is:
@@ -60,30 +60,29 @@ The active header is:
 team_id,submission_id,period,bus_id,load_mw,generator_id,generator_capacity_mw,storage_id,storage_power_mw,storage_energy_mwh
 ```
 
-Each submitted bus must cover every period in the selected half-year. Generator
-IDs and marginal costs come from `generator_limits.csv`; students submit only
-the generator capacity. Storage uses MW power capacity and MWh energy capacity.
+Each submitted bus must cover every period in the selected half-year. Public bus
+IDs come from the selected scenario block; team-built generator and storage IDs
+are self-defined labels. Storage uses MW power capacity and MWh energy capacity.
 
 ## Evaluate a half-year round
 
-For a 2017 January--June round:
+For a 2027 January--June round:
 
 ```bash
 ercot-game-batch run \
   --submissions-dir path/to/submissions \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2017/jan_jun \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2027/jan_jun \
   --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
-  --year 2017 --round jan_jun \
+  --year 2027 --round jan_jun \
   --workers 8 \
   --projection-iterations 10 \
   --output-dir work/batch_results_jan_jun
 ```
 
-Use `--year 2017 --round jul_dec` for July--December. The evaluator derives
+Use `--year 2027 --round jul_dec` for July--December. The evaluator derives
 the correct half-year length and source-row offset from the calendar. For
-2016, January--June is 4,368 hours and July--December is 4,416 hours; for
-2017 and 2018, January--June is 4,344 hours and July--December is 4,416
-hours. The three-year package uses deterministic bus-level load over fixed
+2028, January--June is 4,368 hours; for 2027 and 2029, January--June is
+4,344 hours; every July--December block is 4,416 hours. The three-year package uses deterministic bus-level load over fixed
 ACTIVSg2000 topology. Generator status, PMIN, PMAX, and marginal costs come
 from the dataset; because ACTIVSg2000 does not provide technology labels or
 hourly availability data, the active release uses static generator limits.

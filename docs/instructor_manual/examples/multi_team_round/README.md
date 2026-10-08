@@ -1,7 +1,7 @@
 # Multi-team instructor example
 
 This directory is a compact, reproducible example of one four-team round.
-It uses the current 2,000-bus ACTIVSg2000 release for **2016 January--June**
+It uses the current 2,000-bus ACTIVSg2000 release for **2028 January--June**
 (`4368` one-hour periods) and the `dispatch-scoring-jan_jun-v1` rules.
 
 ## Included artifacts
@@ -26,9 +26,9 @@ From the repository root, use the current evaluator and the copied inputs:
 ```bash
 PYTHONPATH=.:src python3 -m ercot_game.batch_cli run \
   --submissions-dir docs/instructor_manual/examples/multi_team_round/submissions \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2016/jan_jun \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
   --rules docs/instructor_manual/examples/multi_team_round/rules/dispatch_scoring_rules_jan_jun_v1.json \
-  --year 2016 --round jan_jun \
+  --year 2028 --round jan_jun \
   --workers 8 --projection-iterations 10 \
   --output-dir work/instructor_manual_example/reproduced_results
 ```

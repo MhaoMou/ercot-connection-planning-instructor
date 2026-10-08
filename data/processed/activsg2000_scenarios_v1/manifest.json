@@ -1,10 +1,10 @@
 {
   "package_version": "activsg2000-scenarios-v1",
-  "validation_status": "passed",
+  "validation_status": "failed",
   "source": {
     "name": "ACTIVSg2000",
     "repository": "https://github.com/caseformat/ACTIVSg2000",
-    "scenario_kind": "controlled deterministic three-year instructional package"
+    "scenario_kind": "controlled deterministic instructional scenario package for years 2027-2029"
   },
   "network": {
     "bus_count": 2000,
@@ -29,66 +29,72 @@
     }
   },
   "blocks": {
-    "2016-jan_jun": {
-      "year": 2016,
+    "2027-jan_jun": {
+      "year": 2027,
+      "calendar_block": "jan_jun",
+      "horizon": 4344,
+      "time_step_hours": 1,
+      "profile_recipe_hash": "e54ede2487102450ebe8d97846723a358b3f88e1b55801575704a336e8862f05",
+      "sha256": "42925c29adb5811560a81709aad908b6125ca747e346b1e695552def7ced7c0d",
+      "validated_state_hash": "d754e3cfe01b9f19fc0102c162f10f56141ba875703ca62a3711b7c226b75188"
+    },
+    "2027-jul_dec": {
+      "year": 2027,
+      "calendar_block": "jul_dec",
+      "horizon": 4416,
+      "time_step_hours": 1,
+      "profile_recipe_hash": "ea3d4dec4c8c66f5b3b7127f0002364f9fbc7d468699b7e58423d41ffd132566",
+      "sha256": "c5a7f493a3a83a3dfa3154b2efec69e04c274f8b8969afc095945b061381a21e",
+      "validated_state_hash": "af717e6c5fccb7e762d54c3cf087f044097cf51d997648b5b66b2be8487912c1"
+    },
+    "2028-jan_jun": {
+      "year": 2028,
       "calendar_block": "jan_jun",
       "horizon": 4368,
       "time_step_hours": 1,
-      "profile_recipe_hash": "577a2747881a6656286e4ddb504a025660fcc10e73b672bdcaaa5e50089af982",
-      "sha256": "d09f50706fb3b884c55dc019e1a3ce90d3d59617a74e11c9b10f094dcdd69dbf",
+      "profile_recipe_hash": "3f1b39e9a26af7f04f2e035adb2c421c710bd0f05e92ffbfa49ac5d8f440c433",
+      "sha256": "475708fdf48274c68c2d060d897c7a8a3a755db35582639b51ccdf5d712cb482",
       "validated_state_hash": "13487b48787d1db52bb2fb1d4f0bf3e6a4d18d60c4ad39aa122d2339beac8c56"
     },
-    "2016-jul_dec": {
-      "year": 2016,
+    "2028-jul_dec": {
+      "year": 2028,
       "calendar_block": "jul_dec",
       "horizon": 4416,
       "time_step_hours": 1,
-      "profile_recipe_hash": "5ad519570971723fea6587865f62110181cd188cae2c72f25f27e14902301e63",
-      "sha256": "91cd498ef0127041250f1a57d6481034c1195922a65fb4bc47d659b2377f524b",
+      "profile_recipe_hash": "2f7d1cebccee3d4e3a9008e3db7cd590c4c4b572d9e1aa8c5474a47cb256822e",
+      "sha256": "a82d22662c7d9717b0780e89b9aada3389035589636b1324a8a322d37348e42d",
       "validated_state_hash": "e5b0e6e9530620067b5e237cd7534749b46dda121770ddc7056c4fe032d79a0a"
     },
-    "2017-jan_jun": {
-      "year": 2017,
+    "2029-jan_jun": {
+      "year": 2029,
       "calendar_block": "jan_jun",
       "horizon": 4344,
       "time_step_hours": 1,
-      "profile_recipe_hash": "f5277a04e08bc1ca5f34c09b4681fbfc70a2b9bcef751b366663838170dfbc17",
-      "sha256": "7595a933a807c777cc8c68a5632917ce671165380a13ae1fda6b9a7f852957d1",
+      "profile_recipe_hash": "6bad9ca23c63b11e05599a2b5cfd6427e33a24c77ce966bf5ef0a94a5d20b520",
+      "sha256": "dd7f28dff8f1bc348785cc0c405888fa32c0cc0bed125ec5ffef1080523ef07b",
       "validated_state_hash": "4049d182c3299c0a4841775c9c8604c637fbe0400bc14616d5d8906cc5e15b39"
     },
-    "2017-jul_dec": {
-      "year": 2017,
+    "2029-jul_dec": {
+      "year": 2029,
       "calendar_block": "jul_dec",
       "horizon": 4416,
       "time_step_hours": 1,
-      "profile_recipe_hash": "ca1e83c1979481434cfbe8f800ca2bd00ea397c502e1818ba717c77691b9b534",
-      "sha256": "6767e6c1f828c026d7f894a94a9ddbbb4cce214e7e152c6c6e49fb0f44e0f09c",
-      "validated_state_hash": "af717e6c5fccb7e762d54c3cf087f044097cf51d997648b5b66b2be8487912c1"
-    },
-    "2018-jan_jun": {
-      "year": 2018,
-      "calendar_block": "jan_jun",
-      "horizon": 4344,
-      "time_step_hours": 1,
-      "profile_recipe_hash": "35fe6398eb28d02c4813554c854998566e545741f64c6fe8410d346add741031",
-      "sha256": "90b218ed0de9784d2b51f8b8099a58f8d5a2b26449e6aa23332c88afa10d19bb",
-      "validated_state_hash": "4049d182c3299c0a4841775c9c8604c637fbe0400bc14616d5d8906cc5e15b39"
-    },
-    "2018-jul_dec": {
-      "year": 2018,
-      "calendar_block": "jul_dec",
-      "horizon": 4416,
-      "time_step_hours": 1,
-      "profile_recipe_hash": "5a0b1db3a6a1ac33f0f5da20e2dda1225313b594a819c7943d777fd6f73ef7d0",
-      "sha256": "51ff2d862dd198a19cd968892fb5f6cf6c2ff942389ea1d1d271ddf726973826",
+      "profile_recipe_hash": "ae1db8bb723cd7380226abff97104418a34a3547a27dcadacfecbbc0501c47f8",
+      "sha256": "50f28112ab9cfaeccba8f11ff52dea19b993c0ce9e9fa0fc40010c36600f9e57",
       "validated_state_hash": "af717e6c5fccb7e762d54c3cf087f044097cf51d997648b5b66b2be8487912c1"
     }
   },
   "validation": {
-    "hour_count": 26304,
+    "hour_count": 1,
     "expected_hour_count": 26304,
-    "passed_hour_count": 26304,
-    "failed_hour_count": 0,
-    "failures": []
+    "passed_hour_count": 0,
+    "failed_hour_count": 1,
+    "failures": [
+      {
+        "block": "2027-jan_jun",
+        "period_index": 0,
+        "reason": "DCOPF requires the optional project dependency 'highspy'; install the project dependencies first"
+      }
+    ]
   }
 }

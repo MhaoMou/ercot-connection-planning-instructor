@@ -6,16 +6,16 @@ from ercot_game.calendars import half_year_calendar
 
 
 def test_half_year_calendar_uses_actual_leap_year_lengths():
-    assert half_year_calendar(2016, "jan_jun").horizon == 4368
-    assert half_year_calendar(2016, "jul_dec").horizon == 4416
-    assert half_year_calendar(2017, "jan_jun").horizon == 4344
-    assert half_year_calendar(2017, "jul_dec").horizon == 4416
+    assert half_year_calendar(2028, "jan_jun").horizon == 4368
+    assert half_year_calendar(2028, "jul_dec").horizon == 4416
+    assert half_year_calendar(2027, "jan_jun").horizon == 4344
+    assert half_year_calendar(2027, "jul_dec").horizon == 4416
 
 
 def test_half_year_calendar_exposes_dates_and_source_offset():
-    calendar = half_year_calendar(2017, "jan_jun")
-    assert calendar.start_date == date(2017, 1, 1)
-    assert calendar.end_date == date(2017, 6, 30)
+    calendar = half_year_calendar(2027, "jan_jun")
+    assert calendar.start_date == date(2027, 1, 1)
+    assert calendar.end_date == date(2027, 6, 30)
     assert calendar.horizon == 4344
     assert calendar.source_row_start == 0
 
@@ -28,4 +28,4 @@ def test_half_year_calendar_rejects_years_without_released_artifacts(year):
 
 def test_half_year_calendar_rejects_unknown_round():
     with pytest.raises(ValueError, match="jan_jun or jul_dec"):
-        half_year_calendar(2017, "annual")
+        half_year_calendar(2027, "annual")

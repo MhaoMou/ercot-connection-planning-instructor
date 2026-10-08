@@ -266,7 +266,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--file", required=True, type=Path, help="CSV submission to validate")
     parser.add_argument("--artifact-dir", type=Path, help="validated scenario block containing bus.csv and generator_limits.csv")
     parser.add_argument("--horizon", type=int, help="explicit submission horizon; use --year/--round for released calendars")
-    parser.add_argument("--year", type=int, choices=(2016, 2017, 2018), help="released data year")
+    parser.add_argument("--year", type=int, choices=(2027, 2028, 2029), help="released instructional scenario year")
     parser.add_argument("--round", dest="round_name", choices=("jan_jun", "jul_dec"), help="released half-year")
     parser.add_argument("--json", action="store_true", help="print a machine-readable JSON report")
     return parser

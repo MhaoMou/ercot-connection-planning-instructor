@@ -6,8 +6,8 @@ and audit artifacts to one output directory; that directory is the source of
 truth for the ranking and audit record.
 
 The production data path is the public synthetic Texas ACTIVSg2000 system.
-Student files use source `bus_id` values from the selected block and generator
-IDs from its `generator_limits.csv`. This guide describes the only supported
+Student files use source `bus_id` values from the selected block. Team-built
+generator and storage IDs are self-defined labels. This guide describes the only supported
 production evaluation path.
 
 The ACTIVSg2000 topology and generator catalog are fixed. The three-year
@@ -18,9 +18,9 @@ operating forecasts.
 
 | Released year | January--June | July--December |
 |---|---:|---:|
-| 2016 | 4,368 h | 4,416 h |
-| 2017 | 4,344 h | 4,416 h |
-| 2018 | 4,344 h | 4,416 h |
+| 2027 | 4,344 h | 4,416 h |
+| 2028 | 4,368 h | 4,416 h |
+| 2029 | 4,344 h | 4,416 h |
 
 The supported execution mode is from a source checkout. The Python runtime
 packages, scoring rules, and prepared dispatch CSVs remain repository-level
@@ -28,14 +28,14 @@ resources and must be supplied by path.
 
 ## Run a batch
 
-For a 2017 January--June release (4,344 one-hour periods):
+For a 2027 January--June release (4,344 one-hour periods):
 
 ```bash
 ercot-game-batch run \
   --submissions-dir work/half_year_submissions \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2017/jan_jun \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2027/jan_jun \
   --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
-  --year 2017 --round jan_jun \
+  --year 2027 --round jan_jun \
   --workers 8 \
   --projection-iterations 10 \
   --output-dir work/batch_results_jan_jun
@@ -46,9 +46,9 @@ For July--December, use the matching year artifact and round:
 ```bash
 ercot-game-batch run \
   --submissions-dir work/half_year_submissions \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2017/jul_dec \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2027/jul_dec \
   --rules data/teaching/dispatch_scoring_rules_jul_dec_v1.json \
-  --year 2017 --round jul_dec \
+  --year 2027 --round jul_dec \
   --workers 8 \
   --projection-iterations 10 \
   --output-dir work/batch_results_jul_dec

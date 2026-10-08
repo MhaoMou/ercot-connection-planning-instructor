@@ -47,7 +47,7 @@ def test_lmp_builder_writes_deterministic_full_horizon_artifact(tmp_path: Path, 
     artifact = tmp_path / "block"
     artifact.mkdir()
     (artifact / "manifest.json").write_text('{"package_version":"activsg2000-scenarios-v1","validation_status":"passed","horizon":2}\n', encoding="utf-8")
-    (artifact / "scenario_profile.json").write_text('{"year":2016,"calendar_block":"jan_jun"}\n', encoding="utf-8")
+    (artifact / "scenario_profile.json").write_text('{"year":2028,"calendar_block":"jan_jun"}\n', encoding="utf-8")
     (artifact / "bus.csv").write_text("bus_id,type\nB1,3\nB2,1\nB3,1\n", encoding="utf-8")
     buses, generators, branches = _three_bus_case()
     results = [

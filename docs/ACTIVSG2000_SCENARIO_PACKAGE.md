@@ -1,7 +1,8 @@
 # ACTIVSg2000 scenario package
 
 The production game uses the public synthetic Texas ACTIVSg2000 model and a
-controlled three-year hourly scenario package.
+controlled three-year hourly scenario package labeled as instructional years
+2027--2029. These labels are not historical source-data years or forecasts.
 
 ## Package
 
@@ -17,12 +18,12 @@ It contains:
       manifest.json
       profile_parameters.json
       network/
-      2016/jan_jun/
-      2016/jul_dec/
-      2017/jan_jun/
-      2017/jul_dec/
-      2018/jan_jun/
-      2018/jul_dec/
+      2027/jan_jun/
+      2027/jul_dec/
+      2028/jan_jun/
+      2028/jul_dec/
+      2029/jan_jun/
+      2029/jul_dec/
 
 The source topology is fixed at 2,000 buses, 3,206 branches, and 544
 generators. Each block exposes the catalog files required by the CSV checker.
@@ -39,7 +40,8 @@ calendar-aware seasonal, daily, and weekly multiplier. Active generators use
 their catalog status, PMIN, and PMAX values in every hour. Generator marginal
 costs and branch limits are copied from the public ACTIVSg2000 files.
 
-This is a controlled instructional scenario package. It is not historical
+This is a controlled instructional scenario package. 2028 is the leap-year
+calendar block; 2027 and 2029 are non-leap-year blocks. It is not historical
 ERCOT telemetry, an official ERCOT model, or a forecast.
 
 ## Hourly validation

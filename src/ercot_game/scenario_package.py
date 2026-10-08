@@ -13,12 +13,12 @@ class ScenarioPackageError(ValueError):
 
 
 EXPECTED_HORIZONS = {
-    "2016-jan_jun": 4368,
-    "2016-jul_dec": 4416,
-    "2017-jan_jun": 4344,
-    "2017-jul_dec": 4416,
-    "2018-jan_jun": 4344,
-    "2018-jul_dec": 4416,
+    "2027-jan_jun": 4344,
+    "2027-jul_dec": 4416,
+    "2028-jan_jun": 4368,
+    "2028-jul_dec": 4416,
+    "2029-jan_jun": 4344,
+    "2029-jul_dec": 4416,
 }
 
 

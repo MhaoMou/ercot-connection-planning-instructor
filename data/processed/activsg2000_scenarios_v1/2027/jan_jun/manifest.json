@@ -1,0 +1,8 @@
+{
+  "package_version": "activsg2000-scenarios-v1",
+  "validation_status": "passed",
+  "block": "2027-jan_jun",
+  "horizon": 4344,
+  "validated_state_hash": "4049d182c3299c0a4841775c9c8604c637fbe0400bc14616d5d8906cc5e15b39",
+  "year": 2027
+}

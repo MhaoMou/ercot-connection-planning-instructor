@@ -57,10 +57,10 @@ are admitted only after hourly DCOPF validation.
 | Setting | Current value | Source category | Meaning |
 |---|---:|---|---|
 | Time step | 1 hour | **INSTRUCTOR-CHOSEN** | Each row represents one operating hour |
-| 2016 January--June | 4,368 hours | **INSTRUCTOR-CHOSEN** | Leap-year first half |
-| 2016 July--December | 4,416 hours | **INSTRUCTOR-CHOSEN** | Leap-year second half |
-| 2017/2018 January--June | 4,344 hours | **INSTRUCTOR-CHOSEN** | Non-leap-year first half |
-| 2017/2018 July--December | 4,416 hours | **INSTRUCTOR-CHOSEN** | Non-leap-year second half |
+| 2028 January--June | 4,368 hours | **INSTRUCTOR-CHOSEN** | Leap-year first half |
+| 2028 July--December | 4,416 hours | **INSTRUCTOR-CHOSEN** | Leap-year second half |
+| 2027/2029 January--June | 4,344 hours | **INSTRUCTOR-CHOSEN** | Non-leap-year first half |
+| 2027/2029 July--December | 4,416 hours | **INSTRUCTOR-CHOSEN** | Non-leap-year second half |
 | Energy price profile | Baseline ACTIVSg2000 DCOPF LMP artifact | **DATASET-SPECIFIED + DERIVED** | One exogenous locational price per bus and hour; generated from the validated hourly scenario state |
 | IT-service value profile | 125 $/MWh for every hour in the selected block | **INSTRUCTOR-CHOSEN** | Full-horizon opportunity value of computational service |
 | Profile length | Exactly 4,368 or 4,416 values for the active rule file | **INSTRUCTOR-CHOSEN** | No six-hour repetition is used for IT-service value |
