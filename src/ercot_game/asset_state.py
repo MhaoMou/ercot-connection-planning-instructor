@@ -314,7 +314,7 @@ class AssetLedger:
                     f"storage {storage.storage_id} conflicts with its persisted specification"
                 )
 
-        _validate_persisted_connection_buses(connections, current)
+        _validate_persisted_connection_specs(connections, current)
 
         materialized_connections = {
             connection_id: _expand_constant_connection(connection, horizon)
@@ -797,7 +797,7 @@ def _same_storage_spec(left: StorageAsset, right: StorageAsset) -> bool:
     )
 
 
-def _validate_persisted_connection_buses(
+def _validate_persisted_connection_specs(
     connections: Mapping[str, Any],
     state: TeamAssetState,
 ) -> None:
@@ -806,6 +806,10 @@ def _validate_persisted_connection_buses(
         if connection is not None and connection.bus_id != site.bus_id:
             raise AssetStateError(
                 f"connection {site.site_id} conflicts with its persisted source bus"
+            )
+        if connection is not None and connection.capacity_mw != site.connection_capacity_mw:
+            raise AssetStateError(
+                f"connection {site.site_id} conflicts with its persisted connection specification"
             )
     for asset in (*state.generators.values(), *state.storages.values()):
         connection = connections.get(asset.connection_id)

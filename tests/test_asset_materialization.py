@@ -161,6 +161,26 @@ def test_materialize_rejects_changed_persisted_asset() -> None:
         ledger.materialize_plan(changed, horizon=2)
 
 
+def test_materialize_rejects_legacy_connection_capacity_change_for_persisted_site() -> None:
+    ledger = AssetLedger.empty().register_plan(
+        TeamPlan(
+            team_id="team-a",
+            sites=(SitePlan("site-1", "b0001", 40.0),),
+        ),
+        round_key="2027_jan_jun",
+    )
+    changed = TeamPlan(
+        team_id="team-a",
+        connections=(ConnectionPlan("site-1", "b0001", 99.0, (1.0,)),),
+    )
+
+    with pytest.raises(
+        AssetStateError,
+        match="connection site-1 conflicts with its persisted connection specification",
+    ):
+        ledger.materialize_plan(changed, horizon=1)
+
+
 def test_materialize_rejects_changed_persisted_storage() -> None:
     ledger = AssetLedger.empty().register_plan(_asset_plan(), round_key="2027_jan_jun")
     changed = _plan(
