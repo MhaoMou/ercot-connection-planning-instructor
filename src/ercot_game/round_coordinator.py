@@ -38,6 +38,8 @@ _STAGE6_EVALUATOR_KWARGS = (
     "plan_overrides",
     "capital_cost_scope",
     "site_cost_connection_count_by_team",
+    "site_cost_connection_capacity_mw_by_team",
+    "submission_number",
 )
 
 
@@ -117,6 +119,7 @@ def evaluate_round(
     materialized_plans: dict[str, TeamPlan] = {}
     new_generator_ids: dict[str, frozenset[str]] = {}
     new_storage_ids: dict[str, frozenset[str]] = {}
+    new_site_capacity_mw: dict[str, float] = {}
     for plan in plans:
         # Materialize before dispatch so custom loaders cannot bypass the
         # Task 1 state/schema boundary with a raw site-only TeamPlan.
@@ -136,6 +139,19 @@ def evaluate_round(
             if prior_team is not None
             else frozenset()
         )
+        prior_site_ids = frozenset(prior_team.sites) if prior_team is not None else frozenset()
+        if plan.connections:
+            new_site_capacity_mw[plan.team_id] = sum(
+                connection.capacity_mw
+                for connection in plan.connections
+                if connection.connection_id not in prior_site_ids
+            )
+        else:
+            new_site_capacity_mw[plan.team_id] = sum(
+                site.connection_capacity_mw
+                for site in plan.sites
+                if site.site_id not in prior_site_ids
+            )
         materialized_generator_ids = {
             canonical_asset_key(plan.team_id, generator.connection_id, "generator"): generator.generator_id
             for generator in materialized.generators
@@ -176,6 +192,8 @@ def evaluate_round(
             plan.team_id: len(plan.connections) if plan.connections else len(plan.sites)
             for plan in plans
         },
+        "site_cost_connection_capacity_mw_by_team": new_site_capacity_mw,
+        "submission_number": weekly_match_for(round_key).round_keys.index(round_key) + 1,
     }
     stage6_kwargs = _require_stage6_evaluator(evaluator, optional_kwargs)
     advanced_state = prior_state.advance(round_key, plans)

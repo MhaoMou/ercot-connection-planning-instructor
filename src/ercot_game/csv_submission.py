@@ -48,8 +48,8 @@ _CANONICAL_EXAMPLE = (
 # Team-built generators use a common convex curve, independent of the public
 # generator catalog. The scalar is retained only for compatibility with the
 # canonical plan model; dispatch expands it into three cost segments.
-TEAM_GENERATOR_COST_CURVE = ((0.25, 12.0), (0.50, 16.0), (0.25, 24.0))
-TEAM_GENERATOR_COMPATIBILITY_COST_PER_MWH = 16.0
+TEAM_GENERATOR_COST_CURVE = ((0.25, 60.0), (0.50, 100.0), (0.25, 160.0))
+TEAM_GENERATOR_COMPATIBILITY_COST_PER_MWH = 100.0
 
 
 def load_bus_ids(artifact_dir: str | Path) -> frozenset[str]:

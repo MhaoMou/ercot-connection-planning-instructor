@@ -2015,14 +2015,16 @@
     "sign": "positive",
     "tolerance": 0.00017624000000000003
   },
-  "economic_profile_json_sha256": "2f76f8dc35be01fa4ee2dfa7dfcf0c962f357bd49a80fe0cffba088119a14550",
+  "economic_profile_json_sha256": "5d18e097b059ce4f64cc43d38cab156e4dc57f03e5c31019f09b90a29aece22b",
   "horizon_hours": 4368,
   "it_value_provenance": {
-    "base_value_per_mwh": 125.0,
+    "base_value_per_mwh": 1500.0,
     "horizon_hours": 4368,
     "interpretation": "opportunity value of served IT load, not an electricity-market price",
-    "method": "constant full-horizon instructor profile",
-    "profile_version": "it-service-value-v2-constant-hourly",
+    "method": "explicit constant full-horizon instructor profile",
+    "profile_name": "AI-intensive",
+    "profile_version": "it-service-value-v3-ai-intensive",
+    "representation": "explicit full-horizon profile",
     "source_category": "INSTRUCTOR-CHOSEN",
     "units": "USD/MWh of served computational load"
   },

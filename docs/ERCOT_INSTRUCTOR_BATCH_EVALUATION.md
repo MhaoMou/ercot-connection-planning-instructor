@@ -123,10 +123,13 @@ deterministic leave-one-team-out and individual fallback behavior where
 possible. The applied competition scope and service fraction are recorded in
 the audit output.
 
-The score includes IT value, energy purchase cost, generator operating cost,
-generator capital cost, site cost, storage capital cost (MW and MWh
-components), and storage operating cost. The evaluator's scoring-rules JSON is
-the authoritative source for the numerical coefficients.
+The score includes IT value, generator operating cost, generator capital cost,
+capacity-dependent connection-site cost, and storage capital cost (power and
+energy components). Submission 1 in each weekly match is practice and excludes
+energy-purchase cost. Submission 2 settles each team's grid purchases at the
+locational marginal prices from that submission's joint dispatch. Storage has
+no operating-cost term. The evaluator's scoring-rules JSON is the authoritative
+source for the numerical coefficients.
 
 ## Output artifacts
 

@@ -149,14 +149,13 @@ are charged generator/storage capital cost. Generator and storage operational
 costs are always calculated from the full materialized portfolio, including
 assets carried over from earlier rounds.
 
-The current implementation intentionally leaves `site_cost` round/submission-
-scoped. `evaluate_round()` passes the number of connections declared by the
-current submission through `site_cost_connection_count_by_team`, so restored
-placeholder connections do not incur site cost a second time. Direct
-`evaluate_csv_batch()` callers that omit this scope retain the original
-behavior of charging every connection in the evaluator-facing plan. A future
-connection-persistence stage must define persistent site accounting separately
-rather than inferring it from the current asset IDs.
+The current implementation charges connection cost by newly declared MW.
+`evaluate_round()` passes `site_cost_connection_capacity_mw_by_team`, computed
+from sites absent from the prior weekly ledger, so restored placeholder
+connections do not incur site cost a second time. Direct
+`evaluate_csv_batch()` callers that omit this scope charge every connection MW
+in the evaluator-facing plan. Generator and storage capital remain scoped by
+new asset IDs, and storage operating cost is not charged.
 
 The round coordinator remains transactional: it materializes and prepares the
 advanced state in memory, evaluates the joint plans, and saves the new state

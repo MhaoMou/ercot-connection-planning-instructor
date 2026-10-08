@@ -484,7 +484,6 @@ def test_evaluate_csv_batch_uses_materialized_plan_and_charges_only_new_assets(
         site_cost_per_site=7.0,
         storage_capital_cost_per_mw=3.0,
         storage_capital_cost_per_mwh=4.0,
-        storage_operating_cost_per_mwh=2.0,
     )
 
     result = evaluate_csv_batch(
@@ -506,8 +505,7 @@ def test_evaluate_csv_batch_uses_materialized_plan_and_charges_only_new_assets(
     assert result.input_sha256_by_team == {"team-a": "parsed-sha"}
     assert score.generator_capital_cost == 50.0
     assert score.storage_capital_cost == 46.0
-    assert score.generator_operating_cost == 39.0
-    assert score.storage_operating_cost == 4.0
+    assert score.generator_operating_cost == 210.0
     assert score.site_cost == 7.0
 
 
@@ -972,6 +970,7 @@ def test_scoring_settles_grid_purchase_at_each_site_bus():
                     "team-a": {"B1": 2.0},
                     "team-b": {"B2": 2.0},
                 },
+                dcopf=SimpleNamespace(balance_dual_by_bus={"B1": 13.0, "B2": 17.0}),
                 storage_discharge_mw_by_team={},
             ),
         ),
@@ -982,8 +981,80 @@ def test_scoring_settles_grid_purchase_at_each_site_bus():
     score_a = _score_team(plan_a, dispatch, rules)
     score_b = _score_team(plan_b, dispatch, rules)
 
-    assert score_a.energy_cost == 20.0
-    assert score_b.energy_cost == 40.0
+    assert score_a.energy_cost == 26.0
+    assert score_b.energy_cost == 34.0
+
+
+def test_practice_submission_excludes_energy_purchase_cost_and_scored_submission_uses_joint_lmp():
+    dispatch = SimpleNamespace(
+        periods=(
+            SimpleNamespace(
+                period_index=0,
+                submitted_load_mw_by_team={"team-a": 2.0},
+                generator_dispatch_mw_by_team={"team-a": {}},
+                grid_purchase_mw_by_team={"team-a": 2.0},
+                grid_purchase_mw_by_team_by_bus={"team-a": {"B1": 2.0}},
+                dcopf=SimpleNamespace(balance_dual_by_bus={"B1": 40.0}),
+            ),
+        ),
+    )
+    plan = TeamPlan("team-a", (ConnectionPlan("site-a", "B1", 2.0, (1.0,)),))
+    rules = BatchScoringRules(
+        rules_version="test-v1",
+        it_value_per_mwh=(1500.0,),
+        energy_price_per_mwh=(999.0,),
+    )
+
+    practice = _score_team(plan, dispatch, rules, submission_number=1)
+    scored = _score_team(plan, dispatch, rules, submission_number=2)
+
+    assert practice.energy_cost == 0.0
+    assert scored.energy_cost == 80.0
+    assert scored.score == practice.score - 80.0
+
+
+def test_revised_capex_and_connection_cost_are_capacity_based_and_storage_has_no_operating_cost():
+    dispatch = SimpleNamespace(
+        periods=(
+            SimpleNamespace(
+                period_index=0,
+                submitted_load_mw_by_team={"team-a": 10.0},
+                generator_dispatch_mw_by_team={"team-a": {"gen-a": 1.0}},
+                grid_purchase_mw_by_team={"team-a": 8.0},
+                grid_purchase_mw_by_team_by_bus={"team-a": {"B1": 8.0}},
+                dcopf=SimpleNamespace(balance_dual_by_bus={"B1": 20.0}),
+                storage_discharge_mw_by_team={"team-a": {"store-a": 10.0}},
+            ),
+        ),
+    )
+    plan = TeamPlan(
+        "team-a",
+        (ConnectionPlan("site-a", "B1", 10.0, (1.0,)),),
+        generators=(GeneratorPlan("gen-a", "site-a", 2.0, 100.0),),
+        storages=(StoragePlan("store-a", "site-a", 3.0, 12.0),),
+    )
+    rules = BatchScoringRules(
+        rules_version="test-v1",
+        it_value_per_mwh=(1500.0,),
+        energy_price_per_mwh=(0.0,),
+        generator_capital_cost_per_mw=1_300_000.0,
+        site_cost_per_mw=20_000_000.0,
+        storage_capital_cost_per_mw=350_000.0,
+        storage_capital_cost_per_mwh=200_000.0,
+    )
+
+    score = _score_team(
+        plan,
+        dispatch,
+        rules,
+        submission_number=2,
+        site_cost_connection_capacity_mw_by_team={"team-a": 10.0},
+    )
+
+    assert score.generator_capital_cost == 2_600_000.0
+    assert score.storage_capital_cost == 3_450_000.0
+    assert score.site_cost == 200_000_000.0
+    assert not hasattr(score, "storage_operating_cost")
 
 
 def test_load_scoring_rules_replaces_legacy_vectors_with_artifact(tmp_path):
@@ -1217,6 +1288,8 @@ def test_write_batch_outputs_matches_auditable_output_contract(tmp_path, monkeyp
         "periods",
     } <= payload.keys()
     assert payload["output_sha256"] == dict(sorted(payload["output_sha256"].items()))
+    assert all("storage_operating_cost" not in score for score in payload["team_scores"])
+    assert "storage_operating_cost_per_mwh" not in payload["rules"]
     assert set(payload["output_sha256"]) == {
         "leaderboard.csv",
         "submission_manifest.csv",
@@ -1227,7 +1300,7 @@ def test_write_batch_outputs_matches_auditable_output_contract(tmp_path, monkeyp
     assert (output_dir / "leaderboard.csv").read_text(encoding="utf-8").splitlines()[0] == (
         "team_id,rank,valid,feasible,score,served_load_mwh,it_value,energy_cost,"
         "generator_operating_cost,generator_capital_cost,site_cost,storage_capital_cost,"
-        "storage_operating_cost,competition_scope,failure_reason"
+        "competition_scope,failure_reason"
     )
     assert payload["output_sha256"]["dispatch/period_0.json"] == hashlib.sha256(
         (output_dir / "dispatch/period_0.json").read_bytes()

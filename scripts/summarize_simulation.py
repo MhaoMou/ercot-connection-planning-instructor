@@ -12,7 +12,7 @@ FIELDS = (
     "cohort_size", "repetition", "rank", "team_id", "valid", "feasible",
     "score", "served_load_mwh", "it_value", "energy_cost",
     "site_cost", "generator_capital_cost", "generator_operating_cost",
-    "storage_capital_cost", "storage_operating_cost", "failure_reason",
+    "storage_capital_cost", "failure_reason",
 )
 
 

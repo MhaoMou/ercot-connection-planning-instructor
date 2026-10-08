@@ -62,7 +62,7 @@ are admitted only after hourly DCOPF validation.
 | 2027/2029 January--June | 4,344 hours | **INSTRUCTOR-CHOSEN** | Non-leap-year first half |
 | 2027/2029 July--December | 4,416 hours | **INSTRUCTOR-CHOSEN** | Non-leap-year second half |
 | Energy price profile | Baseline ACTIVSg2000 DCOPF LMP artifact | **DATASET-SPECIFIED + DERIVED** | One exogenous locational price per bus and hour; generated from the validated hourly scenario state |
-| IT-service value profile | 125 $/MWh for every hour in the selected block | **INSTRUCTOR-CHOSEN** | Full-horizon opportunity value of computational service |
+| IT-service value profile | 1,500 $/MWh for every hour; AI-intensive | **INSTRUCTOR-CHOSEN** | Explicit full-horizon opportunity value of computational service |
 | Profile length | Exactly 4,368 or 4,416 values for the active rule file | **INSTRUCTOR-CHOSEN** | No six-hour repetition is used for IT-service value |
 
 The active rule files reference immutable baseline ACTIVSg2000 DCOPF LMP
@@ -80,28 +80,26 @@ For a valid team, the score is:
           - generator capital cost
           - connection-site cost
           - storage capital cost
-          - storage operating cost
 
 Hourly quantities are multiplied by the one-hour time step.
 
 | Parameter | Current value | Source category | Applied as |
 |---|---:|---|---|
-| IT-service value | 125 $/MWh at every hour | **INSTRUCTOR-CHOSEN** | Value of served data-center load; full-horizon vector |
-| Energy purchase price | Hourly baseline ACTIVSg2000 DCOPF LMP at each selected bus | **DATASET-SPECIFIED + DERIVED** | Locational cost of net grid energy purchased |
+| IT-service value | 1,500 $/MWh at every hour; AI-intensive profile | **INSTRUCTOR-CHOSEN** | Value of served data-center load; explicit full-horizon vector |
+| Energy purchase price | Submission 1: excluded; Submission 2: LMP from the joint dispatch at each selected bus | **DATASET-SPECIFIED + DERIVED** | Locational cost of net grid energy purchased |
 | Existing-generator operating cost | Dataset marginal_cost_c1_per_mwh | **DATASET-SPECIFIED** | Cost of dispatching a selected existing generator |
-| Team-built generator operating curve | 25% at $12/MWh, 50% at $16/MWh, 25% at $24/MWh | **INSTRUCTOR-CHOSEN** | Same convex curve for every team-built generator and site |
-| Student generator capital cost | $85,000/MW | **ONLINE-SOURCE CALIBRATED** | One-time cost per submitted generator MW |
-| Connection-site cost | $50,000/site | **INSTRUCTOR-CHOSEN** | One-time instructional site-cost proxy |
-| Storage power capital cost | $200,000/MW | **ONLINE-SOURCE CALIBRATED** | One-time cost for storage power capacity |
-| Storage energy capital cost | $300,000/MWh | **ONLINE-SOURCE CALIBRATED** | One-time cost for storage energy capacity |
-| Storage operating cost | $8/MWh discharged | **ONLINE-SOURCE CALIBRATED** | Variable operating cost |
+| Team-built generator operating curve | 25% at $60/MWh, 50% at $100/MWh, 25% at $160/MWh | **INSTRUCTOR-CHOSEN** | Same convex curve for every team-built generator and site |
+| Student generator capital cost | $1,300,000/MW | **INSTRUCTOR-CHOSEN** | One-time cost per newly built generator MW in a weekly match |
+| Connection-site cost | $20,000,000/MW of newly built connection capacity | **INSTRUCTOR-CHOSEN** | Capacity-dependent one-time connection cost |
+| Storage power capital cost | $350,000/MW | **INSTRUCTOR-CHOSEN** | One-time cost for newly built storage power capacity |
+| Storage energy capital cost | $200,000/MWh | **INSTRUCTOR-CHOSEN** | One-time cost for newly built storage energy capacity; four-hour total is $1.15m/MW |
+| Storage operating cost | Not charged | **INSTRUCTOR-CHOSEN** | Storage is operated by the grid optimizer without a variable operating-cost term |
 | Infeasible score | 0 | **INSTRUCTOR-CHOSEN** | Score when no feasible projected/fallback dispatch exists |
 | Curtailed energy | Not used | **INSTRUCTOR-CHOSEN** | No load-shedding or curtailment recourse; centralized storage still uses binary operating-mode variables |
 
-The generator-capital coefficient is an instructional rounded value anchored to
-EIA construction costs and a capital-recovery calculation. The storage split
-is close to published utility-scale four-hour battery benchmarks
-(approximately $1,400/kW total). Fixed storage O&M is not charged separately.
+The generator-capital coefficient is an approved instructional value. The
+storage split is an approved four-hour relation totaling $1,150/kW. Storage
+operating cost is not charged.
 
 The legacy schema field default_generator_cost_per_mwh = 100 remains only for
 backwards-compatible parsing. It is not the production operating cost for a

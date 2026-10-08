@@ -114,12 +114,14 @@ class BatchScoringRules:
     energy_price_per_mwh: tuple[float, ...] = ()
     time_step_hours: float = 1.0
     generator_capital_cost_per_mw: float = 0.0
+    site_cost_per_mw: float = 0.0
+    # Retained for callers that load pre-Task-5 rules; production rules use
+    # the capacity-dependent site coefficient above.
     site_cost_per_site: float = 0.0
     infeasible_score: float = 0.0
     default_generator_cost_per_mwh: float = 100.0
     storage_capital_cost_per_mw: float = 0.0
     storage_capital_cost_per_mwh: float = 0.0
-    storage_operating_cost_per_mwh: float = 0.0
     economic_profiles: HourlyEconomicProfiles | None = None
 
     def __post_init__(self) -> None:
@@ -138,13 +140,14 @@ class BatchScoringRules:
             nonnegative=True,
         )
         _validate_rule_number("site_cost_per_site", self.site_cost_per_site, nonnegative=True)
+        _validate_rule_number("site_cost_per_mw", self.site_cost_per_mw, nonnegative=True)
         _validate_rule_number("infeasible_score", self.infeasible_score)
         _validate_rule_number(
             "default_generator_cost_per_mwh",
             self.default_generator_cost_per_mwh,
             nonnegative=True,
         )
-        for name in ("storage_capital_cost_per_mw", "storage_capital_cost_per_mwh", "storage_operating_cost_per_mwh"):
+        for name in ("storage_capital_cost_per_mw", "storage_capital_cost_per_mwh"):
             _validate_rule_number(name, getattr(self, name), nonnegative=True)
         if self.economic_profiles is not None and not isinstance(self.economic_profiles, HourlyEconomicProfiles):
             raise ValueError("economic_profiles must be an HourlyEconomicProfiles instance")
@@ -220,7 +223,6 @@ class TeamScore:
     failure_reason: str | None = None
     submission_key: str | None = None
     storage_capital_cost: float = 0.0
-    storage_operating_cost: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -293,12 +295,12 @@ def load_scoring_rules(
         energy_price_per_mwh=energy_prices,
         time_step_hours=float(payload.get("time_step_hours", 1.0)),
         generator_capital_cost_per_mw=float(payload.get("generator_capital_cost_per_mw", 0.0)),
+        site_cost_per_mw=float(payload.get("site_cost_per_mw", 0.0)),
         site_cost_per_site=float(payload.get("site_cost_per_site", 0.0)),
         infeasible_score=float(payload.get("infeasible_score", 0.0)),
         default_generator_cost_per_mwh=float(payload.get("default_generator_cost_per_mwh", 100.0)),
         storage_capital_cost_per_mw=float(payload.get("storage_capital_cost_per_mw", 0.0)),
         storage_capital_cost_per_mwh=float(payload.get("storage_capital_cost_per_mwh", 0.0)),
-        storage_operating_cost_per_mwh=float(payload.get("storage_operating_cost_per_mwh", 0.0)),
         economic_profiles=economic_profiles,
     )
 
@@ -468,14 +470,18 @@ def _score_team(
     submission_key: str | None = None,
     capital_cost_scope: CapitalCostScope | None = None,
     site_cost_connection_count_by_team: Mapping[str, int] | None = None,
+    site_cost_connection_capacity_mw_by_team: Mapping[str, float] | None = None,
+    submission_number: int | None = None,
 ) -> TeamScore:
+    if submission_number not in (None, 1, 2):
+        raise ValueError("submission_number must be 1, 2, or None")
     period_indices = tuple(period.period_index for period in dispatch.periods)
     if len(set(period_indices)) != len(period_indices):
         raise ValueError("dispatch contains duplicate period index entries")
     periods_by_index = {period.period_index: period for period in dispatch.periods}
     team_id = plan.team_id
     generator_by_id = {generator.generator_id: generator for generator in plan.generators}
-    served = it_value = energy_cost = generator_cost = storage_operating_cost = 0.0
+    served = it_value = energy_cost = generator_cost = 0.0
     for period_index, period in periods_by_index.items():
         load = period.submitted_load_mw_by_team[team_id]
         generation = sum(period.generator_dispatch_mw_by_team[team_id].values())
@@ -483,22 +489,36 @@ def _score_team(
         value = profiles.it_value_for(period_index) if profiles is not None else rules.it_value_per_mwh[period_index]
         served += load * rules.time_step_hours
         it_value += load * value * rules.time_step_hours
-        grid_purchase_by_team = getattr(period, "grid_purchase_mw_by_team", None)
-        if profiles is not None:
+        if submission_number != 1:
+            grid_purchase_by_team = getattr(period, "grid_purchase_mw_by_team", None)
             purchases_by_bus = getattr(period, "grid_purchase_mw_by_team_by_bus", None)
-            if purchases_by_bus is None or team_id not in purchases_by_bus:
-                raise ValueError("dispatch must provide bus-level grid purchases for hourly economic profiles")
-            energy_cost += sum(
-                amount * profiles.price_for_bus(bus_id, period_index)
-                for bus_id, amount in purchases_by_bus[team_id].items()
-            ) * rules.time_step_hours
-        else:
-            price = rules.energy_price_per_mwh[period_index]
-            if grid_purchase_by_team is not None:
-                grid_purchase = grid_purchase_by_team.get(team_id, max(0.0, load - generation))
+            lmp_by_bus = getattr(getattr(period, "dcopf", None), "balance_dual_by_bus", {}) or {}
+
+            def settlement_price(bus_id: str) -> float:
+                if bus_id in lmp_by_bus:
+                    return max(0.0, float(lmp_by_bus[bus_id]))
+                if profiles is not None:
+                    return profiles.price_for_bus(bus_id, period_index)
+                return rules.energy_price_per_mwh[period_index]
+
+            if purchases_by_bus is not None and team_id in purchases_by_bus:
+                energy_cost += sum(
+                    amount * settlement_price(bus_id)
+                    for bus_id, amount in purchases_by_bus[team_id].items()
+                ) * rules.time_step_hours
             else:
-                grid_purchase = max(0.0, load - generation)
-            energy_cost += grid_purchase * price * rules.time_step_hours
+                if grid_purchase_by_team is not None:
+                    grid_purchase = grid_purchase_by_team.get(team_id, max(0.0, load - generation))
+                else:
+                    grid_purchase = max(0.0, load - generation)
+                if plan.connections and lmp_by_bus:
+                    fallback_bus = plan.connections[0].bus_id
+                    price = settlement_price(fallback_bus)
+                elif profiles is not None:
+                    price = profiles.price_for_bus(sorted(profiles.bus_ids)[0], period_index)
+                else:
+                    price = rules.energy_price_per_mwh[period_index]
+                energy_cost += grid_purchase * price * rules.time_step_hours
         period_generator_cost = 0.0
         for generator_id, amount in period.generator_dispatch_mw_by_team[team_id].items():
             generator = generator_by_id.get(generator_id)
@@ -517,9 +537,6 @@ def _score_team(
                 if remaining <= 0:
                     break
         generator_cost += period_generator_cost * rules.time_step_hours
-        storage_discharge_by_team = getattr(period, "storage_discharge_mw_by_team", None)
-        if storage_discharge_by_team is not None:
-            storage_operating_cost += sum(storage_discharge_by_team.get(team_id, {}).values()) * rules.storage_operating_cost_per_mwh * rules.time_step_hours
     generator_ids_for_capital = (
         None
         if capital_cost_scope is None
@@ -547,13 +564,23 @@ def _score_team(
             if storage_ids_for_capital is None or storage.storage_id in storage_ids_for_capital
         ) * rules.storage_capital_cost_per_mwh
     )
-    site_count = (
-        len(plan.connections)
-        if site_cost_connection_count_by_team is None
-        else site_cost_connection_count_by_team.get(team_id, len(plan.connections))
+    site_capacity = (
+        sum(connection.capacity_mw for connection in plan.connections)
+        if site_cost_connection_capacity_mw_by_team is None
+        else site_cost_connection_capacity_mw_by_team.get(
+            team_id, sum(connection.capacity_mw for connection in plan.connections)
+        )
     )
-    site_cost = site_count * rules.site_cost_per_site
-    score = it_value - energy_cost - generator_cost - generator_capital - storage_capital - storage_operating_cost - site_cost
+    if rules.site_cost_per_mw:
+        site_cost = site_capacity * rules.site_cost_per_mw
+    else:
+        site_count = (
+            len(plan.connections)
+            if site_cost_connection_count_by_team is None
+            else site_cost_connection_count_by_team.get(team_id, len(plan.connections))
+        )
+        site_cost = site_count * rules.site_cost_per_site
+    score = it_value - energy_cost - generator_cost - generator_capital - storage_capital - site_cost
     return TeamScore(
         team_id=team_id,
         rank=0,
@@ -567,7 +594,6 @@ def _score_team(
         generator_capital_cost=generator_capital,
         site_cost=site_cost,
         storage_capital_cost=storage_capital,
-        storage_operating_cost=storage_operating_cost,
         competition_scope="joint",
         submission_key=submission_key,
     )
@@ -595,7 +621,6 @@ def _infeasible_score(
         generator_capital_cost=0.0,
         site_cost=0.0,
         storage_capital_cost=0.0,
-        storage_operating_cost=0.0,
         competition_scope=competition_scope,
         failure_reason=reason,
         submission_key=submission_key,
@@ -964,6 +989,24 @@ def _validate_site_cost_scope(
             )
 
 
+def _validate_site_cost_capacity_scope(
+    scope: Mapping[str, float] | None,
+    plans: Sequence[TeamPlan],
+) -> None:
+    if scope is None:
+        return
+    if not isinstance(scope, Mapping):
+        raise ValueError("site_cost_connection_capacity_mw_by_team must be a mapping")
+    known_teams = {plan.team_id for plan in plans}
+    for team_id, capacity in scope.items():
+        if team_id not in known_teams:
+            raise ValueError(f"site cost scope contains unknown team {team_id!r}")
+        if isinstance(capacity, bool) or not isinstance(capacity, (int, float)):
+            raise ValueError("site cost connection capacities must be numeric")
+        if not math.isfinite(float(capacity)) or capacity < 0:
+            raise ValueError("site cost connection capacities must be finite and non-negative")
+
+
 def evaluate_csv_batch(
     csv_paths: Sequence[str | Path] | str | Path,
     *,
@@ -981,6 +1024,8 @@ def evaluate_csv_batch(
     plan_overrides: Mapping[str, TeamPlan] | None = None,
     capital_cost_scope: CapitalCostScope | None = None,
     site_cost_connection_count_by_team: Mapping[str, int] | None = None,
+    site_cost_connection_capacity_mw_by_team: Mapping[str, float] | None = None,
+    submission_number: int | None = None,
 ) -> BatchEvaluation:
     """Collect and score valid submissions with deterministic failure isolation.
 
@@ -989,9 +1034,8 @@ def evaluate_csv_batch(
     and input hashes remain based on the submitted files. ``capital_cost_scope``
     optionally limits one-time generator/storage construction charges; when it
     is omitted, all assets in each evaluator-facing plan are charged. The
-    optional site-cost scope lets a multi-round coordinator charge only the
-    current submission's connection sites; direct callers default to all plan
-    connections.
+    optional site-capacity scope lets a multi-round coordinator charge only
+    newly built connection MW; direct callers default to all plan connections.
     """
     generator_cost = (
         rules.default_generator_cost_per_mwh
@@ -1052,6 +1096,9 @@ def evaluate_csv_batch(
     )
     _validate_capital_cost_scope(capital_cost_scope, plans)
     _validate_site_cost_scope(site_cost_connection_count_by_team, plans)
+    _validate_site_cost_capacity_scope(site_cost_connection_capacity_mw_by_team, plans)
+    if submission_number not in (None, 1, 2):
+        raise ValueError("submission_number must be 1, 2, or None")
     record_by_team = {record.team_id: record for record in accepted}
     all_records = tuple(
         sorted(
@@ -1149,6 +1196,8 @@ def evaluate_csv_batch(
                             submission_key=record_by_team[original_plan.team_id].submission_key,
                             capital_cost_scope=capital_cost_scope,
                             site_cost_connection_count_by_team=site_cost_connection_count_by_team,
+                            site_cost_connection_capacity_mw_by_team=site_cost_connection_capacity_mw_by_team,
+                            submission_number=submission_number,
                         ),
                         competition_scope="joint_projection",
                     )
@@ -1256,6 +1305,8 @@ def evaluate_csv_batch(
                             submission_key=record_by_team[plan.team_id].submission_key,
                             capital_cost_scope=capital_cost_scope,
                             site_cost_connection_count_by_team=site_cost_connection_count_by_team,
+                            site_cost_connection_capacity_mw_by_team=site_cost_connection_capacity_mw_by_team,
+                            submission_number=submission_number,
                         ),
                         competition_scope="joint",
                     )
@@ -1335,6 +1386,8 @@ def evaluate_csv_batch(
                                     submission_key=submission_key,
                                     capital_cost_scope=capital_cost_scope,
                                     site_cost_connection_count_by_team=site_cost_connection_count_by_team,
+                                    site_cost_connection_capacity_mw_by_team=site_cost_connection_capacity_mw_by_team,
+                                    submission_number=submission_number,
                                 ),
                                 competition_scope="individual_fallback",
                             )
@@ -1367,6 +1420,8 @@ def evaluate_csv_batch(
                         submission_key=record_by_team[plan.team_id].submission_key,
                         capital_cost_scope=capital_cost_scope,
                         site_cost_connection_count_by_team=site_cost_connection_count_by_team,
+                        site_cost_connection_capacity_mw_by_team=site_cost_connection_capacity_mw_by_team,
+                        submission_number=submission_number,
                     ),
                     competition_scope="joint",
                 )
@@ -1420,12 +1475,13 @@ def evaluate_csv_batch(
             "energy_price_per_mwh": list(rules.energy_price_per_mwh),
             "time_step_hours": rules.time_step_hours,
             "generator_capital_cost_per_mw": rules.generator_capital_cost_per_mw,
+            "site_cost_per_mw": rules.site_cost_per_mw,
             "site_cost_per_site": rules.site_cost_per_site,
             "infeasible_score": rules.infeasible_score,
             "default_generator_cost_per_mwh": generator_cost,
             "storage_capital_cost_per_mw": rules.storage_capital_cost_per_mw,
             "storage_capital_cost_per_mwh": rules.storage_capital_cost_per_mwh,
-            "storage_operating_cost_per_mwh": rules.storage_operating_cost_per_mwh,
+            "submission_number": submission_number,
             **(
                 {
                     "economic_profile": {
@@ -1460,7 +1516,6 @@ _LEADERBOARD_FIELDS = (
     "generator_capital_cost",
     "site_cost",
     "storage_capital_cost",
-    "storage_operating_cost",
     "competition_scope",
     "failure_reason",
 )

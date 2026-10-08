@@ -476,6 +476,8 @@ def test_later_round_materializes_prior_assets_and_scopes_new_capital_costs(tmp_
         storage_ids_by_team={"team-a": {"store-new"}},
     )
     assert seen["site_cost_connection_count_by_team"] == {"team-a": 1}
+    assert seen["site_cost_connection_capacity_mw_by_team"] == {"team-a": 30.0}
+    assert seen["submission_number"] == 2
     assert set(result.state.asset_ledger.team("team-a").generators) == {
         "generator:team-a:site-new",
         "generator:team-a:site-old",

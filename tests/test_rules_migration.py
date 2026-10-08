@@ -21,7 +21,7 @@ def test_production_rules_identify_full_horizon_it_profiles():
         payload = _rules(filename)
         assert len(payload["it_value_per_mwh"]) == horizon
         assert payload["it_value_provenance"]["horizon_hours"] == horizon
-        assert payload["it_value_provenance"]["method"] == "constant full-horizon instructor profile"
+        assert payload["it_value_provenance"]["method"] == "explicit constant full-horizon instructor profile"
         assert "energy_price_per_mwh" not in payload
         assert "vector_generation" not in payload
         contract = payload["economic_profile_artifact"]

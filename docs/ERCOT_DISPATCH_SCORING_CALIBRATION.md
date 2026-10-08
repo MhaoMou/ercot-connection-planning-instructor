@@ -55,18 +55,15 @@ The evaluator separates storage capital cost into power capacity and energy
 capacity:
 
 ```text
-storage capital cost = $200,000/MW × power capacity
-                     + $300,000/MWh × energy capacity
-storage operating cost = $8/MWh × discharged energy
+storage capital cost = $350,000/MW × power capacity
+                     + $200,000/MWh × energy capacity
+storage operating cost = not charged
 ```
 
-This gives approximately `$1,400/kW` for a four-hour system. It is close to
+This gives approximately `$1,150/kW` for a four-hour system. It is close to
 EIA's 2024 capacity-weighted battery construction benchmark of `$1,469/kW`
 and NREL's 2021 utility-scale four-hour total-system benchmark of about
-`$1,365/kW`. EIA's battery-storage case also reports `$40/kW-year` fixed O&M
-and `$8/MWh` variable O&M. Because the current evaluator has no separate fixed
-annual-O&M field, the `$40/kW-year` value is recorded as a reference while
-`$8/MWh` is used as the operating-cost proxy; fixed O&M is not double-counted.
+`$1,365/kW`. Storage operating cost is intentionally omitted from the score.
 
 Sources:
 
@@ -96,11 +93,8 @@ The missing calibration choices are:
 NREL gives the relevant fixed-charge-rate and LCOE equations in its ATB
 methodology.
 
-**Current provisional anchor:** EIA's 2024 construction-cost table reports
-`$841/kW` for combustion turbines. Using a 20-year life and an 8% discount
-rate gives a capital-recovery factor of approximately `0.10185`, or about
-`$85,656/MW-year`. The rules file rounds this to `$85,000/MW-year` for the
-teaching game.
+The approved teaching rule is `$1,300,000/MW`, charged once for generator
+capacity newly built in a weekly match.
 
 ### Site/interconnection cost
 
@@ -113,17 +107,16 @@ Source:
 
 - [LBNL generator interconnection cost report](https://emp.lbl.gov/publications/generator-interconnection-costs-0)
 
-**Current provisional rule:** use `$50,000/site` as a transparent instructional
-proxy. This is deliberately much smaller than a full generation
-interconnection upgrade and should be revisited after actual student plans are
-available.
+**Approved rule:** use `$20,000,000/MW` of newly built connection capacity.
+This is a capacity-dependent AI-heavy connection-site cost and is charged once
+within a weekly match.
 
 ## IT-service value profile
 
 The released IT-service value is a complete, deterministic vector:
 
 ```text
-IT_value[t] = 125 USD/MWh, for every hour t in the selected block
+IT_value[t] = 1,500 USD/MWh, for every hour t in the selected block
 ```
 
 The January--June rule contains 4,368 values and the July--December rule
@@ -139,7 +132,7 @@ The following cannot be responsibly inferred as a single market number:
 
 | Parameter | Current decision needed |
 |---|---|
-| IT value of served load | Released as a full-horizon constant `$125/MWh`; any future trace requires a versioned replacement and documentation. |
+| IT value of served load | Released as the AI-intensive full-horizon constant `$1,500/MWh`. |
 | Infeasible score | Confirm `0`; no partial-service score is used. |
 | Maximum load per site/team | Choose from DCOPF feasibility sweeps so both feasible and infeasible plans exist. |
 | Maximum candidate-generator capacity | Set relative to site peak load. |
@@ -160,7 +153,7 @@ Before publishing the student rules:
    multi-day historical RTM/DAM aggregate;
 2. select and document candidate generator technologies;
 3. review the annualized combustion-turbine anchor and horizon weighting;
-4. review the `$50,000/site` instructional proxy and storage coefficients;
+4. review the `$20,000,000/MW` connection-capacity rule and storage coefficients;
 5. generate and validate the complete baseline ACTIVSg2000 LMP artifact;
 6. run a parameter sweep over IT value, price, generator cost, CAPEX, storage
    cost, site cost,

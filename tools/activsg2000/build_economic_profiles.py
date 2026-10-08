@@ -19,8 +19,8 @@ from .dcopf import (
 )
 
 
-IT_VALUE_PROFILE_VERSION = "it-service-value-v2-constant-hourly"
-DEFAULT_IT_VALUE_PER_MWH = 125.0
+IT_VALUE_PROFILE_VERSION = "it-service-value-v3-ai-intensive"
+DEFAULT_IT_VALUE_PER_MWH = 1500.0
 LMP_PROFILE_VERSION = "activsg2000-baseline-dcopf-lmp-v1"
 
 
@@ -31,10 +31,10 @@ def build_it_value_profile(
 ) -> list[float]:
     """Return one deterministic IT-service value for every operating hour.
 
-    The first release intentionally uses a constant full-horizon profile. This
-    preserves a transparent instructor calibration while avoiding an
-    unexplained six-hour cycle. The value is the opportunity value of served
-    computational load, not an electricity-market price.
+    The approved AI-intensive profile is represented explicitly at the full
+    scoring horizon. It is not a repeated six-value diurnal vector. The value
+    is the opportunity value of served computational load, not an
+    electricity-market price.
     """
 
     if not isinstance(horizon_hours, int) or isinstance(horizon_hours, bool):
@@ -54,7 +54,9 @@ def it_value_metadata(horizon_hours: int, *, base_value_per_mwh: float = DEFAULT
         "profile_version": IT_VALUE_PROFILE_VERSION,
         "horizon_hours": horizon_hours,
         "base_value_per_mwh": float(base_value_per_mwh),
-        "method": "constant full-horizon instructor profile",
+        "profile_name": "AI-intensive",
+        "method": "explicit constant full-horizon instructor profile",
+        "representation": "explicit full-horizon profile",
         "units": "USD/MWh of served computational load",
         "interpretation": "opportunity value of served IT load, not an electricity-market price",
         "source_category": "INSTRUCTOR-CHOSEN",

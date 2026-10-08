@@ -248,7 +248,7 @@ def test_team_generator_uses_common_operating_curve_compatibility_value(tmp_path
         horizon=1,
     )
 
-    assert submission.plan.generators[0].marginal_cost_per_mwh == 16.0
+    assert submission.plan.generators[0].marginal_cost_per_mwh == 100.0
 
 
 def test_csv_submission_can_require_complete_horizon(tmp_path):
