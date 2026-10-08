@@ -7,12 +7,12 @@ from types import SimpleNamespace
 
 from ercot_game import batch_evaluation
 from ercot_game.batch_cli import main
-from ercot_game.csv_submission import CSV_COLUMNS
+from ercot_game.csv_submission import LEGACY_CSV_COLUMNS
 
 
 def _write_submission(path: Path, team_id: str, *, load_mw: str = "2") -> None:
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=CSV_COLUMNS)
+        writer = csv.DictWriter(handle, fieldnames=LEGACY_CSV_COLUMNS)
         writer.writeheader()
         writer.writerow(
             {
@@ -228,7 +228,7 @@ def test_oversized_submission_is_isolated_and_valid_team_is_scored(
     submissions_dir, artifact_dir, rules_path, region_map_path = _write_inputs(tmp_path)
     _write_submission(submissions_dir / "valid.csv", "team-valid")
     (submissions_dir / "oversized.csv").write_text(
-        ",".join(CSV_COLUMNS) + "\n"
+        ",".join(LEGACY_CSV_COLUMNS) + "\n"
         + ("team-bad,week-1,1,PANHANDLE," + ("9" * 131073) + ",,,,,\n"),
         encoding="utf-8",
     )

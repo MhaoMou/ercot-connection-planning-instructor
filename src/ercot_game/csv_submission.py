@@ -10,18 +10,39 @@ import csv
 import hashlib
 import io
 import math
+import re
 from pathlib import Path
 from collections.abc import Mapping
 
-from .models import ConnectionPlan, GeneratorPlan, StoragePlan, TeamPlan
+from .models import ConnectionPlan, GeneratorPlan, SitePlan, StoragePlan, TeamPlan
 
 
-CSV_COLUMNS = (
+CANONICAL_CSV_COLUMNS = (
+    "team_id", "site_id", "bus_id", "connection_capacity_mw",
+    "generator_capacity_mw", "storage_power_mw", "storage_energy_mwh",
+)
+LEGACY_CSV_COLUMNS = (
     "team_id", "submission_id", "period", "site_id", "load_mw",
     "generator_id", "generator_capacity_mw", "storage_id",
     "storage_power_mw", "storage_energy_mwh",
 )
-BUS_CSV_COLUMNS = tuple("bus_id" if column == "site_id" else column for column in CSV_COLUMNS)
+LEGACY_BUS_CSV_COLUMNS = tuple(
+    "bus_id" if column == "site_id" else column for column in LEGACY_CSV_COLUMNS
+)
+
+# Public submission-header names now describe the canonical contract. The
+# retired hourly names remain available under explicit LEGACY_* constants for
+# historical fixtures and opt-in compatibility parsing.
+CSV_COLUMNS = CANONICAL_CSV_COLUMNS
+BUS_CSV_COLUMNS = CANONICAL_CSV_COLUMNS
+STORAGE_DURATION_HOURS = 4.0
+_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+_CANONICAL_HEADER_MESSAGE = (
+    "submission header must be exactly: " + ",".join(CANONICAL_CSV_COLUMNS)
+)
+_CANONICAL_EXAMPLE = (
+    "Example: team-a,site-north,3002041,40,20,10,40"
+)
 
 # Team-built generators use a common convex curve, independent of the public
 # generator catalog. The scalar is retained only for compatibility with the
@@ -91,13 +112,13 @@ def load_generator_costs(artifact_dir: str | Path) -> dict[str, float]:
 @dataclass(frozen=True)
 class CSVSubmission:
     team_id: str
-    submission_id: str
+    submission_id: str | None
     plan: TeamPlan
     sha256: str
 
 
 def read_submission_identity(path: str | Path) -> tuple[str | None, str | None]:
-    """Read the first declared team and submission identifiers from a CSV.
+    """Read the first declared team and optional submission identifier.
 
     This deliberately performs no schema or value validation.  Batch
     collection uses it only to preserve a readable team identifier when the
@@ -149,7 +170,195 @@ def _number(row: Mapping[str, str], name: str, row_number: int, *, required: boo
     return number
 
 
+def _validate_id(value: str, name: str, row_number: int) -> str:
+    if not value:
+        raise ValueError(f"row {row_number}: {name} is required")
+    if _ID_PATTERN.fullmatch(value) is None:
+        raise ValueError(
+            f"row {row_number}: {name} is malformed; use letters, numbers, "
+            "underscore, period, colon, or hyphen without whitespace"
+        )
+    return value
+
+
+def _canonical_number(row: Mapping[str, str | None], name: str, row_number: int) -> float:
+    value = (row.get(name) or "").strip()
+    if not value:
+        raise ValueError(f"row {row_number}: {name} is required")
+    try:
+        number = float(value)
+    except ValueError:
+        raise ValueError(f"row {row_number}: {name} must be a finite decimal") from None
+    if not math.isfinite(number):
+        raise ValueError(f"row {row_number}: {name} must be finite")
+    if number < 0:
+        raise ValueError(f"row {row_number}: {name} must be non-negative")
+    return number
+
+
 def read_student_csv(
+    path: str | Path,
+    *,
+    bus_ids: set[str] | frozenset[str] | None = None,
+    horizon: int | None = None,
+    generator_cost_by_id: Mapping[str, float] | None = None,
+    region_to_source_bus: Mapping[str, str] | None = None,
+    default_generator_cost_per_mwh: float | None = None,
+    require_complete_horizon: bool = False,
+    allow_legacy: bool = False,
+) -> CSVSubmission:
+    """Read the canonical one-row-per-site student CSV.
+
+    The canonical contract has exactly seven columns and does not contain a
+    submission ID or hourly rows. ``horizon`` is optional and only controls
+    the length of the legacy compatibility profile exposed to older evaluator
+    callers. Set ``allow_legacy`` explicitly when reading historical
+    long-form fixtures; normal validation never does so.
+    """
+    if horizon is not None and horizon <= 0:
+        raise ValueError("horizon must be positive")
+    if not isinstance(require_complete_horizon, bool):
+        raise ValueError("require_complete_horizon must be a boolean")
+    if not isinstance(allow_legacy, bool):
+        raise ValueError("allow_legacy must be a boolean")
+    if bus_ids is None and region_to_source_bus is not None:
+        bus_ids = frozenset(region_to_source_bus.values())
+    if generator_cost_by_id is None and default_generator_cost_per_mwh is not None:
+        if not math.isfinite(default_generator_cost_per_mwh) or default_generator_cost_per_mwh < 0:
+            raise ValueError("default generator cost must be finite and non-negative")
+
+    source_path = Path(path)
+    raw = source_path.read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise ValueError("submission must be UTF-8 CSV") from None
+
+    reader = csv.DictReader(
+        io.StringIO(text, newline=""),
+        restkey="__extra_fields__",
+        restval=None,
+        strict=True,
+    )
+    try:
+        fieldnames = reader.fieldnames
+    except csv.Error as exc:
+        raise ValueError(f"malformed CSV: {exc}") from None
+    if fieldnames is None:
+        raise ValueError("submission CSV is missing a header")
+    fieldnames = tuple(fieldnames)
+    if fieldnames in (LEGACY_CSV_COLUMNS, LEGACY_BUS_CSV_COLUMNS):
+        if allow_legacy:
+            return read_legacy_student_csv(
+                source_path,
+                bus_ids=bus_ids,
+                horizon=horizon or 1,
+                generator_cost_by_id=generator_cost_by_id,
+                region_to_source_bus=region_to_source_bus,
+                default_generator_cost_per_mwh=default_generator_cost_per_mwh,
+                require_complete_horizon=require_complete_horizon,
+            )
+        raise ValueError(f"{_CANONICAL_HEADER_MESSAGE}; {_CANONICAL_EXAMPLE}")
+    if fieldnames != CANONICAL_CSV_COLUMNS:
+        raise ValueError(f"{_CANONICAL_HEADER_MESSAGE}; {_CANONICAL_EXAMPLE}")
+
+    team_id: str | None = None
+    sites: list[SitePlan] = []
+    seen_site_ids: set[str] = set()
+    for row_number, row in enumerate(_strict_rows(reader), start=2):
+        if "__extra_fields__" in row or any(row.get(column) is None for column in CANONICAL_CSV_COLUMNS):
+            raise ValueError(
+                f"row {row_number}: expected exactly {len(CANONICAL_CSV_COLUMNS)} fields"
+            )
+        current_team = _validate_id(_text(row, "team_id", row_number), "team_id", row_number)
+        site_id = _validate_id(_text(row, "site_id", row_number), "site_id", row_number)
+        bus_id = _validate_id(_text(row, "bus_id", row_number), "bus_id", row_number)
+        if team_id is None:
+            team_id = current_team
+        elif current_team != team_id:
+            raise ValueError(f"row {row_number}: one CSV may contain only one team_id")
+        if site_id in seen_site_ids:
+            raise ValueError(f"row {row_number}: duplicate site_id {site_id}")
+        seen_site_ids.add(site_id)
+        if bus_ids is not None and bus_id not in bus_ids:
+            raise ValueError(f"row {row_number}: unknown scenario bus {bus_id}")
+
+        connection_capacity = _canonical_number(row, "connection_capacity_mw", row_number)
+        generator_capacity = _canonical_number(row, "generator_capacity_mw", row_number)
+        storage_power = _canonical_number(row, "storage_power_mw", row_number)
+        storage_energy = _canonical_number(row, "storage_energy_mwh", row_number)
+        if generator_capacity > connection_capacity:
+            raise ValueError(
+                f"row {row_number}: generator capacity cannot exceed connection capacity"
+            )
+        if (storage_power == 0) != (storage_energy == 0):
+            raise ValueError(
+                f"row {row_number}: storage power and energy must both be zero or positive"
+            )
+        if storage_power > 0 and not math.isclose(
+            storage_energy,
+            STORAGE_DURATION_HOURS * storage_power,
+            rel_tol=1e-9,
+            abs_tol=1e-9,
+        ):
+            raise ValueError(
+                f"row {row_number}: storage energy must equal four times storage power"
+            )
+        sites.append(
+            SitePlan(
+                site_id=site_id,
+                bus_id=bus_id,
+                connection_capacity_mw=connection_capacity,
+                generator_capacity_mw=generator_capacity,
+                storage_power_mw=storage_power,
+                storage_energy_mwh=storage_energy,
+            )
+        )
+
+    if team_id is None:
+        raise ValueError("submission CSV must contain at least one data row")
+
+    profile = tuple(1.0 for _ in range(horizon)) if horizon is not None else ()
+    connections = tuple(
+        ConnectionPlan(site.site_id, site.bus_id, site.connection_capacity_mw, profile)
+        for site in sites
+    )
+    generators = tuple(
+        GeneratorPlan(
+            f"generator:{team_id}:{site.site_id}",
+            site.site_id,
+            site.generator_capacity_mw,
+            TEAM_GENERATOR_COMPATIBILITY_COST_PER_MWH,
+        )
+        for site in sites
+        if site.generator_capacity_mw > 0
+    )
+    storages = tuple(
+        StoragePlan(
+            f"storage:{team_id}:{site.site_id}",
+            site.site_id,
+            site.storage_power_mw,
+            site.storage_energy_mwh,
+        )
+        for site in sites
+        if site.storage_power_mw > 0
+    )
+    return CSVSubmission(
+        team_id=team_id,
+        submission_id=None,
+        plan=TeamPlan(
+            team_id,
+            connections=connections,
+            generators=generators,
+            storages=storages,
+            sites=tuple(sites),
+        ),
+        sha256=digest,
+    )
+
+
+def read_legacy_student_csv(
     path: str | Path,
     *,
     bus_ids: set[str] | frozenset[str] | None = None,
@@ -199,9 +408,9 @@ def read_student_csv(
     if fieldnames is None:
         raise ValueError("submission CSV is missing a header")
     fieldnames = tuple(reader.fieldnames)
-    bus_header = fieldnames == BUS_CSV_COLUMNS
-    if fieldnames not in (CSV_COLUMNS, BUS_CSV_COLUMNS):
-        raise ValueError(f"submission header must be exactly: {','.join(BUS_CSV_COLUMNS)}")
+    bus_header = fieldnames == LEGACY_BUS_CSV_COLUMNS
+    if fieldnames not in (LEGACY_CSV_COLUMNS, LEGACY_BUS_CSV_COLUMNS):
+        raise ValueError(f"legacy submission header must be exactly: {','.join(LEGACY_BUS_CSV_COLUMNS)}")
     location_column = "bus_id" if bus_header else "site_id"
 
     team_id: str | None = None
@@ -213,7 +422,7 @@ def read_student_csv(
     seen_keys: set[tuple[int, str, str, str]] = set()
     for row_number, row in enumerate(_strict_rows(reader), start=2):
         if extra_fields_key in row or any(row[column] is None for column in fieldnames):
-            raise ValueError(f"row {row_number}: expected exactly {len(CSV_COLUMNS)} fields")
+            raise ValueError(f"row {row_number}: expected exactly {len(LEGACY_CSV_COLUMNS)} fields")
         current_team = _text(row, "team_id", row_number, required=True)
         current_submission = _text(row, "submission_id", row_number, required=True)
         bus_id = _text(row, location_column, row_number, required=True)

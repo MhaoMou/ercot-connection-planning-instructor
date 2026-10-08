@@ -22,7 +22,7 @@ from ercot_game.batch_evaluation import (
     write_batch_outputs,
     load_scoring_rules,
 )
-from ercot_game.csv_submission import CSVSubmission, CSV_COLUMNS, read_student_csv
+from ercot_game.csv_submission import CSVSubmission, LEGACY_CSV_COLUMNS, read_student_csv
 from ercot_game.batch_evaluation import DCOPFInfeasible
 from ercot_game.economic_profiles import load_economic_profiles
 from ercot_game.models import ConnectionPlan, GeneratorPlan, StoragePlan, TeamPlan
@@ -39,7 +39,7 @@ def _write_submission(
     storage_energy_mwh: str = "",
 ) -> None:
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=CSV_COLUMNS)
+        writer = csv.DictWriter(handle, fieldnames=LEGACY_CSV_COLUMNS)
         writer.writeheader()
         writer.writerow(
             {
@@ -167,7 +167,7 @@ def test_oversized_csv_is_rejected_without_blocking_valid_discovery(tmp_path):
     oversized_path = tmp_path / "oversized.csv"
     _write_submission(valid_path, "team-valid")
     oversized_path.write_text(
-        ",".join(CSV_COLUMNS) + "\n"
+        ",".join(LEGACY_CSV_COLUMNS) + "\n"
         + ("team-bad,week-1,1,PANHANDLE," + ("9" * 131073) + ",,,,,\n"),
         encoding="utf-8",
     )
@@ -243,9 +243,10 @@ def test_storage_fields_remain_reserved_and_csv_columns_are_unchanged(
             path,
             region_to_source_bus={"PANHANDLE": "3002041"},
             horizon=1,
+            allow_legacy=True,
         )
 
-    assert CSV_COLUMNS == (
+    assert LEGACY_CSV_COLUMNS == (
         "team_id",
         "submission_id",
         "period",
@@ -632,6 +633,7 @@ def test_fair_continuous_projection_finds_fraction_below_old_bisection_resolutio
         submission,
         region_to_source_bus={"PANHANDLE": "3002041"},
         horizon=1,
+        allow_legacy=True,
     ).plan
     observed_alphas = []
 
@@ -761,6 +763,7 @@ def test_score_team_rejects_positive_unknown_generator_dispatch(tmp_path):
         path,
         region_to_source_bus={"PANHANDLE": "3002041"},
         horizon=1,
+        allow_legacy=True,
     )
 
     with pytest.raises(ValueError, match="unknown generator dispatch"):
@@ -778,6 +781,7 @@ def test_score_team_rejects_duplicate_dispatch_period_indices(tmp_path):
         path,
         region_to_source_bus={"PANHANDLE": "3002041"},
         horizon=1,
+        allow_legacy=True,
     )
     dispatch = SimpleNamespace(
         team_ids=("team-a",),
@@ -1023,7 +1027,7 @@ def test_half_year_two_maps_local_scoring_periods_to_source_artifact_rows(
 ):
     submission = tmp_path / "team-a.csv"
     with submission.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=CSV_COLUMNS)
+        writer = csv.DictWriter(handle, fieldnames=LEGACY_CSV_COLUMNS)
         writer.writeheader()
         for period in range(1, 4417):
             writer.writerow(

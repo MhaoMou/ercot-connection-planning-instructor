@@ -336,6 +336,7 @@ def _collect_paths(
                 horizon=horizon,
                 default_generator_cost_per_mwh=default_generator_cost_per_mwh,
                 require_complete_horizon=require_complete_horizon,
+                allow_legacy=True,
             )
         except (OSError, UnicodeDecodeError, csv.Error, ValueError) as exc:
             records.append(
