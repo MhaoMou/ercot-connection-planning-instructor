@@ -1,6 +1,6 @@
 {
   "package_version": "activsg2000-scenarios-v1",
-  "validation_status": "failed",
+  "validation_status": "unverified_dependency",
   "source": {
     "name": "ACTIVSg2000",
     "repository": "https://github.com/caseformat/ACTIVSg2000",
@@ -85,11 +85,17 @@
     }
   },
   "validation": {
+    "classification": "dependency_limited",
+    "release_status": "blocked_pending_highspy_validation",
+    "reason": "Validation is dependency-limited and unverified because the optional project dependency 'highspy' was missing; this is not a genuine network or solver validation failure.",
+    "required_before_release": "Run successful HiGHS-backed validation for all 26304 hours with highspy installed; only then may validation_status become passed and this package be released.",
     "hour_count": 1,
     "expected_hour_count": 26304,
     "passed_hour_count": 0,
-    "failed_hour_count": 1,
-    "failures": [
+    "failed_hour_count": 0,
+    "unverified_hour_count": 1,
+    "failures": [],
+    "unverified": [
       {
         "block": "2027-jan_jun",
         "period_index": 0,

@@ -1,6 +1,16 @@
 # Data-center computational-service value calibration
 
-**Status:** Research note for instructor review; no production scoring values are changed by this document.
+**Status:** Historical research note for instructor review; no production scoring
+values are changed by this document. The research values below are not the
+current scoring configuration.
+
+**Current approved release economics:** The active half-year rules and hourly
+artifacts use `$1500/MWh` for IT service value, `$1.3m/MW` for team-generator
+capital, `$20m/MW` for site capacity, a `$60/$100/$160` per MWh team-generator
+curve at 25/50/25%, `$350,000/MW` plus `$200,000/MWh` for storage capital, and
+no storage operating-cost charge. The versioned files under
+`data/teaching/dispatch_scoring_rules_*_v1.json` and the processed hourly
+artifacts are authoritative when they differ from this historical note.
 
 ## 1. Modeling interpretation
 
@@ -57,7 +67,11 @@ Sources:
 - [DOE Best Practices Guide for Energy-Efficient Data Center Design](https://www.energy.gov/sites/default/files/2024-07/best-practice-guide-data-center-design.pdf)
 - [LBNL 2024 U.S. Data Center Energy Usage Report](https://escholarship.org/uc/item/32d6m0d1)
 
-## 3. Recommended instructional IT-value bands
+## 3. Historical instructional IT-value bands (superseded)
+
+The bands in this section are historical research alternatives. They are
+superseded for the active release; use the approved `$1500/MWh` IT value stated
+above and in the versioned half-year rules.
 
 Use the following as scenario bands, not claims about the financial performance
 of a specific company:
@@ -68,16 +82,19 @@ of a specific company:
 | Batch analytics / model training | 800–1,500 | Delay-tolerant but valuable computational work |
 | Premium inference / latency-sensitive service | 1,500–3,000 | High service value, but capacity and QoS obligations are stronger |
 
-For the first classroom release, I recommend a single common base value of
-`$1,000/MWh` for all teams. This avoids giving teams different economic rules
-based on brand labels. If the course later wants heterogeneous business
-strategies, expose workload class as an explicit scenario choice rather than
-implicitly assigning teams to Google, Amazon, or OpenAI.
+The historical first-classroom recommendation was a single common base value
+of `$1,000/MWh` for all teams. That recommendation is superseded by the
+approved `$1500/MWh` release value. If the course later wants heterogeneous
+business strategies, expose workload class as an explicit scenario choice
+rather than implicitly assigning teams to Google, Amazon, or OpenAI.
 
 For the released hourly evaluator, a short six-level value profile can be
 repeated across the selected half-year. The entries are profile levels, not
 six operating periods and not a replacement for the 4,344/4,368/4,416-hour
-submission horizon. A defensible starting profile is:
+submission horizon. For historical provenance, the note records this profile:
+
+The following profile is historical and superseded; it is not an active release
+vector.
 
 ```json
 [1100, 950, 800, 800, 1050, 950]
@@ -90,9 +107,14 @@ between hours. A simpler constant profile of
 `[1000, 1000, 1000, 1000, 1000, 1000]` is preferable for the first student
 pilot because it isolates network-location and generator decisions.
 
-## 4. Candidate-generator marginal cost
+## 4. Historical candidate-generator calibration (superseded)
 
-The current `$100/MWh` placeholder is not a good base case for a natural-gas
+The marginal-cost and capital anchors in this section are historical research
+inputs, not current release economics. The active release uses the approved
+`$1.3m/MW` generator-capital coefficient and the `$60/$100/$160` per MWh
+team-generator curve at 25/50/25%.
+
+The historical `$100/MWh` placeholder is not a good base case for a natural-gas
 candidate generator. It caused the pilot generators to receive zero dispatch
 because the grid could supply the load more cheaply.
 
@@ -115,8 +137,10 @@ use:
 | Sensitivity band | `$35`, `$45`, `$60/MWh` |
 | Candidate technology | Simple-cycle natural-gas turbine |
 
-The existing `$85,000/MW-year` capital coefficient can remain a separate
-investment deduction. It should not be folded into the marginal dispatch cost.
+The historical `$85,000/MW-year` capital coefficient is retained only for
+provenance and is superseded; it must not be used for current half-year
+evaluation. The approved current coefficient is `$1.3m/MW`, kept separate
+from marginal dispatch cost.
 
 Sources:
 
@@ -134,17 +158,19 @@ price to serve a valuable workload, while still choosing locations and local
 generation based on congestion and operating costs.
 
 The production evaluator uses the hourly, bus-specific ACTIVSg2000 baseline
-DCOPF LMP artifact rather than a six-value ERCOT price vector. A base IT-service
-value of `$125/MWh` is currently used as a transparent instructor-chosen
-opportunity value; the artifact records the exact hourly values and provenance.
+DCOPF LMP artifact rather than a six-value ERCOT price vector. The historical
+base IT-service value of `$125/MWh` is superseded and must not be presented as
+current; the approved release value is `$1500/MWh`, and the artifact records
+the exact hourly values and provenance.
 
-If the instructor wants the exercise to represent low-margin commodity cloud
-services instead, use `$500/MWh` and document that choice explicitly. Values
-near `$100/MWh` are difficult to defend as data-center service value because
-they are too close to wholesale electricity prices and do not reflect the
-commercial value of computation.
+If the instructor wants a future, separately approved exercise to represent
+low-margin commodity cloud services, a `$500/MWh` sensitivity case could be
+documented explicitly. Values near the historical `$100/MWh` anchor are
+difficult to defend as data-center service value because they are too close to
+wholesale electricity prices and do not reflect the commercial value of
+computation.
 
-## 6. Recommended calibration experiment
+## 6. Historical calibration experiment (not current release)
 
 Before freezing the rules:
 
@@ -158,7 +184,7 @@ Before freezing the rules:
 6. Keep the final value vector and generator assumptions in the versioned JSON
    rules file with source URLs and retrieval dates.
 
-The preferred first-release candidate is therefore:
+The superseded research candidate was therefore:
 
 ```json
 {
@@ -167,5 +193,6 @@ The preferred first-release candidate is therefore:
 }
 ```
 
-This is a recommended instructional calibration, not yet an approved change to
-the production rules.
+This was a historical instructional calibration, not the approved production
+configuration. The approved release economics are listed at the top of this
+note and in the versioned half-year rules files.
