@@ -1,4 +1,9 @@
-"""Create complete-horizon CSV fixtures for instructor-side dispatch tests."""
+"""Create legacy complete-horizon CSV fixtures for compatibility tests.
+
+The generated ten-column hourly files are historical fixtures, not current
+student submissions. Current submissions use the canonical one-row-per-site
+seven-column schema.
+"""
 
 from __future__ import annotations
 

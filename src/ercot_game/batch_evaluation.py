@@ -1009,8 +1009,8 @@ def evaluate_csv_batch(
             bus_ids = load_bus_ids(artifact_dir)
         except (OSError, ValueError, csv.Error) as exc:
             raise ValueError(f"could not load production bus catalog: {exc}") from exc
-    # Team-built generator IDs are self-defined labels and are priced by the
-    # common classroom curve, not by the public generator catalog.
+    # Team-built generator IDs are evaluator-derived canonical keys and are
+    # priced by the common classroom curve, not by the public generator catalog.
     generator_cost_by_id = None
     if rules.economic_profiles is not None:
         if rules.economic_profiles.horizon_hours != horizon:

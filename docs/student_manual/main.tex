@@ -209,8 +209,11 @@ The evaluator uses the site-level plan when constructing each hourly dispatch.
 
 \subsection{Private generation}
 
-Each team-built generator is identified by a team-defined \code{generator\_id}; it
-is not a lookup key into the public generator catalog. The evaluator applies the
+Each positive generator capacity in the canonical CSV represents a team-built
+generator. The seven-column CSV has no generator- or storage-ID columns; the
+evaluator assigns deterministic private asset IDs internally from the team and
+site IDs. These IDs are not lookup keys into the public generator catalog. The
+evaluator applies the
 same convex piecewise-linear operating-cost curve to every team-built generator
 at every site: the first 25\% of capacity costs \$12/MWh, the next 50\% costs
 \$16/MWh, and the final 25\% costs \$24/MWh. You submit the capacity and the
@@ -225,9 +228,10 @@ generator ID, PMIN, PMAX, or marginal cost.
 
 \subsection{Private storage}
 
-For storage device $b$, use any consistent team-defined \code{storage\_id}, and submit
-power capacity $P_{i,b}$ in MW and energy
-capacity $B_{i,b}$ in MWh. Charging $c_{i,b,t}$ and discharging $q_{i,b,t}$ are
+For storage device $b$, submit power capacity $P_{i,b}$ in MW and energy
+capacity $B_{i,b}$ in MWh. The evaluator assigns the device's deterministic
+private asset ID internally; the student CSV contains no \code{storage\_id}
+field. Charging $c_{i,b,t}$ and discharging $q_{i,b,t}$ are
 continuous. We assume ideal charging/discharging efficiency:
 \[
   e_{i,b,t}=e_{i,b,t-1}+c_{i,b,t}-q_{i,b,t},
@@ -311,6 +315,8 @@ the instructor evaluator remains authoritative.
 \textbf{Historical compatibility note.} The retired ten-column hourly format
 with \code{period} and \code{load\_mw} is retained only for explicitly marked
 legacy fixtures and compatibility tests. Do not use it for a current submission.
+The legacy format's asset-ID fields are historical compatibility fields, not part
+of the active student contract.
 
 \subsection{Complete small example}
 The following is a complete canonical two-site example. It is intentionally
@@ -475,10 +481,13 @@ Before uploading, confirm:
 
 \section{Troubleshooting and frequently asked questions}
 \begin{description}[style=nextline,leftmargin=0pt]
-  \item[Can I invent a generator ID or choose its operating cost?]
-  You may invent a clear generator ID and choose its capacity, but you may not choose
-  its operating-cost curve. Every team-built generator uses the common piecewise
-  curve specified in Section~\ref{sec:score}; the evaluator dispatches it.
+  \item[How are generator and storage assets identified?]
+  The active seven-column CSV has no asset-ID columns, including no generator-ID
+  or storage-ID columns. Submit capacities only; the evaluator assigns
+  deterministic private asset IDs from the team and site IDs. You cannot choose
+  the operating-cost curve: every team-built
+  generator uses the common piecewise curve specified in Section~\ref{sec:score},
+  and the evaluator dispatches it.
 
   \item[Can my generator or storage serve another team?]
   No. These resources are private and can reduce only your team's grid

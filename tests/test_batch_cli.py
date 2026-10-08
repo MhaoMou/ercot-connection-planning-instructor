@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 from ercot_game import batch_evaluation
 from ercot_game.batch_cli import main
-from ercot_game.csv_submission import LEGACY_CSV_COLUMNS
+from ercot_game.csv_submission import CANONICAL_CSV_COLUMNS, LEGACY_CSV_COLUMNS
 
 
 def _write_submission(path: Path, team_id: str, *, load_mw: str = "2") -> None:
@@ -26,6 +26,23 @@ def _write_submission(path: Path, team_id: str, *, load_mw: str = "2") -> None:
                 "storage_id": "",
                 "storage_power_mw": "",
                 "storage_energy_mwh": "",
+            }
+        )
+
+
+def _write_canonical_submission(path: Path, team_id: str) -> None:
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=CANONICAL_CSV_COLUMNS)
+        writer.writeheader()
+        writer.writerow(
+            {
+                "team_id": team_id,
+                "site_id": "site-north",
+                "bus_id": "3002041",
+                "connection_capacity_mw": "2",
+                "generator_capacity_mw": "1",
+                "storage_power_mw": "1",
+                "storage_energy_mwh": "4",
             }
         )
 
@@ -246,7 +263,7 @@ def test_oversized_submission_is_isolated_and_valid_team_is_scored(
     assert "UNPARSED::oversized.csv" in leaderboard
 
 
-def test_canonical_bus_submission_runs_without_legacy_region_map(
+def test_legacy_bus_submission_runs_without_legacy_region_map(
     tmp_path, monkeypatch, capsys
 ):
     submissions_dir, artifact_dir, rules_path, _region_map_path = _write_inputs(tmp_path)
@@ -279,6 +296,27 @@ def test_canonical_bus_submission_runs_without_legacy_region_map(
 
     assert "team-canonical" in (output_dir / "leaderboard.csv").read_text(encoding="utf-8")
     assert "storage_capital_cost" in (output_dir / "leaderboard.csv").read_text(encoding="utf-8").splitlines()[0]
+    assert json.loads((output_dir / "evaluation.json").read_text(encoding="utf-8"))["period_indices"] == [0]
+    assert "summary: 1 team scored" in capsys.readouterr().out
+
+
+def test_canonical_site_submission_is_accepted_without_asset_id_columns(
+    tmp_path, monkeypatch, capsys
+):
+    submissions_dir, artifact_dir, rules_path, _region_map_path = _write_inputs(tmp_path)
+    _write_canonical_submission(submissions_dir / "team-canonical.csv", "team-canonical")
+    output_dir = tmp_path / "output"
+    monkeypatch.setattr(batch_evaluation, "evaluate_plans_with_prepared_dcopf", _fake_dispatch)
+
+    assert main([
+        "run", "--submissions-dir", str(submissions_dir),
+        "--artifact-dir", str(artifact_dir), "--rules", str(rules_path),
+        "--output-dir", str(output_dir), "--horizon", "1",
+    ]) == 0
+
+    leaderboard = (output_dir / "leaderboard.csv").read_text(encoding="utf-8")
+    assert "team-canonical" in leaderboard
+    assert "storage_capital_cost" in leaderboard.splitlines()[0]
     assert json.loads((output_dir / "evaluation.json").read_text(encoding="utf-8"))["period_indices"] == [0]
     assert "summary: 1 team scored" in capsys.readouterr().out
 

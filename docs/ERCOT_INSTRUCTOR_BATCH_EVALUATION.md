@@ -6,9 +6,12 @@ and audit artifacts to one output directory; that directory is the source of
 truth for the ranking and audit record.
 
 The production data path is the public synthetic Texas ACTIVSg2000 system.
-Student files use source `bus_id` values from the selected block. Team-built
-generator and storage IDs are self-defined labels. This guide describes the only supported
-production evaluation path.
+Student files use source `bus_id` values from the selected block. The active
+seven-column CSV has no asset-ID columns, including no generator- or storage-ID
+columns. For positive
+site-level capacities, the evaluator assigns deterministic private asset IDs
+internally from the team and site IDs; students do not submit or invent those
+labels. This guide describes the only supported production evaluation path.
 
 The ACTIVSg2000 topology and generator catalog are fixed. The three-year
 scenario package uses deterministic bus-level load and the static generator
@@ -85,7 +88,9 @@ team-blue,site-south,3002042,15,0,0,0
 Each data row is one site. The CSV contains no `period`, hourly `load_mw`,
 `submission_id`, `generator_id`, or `storage_id` columns, and no hourly horizon
 rows. Site capacities are specified in MW/MWh; the evaluator combines the
-site-level plan with the selected hourly scenario and economic artifacts.
+site-level plan with the selected hourly scenario and economic artifacts. The
+evaluator derives deterministic private generator and storage IDs internally;
+the asset-ID fields in the retired hourly schema are not valid current inputs.
 
 The retired ten-column hourly schema is historical compatibility input only and
 must not be used as a current student submission. In Python, use

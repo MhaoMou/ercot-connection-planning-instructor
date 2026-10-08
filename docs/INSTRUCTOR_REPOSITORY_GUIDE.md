@@ -26,7 +26,10 @@ The retired browser/practice implementation is recoverable under
 - `data/processed/activsg2000_scenarios_v1/`: validated three-year scenario package.
 - `data/teaching/`: January--June and July--December scoring rules.
 - `scripts/check_submission.py`: student-file validation entry point.
-- `scripts/create_meaningful_test_submissions.py`: complete-horizon fixtures.
+- `scripts/create_meaningful_test_submissions.py`: **legacy/historical complete-horizon
+  compatibility fixtures only**; it emits the retired ten-column hourly schema and
+  is not an example for current submissions. Use the canonical one-row-per-site
+  seven-column examples above for active tests and documentation.
 - `tests/`: active production tests.
 
 ## Setup
@@ -61,7 +64,10 @@ team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_powe
 
 Each data row is one site. There are no `period`, hourly `load_mw`,
 `submission_id`, `generator_id`, or `storage_id` columns, and no horizon rows to
-generate. `--artifact-dir`, `--horizon`, `--year`, and `--round` remain optional
+generate. The seven-column CSV has no asset-ID columns; the evaluator assigns
+deterministic private generator and storage IDs internally from each team/site
+pair, and those IDs are not student inputs.
+`--artifact-dir`, `--horizon`, `--year`, and `--round` remain optional
 historical/catalog context for the checker. The retired hourly schema is kept
 only for explicitly marked compatibility fixtures.
 
