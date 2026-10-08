@@ -83,15 +83,40 @@
     "release_status": "blocked_pending_highspy_validation",
     "reason": "Validation is dependency-limited and unverified because the optional project dependency 'highspy' was missing; this is not a genuine network or solver validation failure.",
     "required_before_release": "Run successful HiGHS-backed validation for all 26304 hours with highspy installed; only then may validation_status become passed and this package be released.",
-    "hour_count": 1,
+    "hour_count": 6,
     "expected_hour_count": 26304,
     "passed_hour_count": 0,
     "failed_hour_count": 0,
-    "unverified_hour_count": 1,
+    "unverified_hour_count": 6,
     "failures": [],
     "unverified": [
       {
         "block": "2027-jan_jun",
+        "period_index": 0,
+        "reason": "DCOPF requires the optional project dependency 'highspy'; install the project dependencies first"
+      },
+      {
+        "block": "2027-jul_dec",
+        "period_index": 0,
+        "reason": "DCOPF requires the optional project dependency 'highspy'; install the project dependencies first"
+      },
+      {
+        "block": "2028-jan_jun",
+        "period_index": 0,
+        "reason": "DCOPF requires the optional project dependency 'highspy'; install the project dependencies first"
+      },
+      {
+        "block": "2028-jul_dec",
+        "period_index": 0,
+        "reason": "DCOPF requires the optional project dependency 'highspy'; install the project dependencies first"
+      },
+      {
+        "block": "2029-jan_jun",
+        "period_index": 0,
+        "reason": "DCOPF requires the optional project dependency 'highspy'; install the project dependencies first"
+      },
+      {
+        "block": "2029-jul_dec",
         "period_index": 0,
         "reason": "DCOPF requires the optional project dependency 'highspy'; install the project dependencies first"
       }

@@ -58,6 +58,28 @@ def test_activsg2000_manifest_distinguishes_missing_highspy_from_validation_fail
     assert "successful HiGHS-backed validation" in validation["required_before_release"]
 
 
+def test_activsg2000_root_manifest_aggregates_all_six_attempted_blocks():
+    manifest_path = SCENARIO_PACKAGE_ROOT / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    validation = manifest["validation"]
+    block_manifests = [json.loads(path.read_text(encoding="utf-8")) for path in SCENARIO_BLOCK_MANIFESTS]
+    expected_hours = sum(block["horizon"] for block in block_manifests)
+
+    assert len(block_manifests) == 6
+    assert expected_hours == 26304
+    assert validation["hour_count"] == len(block_manifests)
+    assert validation["expected_hour_count"] == expected_hours
+    assert validation["passed_hour_count"] == 0
+    assert validation["failed_hour_count"] == 0
+    assert validation["unverified_hour_count"] == len(block_manifests)
+    assert len(validation["unverified"]) == len(block_manifests)
+    assert {
+        (event["block"], event["period_index"])
+        for event in validation["unverified"]
+    } == {(block["block"], 0) for block in block_manifests}
+    assert all("highspy" in event["reason"] for event in validation["unverified"])
+
+
 def test_all_activsg2000_block_manifests_are_unverified_without_highspy():
     assert len(SCENARIO_BLOCK_MANIFESTS) == 6
     for path in SCENARIO_BLOCK_MANIFESTS:
