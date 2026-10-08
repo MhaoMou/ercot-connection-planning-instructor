@@ -260,26 +260,31 @@ files, a copy of the exact scoring rules, the leaderboard, compact evaluation
 metadata, and representative diagnostics. The full raw evaluation record is
 not checked into the repository because it is very large.
 
-\subsection{CSV excerpt}
+\subsection{Single-team CSV excerpt}
 
-The complete files contain 4,368 rows per used bus. The following excerpt shows
-the exact active header and the first rows of a multi-site cohort; the PDF uses
-an excerpt only to remain readable.
+Each student group submits one CSV file. The complete file contains 4,368 rows
+per used bus; the following excerpt shows one team's multi-site submission. The
+PDF uses an excerpt only to remain readable. It is not a complete submission.
 \begin{lstlisting}
 team_id,submission_id,period,bus_id,load_mw,generator_id,generator_capacity_mw,storage_id,storage_power_mw,storage_energy_mwh
 sim-04-r01-team-01,sim-04-r01,1,7108,9.523800,GEN_A,3.419000,,,
 sim-04-r01-team-01,sim-04-r01,2,7108,9.713411,GEN_A,3.419000,,,
-sim-04-r01-team-02,sim-04-r01,1,2116,9.221550,,,sim-04-r01-team-02-storage,2.365000,4.730000
-sim-04-r01-team-02,sim-04-r01,2,2116,9.405143,,,sim-04-r01-team-02-storage,2.365000,4.730000
-sim-04-r01-team-03,sim-04-r01,1,5383,9.459450,,,,,
-sim-04-r01-team-04,sim-04-r01,1,7376,6.130800,GEN_B,2.201000,,,
+sim-04-r01-team-01,sim-04-r01,1,7110,4.250000,,,STORE_A,2.365000,4.730000
+sim-04-r01-team-01,sim-04-r01,2,7110,4.100000,,,STORE_A,2.365000,4.730000
 \end{lstlisting}
 
-In the actual generated files, the team IDs and bus IDs are taken from the current
-2,000-bus artifact; generator and storage IDs are team-defined labels. Team 2 demonstrates
-private storage; Teams 1 and 4 demonstrate private generation; Team 3 is
-grid-only. The same resource metadata is repeated on each period row for that
-team/site so that the long-form file is self-contained.
+The public \code{bus\_id} values must come from the current 2,000-bus artifact.
+\code{GEN\_A} and \code{STORE\_A} are labels invented by this team; they do not
+refer to public generator or storage catalogs. The same resource metadata is
+repeated on every period row for the corresponding team/site.
+
+\subsection{Batch collection example}
+
+For a round with four groups, the instructor collects four separate files, for
+example \code{team-01.csv}, \code{team-02.csv}, \code{team-03.csv}, and
+\code{team-04.csv}. The batch evaluator reads the directory as a joint
+submission, but no CSV should contain rows for multiple teams. The leaderboard
+below is therefore a multi-team result report, not a multi-team submission file.
 
 \subsection{Example score report}
 
