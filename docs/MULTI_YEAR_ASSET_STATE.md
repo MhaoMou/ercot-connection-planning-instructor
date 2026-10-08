@@ -155,3 +155,10 @@ advanced state in memory, evaluates the joint plans, and saves the new state
 only after a usable evaluation result is returned. An evaluator exception or
 unusable dispatch (including a missing or `None` `periods` collection) therefore
 leaves the prior state file unchanged.
+
+Because silently evaluating raw plans would defeat persistence, `evaluate_round()`
+requires a Stage 6-aware evaluator that accepts `plan_overrides`,
+`capital_cost_scope`, and `site_cost_connection_count_by_team` (or accepts
+arbitrary keyword arguments). A legacy evaluator with an explicit signature
+that lacks any of these arguments is rejected before it is called, and the
+state file is not advanced.

@@ -26,6 +26,11 @@ class RoundCoordinatorError(RuntimeError):
 
 PlanLoader = Callable[..., Sequence[TeamPlan]]
 Evaluator = Callable[..., BatchEvaluation]
+_STAGE6_EVALUATOR_KWARGS = (
+    "plan_overrides",
+    "capital_cost_scope",
+    "site_cost_connection_count_by_team",
+)
 
 
 def _default_plan_loader(
@@ -110,12 +115,10 @@ def evaluate_round(
             storage.storage_id for storage in plan.storages
         ) - prior_storage_ids
 
-    advanced_state = prior_state.advance(round_key, plans)
-
     kwargs = dict(evaluator_kwargs or {})
-    if "plan_overrides" in kwargs or "capital_cost_scope" in kwargs:
+    if any(name in kwargs for name in _STAGE6_EVALUATOR_KWARGS):
         raise RoundCoordinatorError(
-            "evaluate_round owns plan_overrides and capital_cost_scope"
+            "evaluate_round owns the Stage 6 integration kwargs"
         )
     optional_kwargs = {
         "plan_overrides": materialized_plans,
@@ -128,7 +131,9 @@ def evaluate_round(
             for plan in plans
         },
     }
-    kwargs.update(_supported_optional_kwargs(evaluator, optional_kwargs))
+    stage6_kwargs = _require_stage6_evaluator(evaluator, optional_kwargs)
+    advanced_state = prior_state.advance(round_key, plans)
+    kwargs.update(stage6_kwargs)
     evaluation = evaluator(
         submissions,
         artifact_dir=artifact_dir,
@@ -165,30 +170,40 @@ def _has_period_collection(evaluation: Any) -> bool:
     if periods is None or isinstance(periods, (str, bytes)):
         return False
     try:
-        iter(periods)
-    except TypeError:
+        period_count = len(periods)
+    except (TypeError, ValueError):
         return False
-    return True
+    return period_count > 0
 
 
-def _supported_optional_kwargs(
+def _require_stage6_evaluator(
     evaluator: Evaluator,
-    optional_kwargs: Mapping[str, Any],
+    stage6_kwargs: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Pass Stage 6 kwargs only to evaluators that advertise them."""
+    """Require an evaluator that can receive every Stage 6 integration input."""
     try:
         signature = inspect.signature(evaluator)
     except (TypeError, ValueError):
-        return dict(optional_kwargs)
+        raise RoundCoordinatorError(
+            "evaluate_round requires a Stage 6-aware evaluator with an inspectable signature"
+        ) from None
     parameters = signature.parameters.values()
     if any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters):
-        return dict(optional_kwargs)
-    supported = {
-        name: value
-        for name, value in optional_kwargs.items()
-        if name in signature.parameters
-    }
-    return supported
+        return dict(stage6_kwargs)
+    unsupported = [
+        name
+        for name in _STAGE6_EVALUATOR_KWARGS
+        if name not in signature.parameters
+        or signature.parameters[name].kind is inspect.Parameter.POSITIONAL_ONLY
+    ]
+    if unsupported:
+        raise RoundCoordinatorError(
+            "evaluate_round requires a Stage 6-aware evaluator accepting: "
+            + ", ".join(_STAGE6_EVALUATOR_KWARGS)
+            + "; unsupported: "
+            + ", ".join(unsupported)
+        )
+    return dict(stage6_kwargs)
 
 
 class RoundEvaluationResult:

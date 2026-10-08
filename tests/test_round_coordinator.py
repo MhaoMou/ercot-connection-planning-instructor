@@ -33,7 +33,7 @@ def _asset_plan(team_id: str = "team-a") -> TeamPlan:
 
 @dataclass(frozen=True)
 class _MinimalDispatch:
-    periods: tuple = ()
+    periods: tuple = (object(),)
 
 
 @dataclass(frozen=True)
@@ -164,6 +164,25 @@ def test_rejected_result_does_not_commit_state(tmp_path) -> None:
 def test_evaluation_without_period_collection_does_not_commit_state(tmp_path, dispatch) -> None:
     state_path = tmp_path / "state.json"
     evaluation = _UsableEvaluation(dispatch=dispatch)
+
+    with pytest.raises(RoundCoordinatorError, match="usable dispatch"):
+        evaluate_round(
+            state_path=state_path,
+            round_key="2027_jan_jun",
+            submissions=tmp_path / "submissions",
+            artifact_dir=tmp_path / "artifacts",
+            horizon=1,
+            rules=object(),
+            plan_loader=_loader((_plan(),)),
+            evaluator=lambda *args, **kwargs: evaluation,
+        )
+
+    assert not state_path.exists()
+
+
+def test_evaluation_with_empty_period_collection_does_not_commit_state(tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    evaluation = _UsableEvaluation(dispatch=SimpleNamespace(periods=()))
 
     with pytest.raises(RoundCoordinatorError, match="usable dispatch"):
         evaluate_round(
@@ -314,27 +333,28 @@ def test_rejected_team_is_not_materialized_or_registered(tmp_path) -> None:
     assert "team-rejected" not in seen["capital_cost_scope"].generator_ids_by_team
 
 
-def test_legacy_evaluator_without_stage_six_kwargs_remains_compatible(tmp_path) -> None:
+def test_legacy_evaluator_without_stage_six_kwargs_is_rejected_before_call(tmp_path) -> None:
     state_path = tmp_path / "state.json"
-    called: dict[str, object] = {}
+    called: dict[str, object] = {"value": False}
 
     def legacy_evaluator(submissions, *, artifact_dir, horizon, rules):
-        called["horizon"] = horizon
+        called["value"] = True
         return _UsableEvaluation()
 
-    result = evaluate_round(
-        state_path=state_path,
-        round_key="2027_jan_jun",
-        submissions=tmp_path / "submissions",
-        artifact_dir=tmp_path / "artifacts",
-        horizon=1,
-        rules=object(),
-        plan_loader=_loader((_plan(),)),
-        evaluator=legacy_evaluator,
-    )
+    with pytest.raises(RoundCoordinatorError, match="Stage 6-aware evaluator"):
+        evaluate_round(
+            state_path=state_path,
+            round_key="2027_jan_jun",
+            submissions=tmp_path / "submissions",
+            artifact_dir=tmp_path / "artifacts",
+            horizon=1,
+            rules=object(),
+            plan_loader=_loader((_plan(),)),
+            evaluator=legacy_evaluator,
+        )
 
-    assert called["horizon"] == 1
-    assert result.state.current_round_key == "2027_jan_jun"
+    assert called["value"] is False
+    assert not state_path.exists()
 
 
 def test_materialization_evaluation_failure_leaves_existing_state_unchanged(tmp_path) -> None:
