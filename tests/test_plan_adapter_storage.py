@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from ercot_game.models import ConnectionPlan, StoragePlan, TeamPlan
-from tools.activsg2000.plan_adapter import _storage_schedule
+from tools.activsg2000.plan_adapter import _initial_storage_soc, _storage_schedule, _validate_plan
 
 
 def test_zero_load_placeholder_storage_stays_idle() -> None:
@@ -50,6 +50,24 @@ def test_storage_initial_soc_is_validated(initial_soc) -> None:
 
     with pytest.raises(ValueError, match="initial state of charge"):
         _storage_schedule(plan, plan.connections, (0,))
+
+
+def test_plan_validation_rejects_boolean_initial_soc() -> None:
+    plan = TeamPlan(
+        team_id="team-a",
+        connections=(ConnectionPlan("site", "b0001", 10.0, (1.0,)),),
+        storages=(StoragePlan("store", "site", 2.0, 1.0, True),),
+    )
+
+    with pytest.raises(ValueError, match="initial state of charge"):
+        _validate_plan(plan)
+
+
+def test_initial_soc_helper_rejects_boolean_initial_soc() -> None:
+    storage = StoragePlan("store", "site", 2.0, 1.0, True)
+
+    with pytest.raises(ValueError, match="initial state of charge"):
+        _initial_storage_soc(storage)
 
 
 def test_active_site_storage_keeps_peak_shaving_schedule() -> None:

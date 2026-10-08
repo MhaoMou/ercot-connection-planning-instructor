@@ -20,9 +20,6 @@ class AssetStateError(ValueError):
     """Raised when a plan conflicts with previously persisted team assets."""
 
 
-_MISSING_STORAGE_SOC = object()
-
-
 @dataclass(frozen=True)
 class GeneratorAsset:
     team_id: str
@@ -41,12 +38,14 @@ class StorageAsset:
     bus_id: str
     power_mw: float
     energy_mwh: float
-    state_of_charge_mwh: float | None | object = _MISSING_STORAGE_SOC
+    state_of_charge_mwh: float | None = None
 
     def __post_init__(self) -> None:
+        _validate_storage_dimension(self.power_mw, "power_mw")
+        _validate_storage_dimension(self.energy_mwh, "energy_mwh")
         state_of_charge_mwh = (
             self.energy_mwh * 0.5
-            if self.state_of_charge_mwh is _MISSING_STORAGE_SOC
+            if self.state_of_charge_mwh is None
             else self.state_of_charge_mwh
         )
         _validate_storage_soc(
@@ -427,6 +426,16 @@ def _validate_storage_soc(
         )
 
 
+def _validate_storage_dimension(value: Any, field: str) -> None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise AssetStateError(f"storage {field} must be finite and positive")
+
+
 def _same_storage_spec(left: StorageAsset, right: StorageAsset) -> bool:
     return (
         left.team_id,
@@ -468,11 +477,10 @@ def _asset_payload(value: Any, kind: str, asset_id: str) -> dict[str, Any]:
         raise AssetStateError(f"{kind} asset must be an object: {asset_id}")
     payload = dict(value)
     payload.setdefault(f"{kind}_id", asset_id)
-    if kind == "storage" and "state_of_charge_mwh" not in payload:
-        try:
-            payload["state_of_charge_mwh"] = float(payload["energy_mwh"]) * 0.5
-        except (KeyError, TypeError, ValueError):
-            pass
+    if kind == "storage" and (
+        "state_of_charge_mwh" in payload and payload["state_of_charge_mwh"] is None
+    ):
+        raise AssetStateError("storage state of charge must be finite")
     required = {"team_id", f"{kind}_id", "connection_id", "bus_id"}
     missing = sorted(field for field in required if not payload.get(field))
     if missing:

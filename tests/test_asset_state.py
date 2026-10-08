@@ -93,10 +93,66 @@ def test_legacy_six_argument_storage_asset_defaults_to_half_full() -> None:
     assert asset.state_of_charge_mwh == 10.0
 
 
+def test_explicit_none_storage_soc_keeps_legacy_half_full_constructor_behavior() -> None:
+    asset = StorageAsset("team-a", "store-1", "site-1", "b0001", 5.0, 20.0, None)
+
+    assert asset.state_of_charge_mwh == 10.0
+
+
 @pytest.mark.parametrize("value", [9.0, 21.0, float("nan")])
 def test_direct_storage_asset_rejects_invalid_explicit_soc(value) -> None:
     with pytest.raises(AssetStateError, match="storage state of charge"):
         StorageAsset("team-a", "store-1", "site-1", "b0001", 5.0, 20.0, value)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("power_mw", 0.0),
+        ("power_mw", -1.0),
+        ("power_mw", float("nan")),
+        ("power_mw", True),
+        ("energy_mwh", 0.0),
+        ("energy_mwh", -1.0),
+        ("energy_mwh", float("nan")),
+        ("energy_mwh", True),
+    ],
+)
+def test_direct_storage_asset_rejects_invalid_dimensions(field, value) -> None:
+    dimensions = {"power_mw": 5.0, "energy_mwh": 20.0}
+    dimensions[field] = value
+
+    with pytest.raises(AssetStateError, match=f"storage {field} must be finite and positive"):
+        StorageAsset(
+            "team-a",
+            "store-1",
+            "site-1",
+            "b0001",
+            dimensions["power_mw"],
+            dimensions["energy_mwh"],
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("power_mw", 0.0),
+        ("power_mw", -1.0),
+        ("power_mw", float("nan")),
+        ("power_mw", True),
+        ("energy_mwh", 0.0),
+        ("energy_mwh", -1.0),
+        ("energy_mwh", float("nan")),
+        ("energy_mwh", True),
+    ],
+)
+def test_asset_ledger_from_dict_rejects_invalid_storage_dimensions(field, value) -> None:
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    payload = ledger.to_dict()
+    payload["teams"]["team-a"]["storages"]["store-1"][field] = value
+
+    with pytest.raises(AssetStateError, match=f"storage {field} must be finite and positive"):
+        AssetLedger.from_dict(payload)
 
 
 def test_update_storage_soc_returns_new_ledger_and_round_trips() -> None:

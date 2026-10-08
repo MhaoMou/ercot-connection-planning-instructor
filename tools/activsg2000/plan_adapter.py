@@ -111,7 +111,8 @@ def _validate_plan(
             raise ValueError(f"storage {storage.storage_id} energy must be finite and positive")
         if storage.initial_state_of_charge_mwh is not None:
             if (
-                not math.isfinite(storage.initial_state_of_charge_mwh)
+                isinstance(storage.initial_state_of_charge_mwh, bool)
+                or not math.isfinite(storage.initial_state_of_charge_mwh)
                 or storage.initial_state_of_charge_mwh < storage.energy_mwh * 0.5
                 or storage.initial_state_of_charge_mwh > storage.energy_mwh
             ):
@@ -539,7 +540,8 @@ def _initial_storage_soc(storage) -> float:
     if initial is None:
         return storage.energy_mwh * 0.5
     if (
-        not math.isfinite(initial)
+        isinstance(initial, bool)
+        or not math.isfinite(initial)
         or initial < storage.energy_mwh * 0.5
         or initial > storage.energy_mwh
     ):
