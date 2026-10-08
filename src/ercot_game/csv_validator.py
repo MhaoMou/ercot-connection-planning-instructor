@@ -74,7 +74,7 @@ def _finite_number(value: str, name: str, row_number: int, *, required: bool) ->
 
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _VALID_HEADER = ",".join(CANONICAL_CSV_COLUMNS)
-_VALID_EXAMPLE = "team-a,site-north,3002041,40,20,10,40"
+_VALID_EXAMPLE = "team-a,site-north,1001,40,20,10,40"
 
 
 def validate_csv_submission(

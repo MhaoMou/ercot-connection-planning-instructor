@@ -57,8 +57,8 @@ site:
 
 ```text
 team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
-team-blue,site-north,3002041,40,20,10,40
-team-blue,site-south,3002042,15,0,0,0
+team-blue,site-north,1001,40,20,10,40
+team-blue,site-south,1002,15,0,0,0
 ```
 
 Canonical submissions contain no hourly `period`/`load_mw` rows and no

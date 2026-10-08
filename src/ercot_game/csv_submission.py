@@ -42,7 +42,7 @@ _CANONICAL_HEADER_MESSAGE = (
     "submission header must be exactly: " + ",".join(CANONICAL_CSV_COLUMNS)
 )
 _CANONICAL_EXAMPLE = (
-    "Example: team-a,site-north,3002041,40,20,10,40"
+    "Example: team-a,site-north,1001,40,20,10,40"
 )
 
 # Team-built generators use a common convex curve, independent of the public

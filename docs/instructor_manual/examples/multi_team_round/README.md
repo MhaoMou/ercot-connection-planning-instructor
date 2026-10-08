@@ -7,7 +7,7 @@ student submission format. Current submissions use one canonical row per site:
 
 ```text
 team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
-team-blue,site-north,3002041,40,20,10,40
+team-blue,site-north,1001,40,20,10,40
 ```
 
 The active CSV has no hourly horizon rows. Use the student/instructor manuals

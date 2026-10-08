@@ -292,8 +292,8 @@ label; \code{bus\_id} must come from the supplied scenario block.
 Example:
 \begin{lstlisting}
 team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
-team-blue,site-north,3002041,40,20,10,40
-team-blue,site-south,3002042,15,0,0,0
+team-blue,site-north,1001,40,20,10,40
+team-blue,site-south,1002,15,0,0,0
 \end{lstlisting}
 
 Values use MW, MWh, and decimal notation. The \code{validator} checks the exact
@@ -324,8 +324,8 @@ small for format testing; a course submission may contain more site rows but
 still never contains hourly horizon rows:
 \begin{lstlisting}
 team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
-team-demo,site-north,3002041,4,2,1,4
-team-demo,site-south,3002042,2,0,0,0
+team-demo,site-north,1001,4,2,1,4
+team-demo,site-south,1002,2,0,0,0
 \end{lstlisting}
 The second site has no generation or storage. The half-year hourly scenario is
 selected by the instructor and is not expanded into repeated rows in this file.
