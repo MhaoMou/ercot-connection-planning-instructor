@@ -34,6 +34,7 @@
 \rhead{Instructor Manual}
 \cfoot{\thepage\ of \pageref{LastPage}}
 \newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\clioption}[1]{\lstinline|#1|}
 \newcommand{\MW}{\,\mathrm{MW}}
 \newcommand{\MWh}{\,\mathrm{MWh}}
 \newcommand{\USD}{\$}
@@ -211,9 +212,9 @@ ercot-game-batch run \
 
 The submission number is evaluator-side metadata, not a CSV column. The CLI
 accepts \code{1} or \code{2} and defaults explicitly to \code{2}. Use
-\code{--submission-number 1} for a practice run: it excludes energy-purchase
+\clioption{--submission-number 1} for a practice run: it excludes energy-purchase
 cost while retaining the other active scoring terms. Use
-\code{--submission-number 2} for the scored run, which settles grid purchases
+\clioption{--submission-number 2} for the scored run, which settles grid purchases
 at the locational marginal price (LMP) from the selected joint dispatch.
 Submission 1 is practice and has no energy-purchase cost while retaining the
 other active scoring terms.

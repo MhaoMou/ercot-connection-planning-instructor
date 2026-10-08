@@ -54,6 +54,7 @@
 \cfoot{\thepage\ of \pageref{LastPage}}
 
 \newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\clioption}[1]{\lstinline|#1|}
 \newcommand{\MW}{\,\mathrm{MW}}
 \newcommand{\MWh}{\,\mathrm{MWh}}
 \newcommand{\USD}{\$}
@@ -305,8 +306,8 @@ PYTHONPATH=src python scripts/check_submission.py \\
   --file team-blue.csv
 \end{lstlisting}
 The \code{checker} is also available after installation as
-\code{ercot-game-check-csv}. Add \code{--artifact-dir} when you want the checker
-to verify scenario bus IDs; \code{--year}, \code{--round}, and \code{--horizon}
+\code{ercot-game-check-csv}. Add \clioption{--artifact-dir} when you want the checker
+to verify scenario bus IDs; \clioption{--year}, \clioption{--round}, and \clioption{--horizon}
 are optional historical/report context. The validator is a convenience check;
 the instructor evaluator remains authoritative.
 
