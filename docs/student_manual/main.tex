@@ -215,8 +215,8 @@ evaluator assigns deterministic private asset IDs internally from the team and
 site IDs. These IDs are not lookup keys into the public generator catalog. The
 evaluator applies the
 same convex piecewise-linear operating-cost curve to every team-built generator
-at every site: the first 25\% of capacity costs \$12/MWh, the next 50\% costs
-\$16/MWh, and the final 25\% costs \$24/MWh. You submit the capacity and the
+at every site: the first 25\% of capacity costs \$60/MWh, the next 50\% costs
+\$100/MWh, and the final 25\% costs \$160/MWh. You submit the capacity and the
 evaluator chooses hourly dispatch. For a generator with capacity $G_{i,g}$,
 dispatch satisfies
 \[
@@ -254,20 +254,15 @@ serve any other team's load.
 the following instructional coefficients:
 \begin{align*}
  C^{\mathrm{storage,cap}}_{i,b}={}&
- (\USD200{,}000/\MW)P_{i,b}
- +(\USD300{,}000/\MWh)B_{i,b},\\
- C^{\mathrm{storage,op}}_{i,b}={}&
- (\USD8/\MWh)\times\text{discharged energy}.
+ (\USD350{,}000/\MW)P_{i,b}
+ +(\USD200{,}000/\MWh)B_{i,b}.
 \end{align*}
 For a four-hour device, the two capital terms correspond to approximately
-\USD1,400/kW of installed power capacity. These are rounded teaching
-coefficients informed by U.S. battery-storage construction and O\&M benchmarks,
+\USD1.15m/MW of installed power capacity. Storage operating cost is not charged.
+These are rounded teaching coefficients informed by U.S. battery-storage construction and O\&M benchmarks,
 not a project quotation or an ERCOT tariff~\cite{eia2024bess,nrel2021bess,
-nrel2024bess}. The same coefficients are used for both half-year rounds unless
-the instructor announces a revised round file. The reference literature also
-reports fixed O\&M near \USD40/kW-year; the current evaluator does not have a
-separate annual fixed-O\&M field, so that value is documented as a reference
-and is not charged in addition to the \USD8/MWh operating proxy.
+nrel2024bess}. The same coefficients are used for all released half-year blocks
+unless the instructor announces a revised round file.
 
 \subsection{DCOPF}
 
@@ -383,7 +378,7 @@ For team $i$, the \code{score} is
 \[
 \begin{aligned}
 S_i={}V_i^{\mathrm{IT}}-C_i^{\mathrm{energy}}
--C_i^{\mathrm{gen,op}}-C_i^{\mathrm{gen,cap}}-C_i^{\mathrm{storage,op}}-C_i^{\mathrm{storage,cap}}
+-C_i^{\mathrm{gen,op}}-C_i^{\mathrm{gen,cap}}-C_i^{\mathrm{storage,cap}}
 -C_i^{\mathrm{site}}.
 \end{aligned}
 \]
@@ -392,7 +387,7 @@ The components are:
 \begin{itemize}[leftmargin=*]
   \item $V_i^{\mathrm{IT}}$: cleared load multiplied by the full-horizon hourly
   \code{IT value} vector announced for the round. The current release uses
-  \USD125/MWh at every hour;
+  \USD1500/MWh at every hour;
   \item $C_i^{\mathrm{energy}}$: grid purchase multiplied by the locational
   hourly \code{energy price} artifact for the selected bus. The final artifact
   is generated from baseline ACTIVSg2000 DCOPF LMPs;
@@ -400,12 +395,10 @@ The components are:
   dataset-derived marginal cost;
   \item $C_i^{\mathrm{gen,cap}}$: submitted generator MW multiplied by the
   announced generator capital coefficient;
-  \item $C_i^{\mathrm{storage,op}}$: announced \code{storage operating coefficient}
-  multiplied by storage throughput;
   \item $C_i^{\mathrm{storage,cap}}$: announced storage MW/MWh capital
   coefficients multiplied by submitted capacities;
-  \item $C_i^{\mathrm{site}}$: number of submitted \code{connection sites} multiplied
-  by the announced site coefficient.
+  \item $C_i^{\mathrm{site}}$: submitted connection capacity multiplied by the
+  announced site coefficient;
 \end{itemize}
 
 The current provisional calibration anchors are listed below. The instructor
@@ -414,18 +407,19 @@ round configuration; do not infer them from this manual if the round file
 differs.
 
 \begin{center}
-\begin{tabularx}{0.94\textwidth}{>{\ttfamily}l r X}
+\small
+\begin{tabularx}{0.98\textwidth}{>{\ttfamily\raggedright\arraybackslash}p{0.24\textwidth} >{\raggedright\arraybackslash}p{0.27\textwidth} X}
 \toprule
-Parameter & Provisional value & Basis\\
+Parameter & Current release value & Basis\\
 \midrule
-Generator capital & \USD85,000/MW & Annualized combustion-turbine anchor from EIA cost data~\cite{eia2024generatorcosts}.\\
-Site cost & \USD50,000/site & Instructional interconnection proxy informed by Berkeley Lab interconnection-cost work~\cite{lbnl2022interconnection}.\\
-Generator operating cost & Piecewise \$12/16/24 per MWh & Common team-built curve; same at every site.\\
+Generator capital & \USD1.3m/MW & Current instructional coefficient for team-built generation.\\
+Site cost & \USD20m/MW & Current capacity-dependent instructional connection coefficient.\\
+Generator operating cost & Piecewise \$60/100/160 per MWh at 25/50/25\% & Common team-built curve; same at every site.\\
 Energy price & Baseline LMP artifact & Exogenous ACTIVSg2000 DCOPF price surface, one price per bus and hour.\\
-IT value & \USD125/MWh hourly & Full-horizon instructor-chosen opportunity value; see the profile documentation.\\
-Storage power capital & \USD200,000/MW & Rounded power-capacity component calibrated from NREL/EIA battery benchmarks~\cite{eia2024bess,nrel2024bess}.\\
-Storage energy capital & \USD300,000/MWh & Rounded energy-capacity component; together with power capital gives about \USD1,400/kW for a four-hour system.\\
-Storage operation & \USD8/MWh discharged & Variable O\&M proxy; the reference fixed O\&M value is \USD40/kW-year~\cite{eia2024bess}.\\
+IT value & \USD1500/MWh hourly & Full-horizon instructor-chosen opportunity value; see the profile documentation.\\
+Storage power capital & \USD350,000/MW & Current power-capacity coefficient.\\
+Storage energy capital & \USD200,000/MWh & Current energy-capacity coefficient; together with power capital gives \USD1.15m/MW for a four-hour system.\\
+Storage operation & Not charged & The released evaluator has no storage operating-cost term.\\
 Invalid file score & 0 & Deterministic grading policy, not a market quantity.\\
 \bottomrule
 \end{tabularx}

@@ -63,7 +63,7 @@ are admitted only after hourly DCOPF validation.
 | 2027/2029 July--December | 4,416 hours | **INSTRUCTOR-CHOSEN** | Non-leap-year second half |
 | Energy price profile | Baseline ACTIVSg2000 DCOPF LMP artifact | **DATASET-SPECIFIED + DERIVED** | One exogenous locational price per bus and hour; generated from the validated hourly scenario state |
 | IT-service value profile | 1,500 $/MWh for every hour; AI-intensive | **INSTRUCTOR-CHOSEN** | Explicit full-horizon opportunity value of computational service |
-| Profile length | Exactly 4,368 or 4,416 values for the active rule file | **INSTRUCTOR-CHOSEN** | No six-hour repetition is used for IT-service value |
+| Profile length | Exactly 4,344, 4,368, or 4,416 values for the selected block | **INSTRUCTOR-CHOSEN** | No six-hour repetition is used for IT-service value |
 
 The active rule files reference immutable baseline ACTIVSg2000 DCOPF LMP
 artifacts. Those LMPs are locational and exogenous to student plans. The
@@ -150,7 +150,7 @@ For asset j, with power P, energy B, state e, charging c, and discharging d:
 
 The schedule does not intentionally charge and discharge the same asset in the
 same hour. Discharge reduces only its owner's net load and cannot export to
-another team. Storage operating cost is charged on discharged MWh.
+another team. Storage operating cost is not charged.
 
 ## Feasibility, projection, and batch evaluation
 
@@ -207,8 +207,7 @@ scoring coefficients.
   operation.
 - The active package does not apply synthetic wind/solar availability caps;
   generator status, PMIN, and PMAX are taken directly from ACTIVSg2000.
-- Fixed storage O&M of approximately $40/kW-year is a reference benchmark only;
-  the $8/MWh variable proxy is the charged operating cost.
+- Storage operating cost is not charged in the active evaluator.
 
 ## References
 

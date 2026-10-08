@@ -37,13 +37,18 @@ The current classroom convention is:
 
 - a team may select any public bus listed in the scenario block;
 - team-built `generator_id` and `storage_id` values are self-defined labels;
-- every team-built generator uses the common convex curve: 25% at $12/MWh,
-  50% at $16/MWh, and 25% at $24/MWh;
+- every team-built generator uses the common convex curve: 25% at $60/MWh,
+  50% at $100/MWh, and 25% at $160/MWh;
 - team-built generators and storage serve only their owning team;
 - one episode corresponds to one released half-year;
 - the time step is one hour;
 - January--June and July--December are separate episode configurations;
 - the existing evaluator remains authoritative for final classroom scores.
+
+The active scoring coefficients are IT value of $1500/MWh; site cost of
+$20m/MW; generator capital cost of $1.3m/MW; storage capital costs of
+$350k/MW plus $200k/MWh (a four-hour total of $1.15m/MW); and no storage
+operating cost.
 
 ## 2. Scope and non-goals
 
@@ -148,10 +153,9 @@ An episode is one complete half-year block, not six abstract periods.
 
 | Configuration | Hours | CSV period labels |
 |---|---:|---:|
-| January--June 2016 | 4,368 | 1--4,368 |
-| July--December 2016 | 4,416 | 1--4,416 |
-| January--June 2017/2018 | 4,344 | 1--4,344 |
-| July--December 2017/2018 | 4,416 | 1--4,416 |
+| January--June 2027/2029 | 4,344 | 1--4,344 |
+| January--June 2028 | 4,368 | 1--4,368 |
+| July--December 2027/2028/2029 | 4,416 | 1--4,416 |
 
 The first implementation should support two modes:
 
@@ -253,7 +257,6 @@ IT value
 - team-generator operating cost
 - team-generator capital cost
 - storage capital cost
-- storage operating cost
 - site cost
 = team score
 ```
@@ -321,7 +324,7 @@ student CSV workflow into a step-by-step API:
 
 ```python
 env = ConnectionPlanningEnv(
-    scenario_dir=".../2016/jan_jun",
+    scenario_dir=".../2027/jan_jun",
     rules_file=".../rules.json",
     mode="planning",
     seed=7,

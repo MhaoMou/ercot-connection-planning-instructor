@@ -21,12 +21,20 @@ from .csv_submission import (
     read_submission_identity,
 )
 from .asset_state import AssetLedger, AssetStateError
+from .calendars import SUPPORTED_YEARS, half_year_calendar
 from .models import TeamPlan
 from .models import ConnectionPlan
 from .economic_profiles import (
     HourlyEconomicProfiles,
     load_economic_profiles,
     load_economic_profiles_artifact,
+)
+
+
+_RELEASED_HALF_YEAR_HORIZONS = frozenset(
+    half_year_calendar(year, round_name).horizon
+    for year in SUPPORTED_YEARS
+    for round_name in ("jan_jun", "jul_dec")
 )
 
 if TYPE_CHECKING:
@@ -273,7 +281,15 @@ def load_scoring_rules(
     if not isinstance(payload, Mapping):
         raise ValueError("scoring rules must be a JSON object")
     economic_profiles = None
-    if artifact_dir is not None and horizon in (4368, 4416):
+    economic_manifest = (
+        Path(artifact_dir) / "economic_profile_manifest.json"
+        if artifact_dir is not None
+        else None
+    )
+    if economic_manifest is not None and (
+        economic_manifest.is_file()
+        or horizon in _RELEASED_HALF_YEAR_HORIZONS
+    ):
         economic_profiles = load_economic_profiles_artifact(
             artifact_dir,
             expected_horizon=horizon,

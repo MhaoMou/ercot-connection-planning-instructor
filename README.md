@@ -19,8 +19,10 @@ Validated ACTIVSg2000 scenario package (2,000 buses; 3 years)
 The Python evaluator is authoritative. Students submit CSV files; instructors
 run the batch evaluator and return scores plus the intended privacy-safe
 feedback artifacts. Student-owned generators and storage serve only their own
-team. The score includes IT value, energy purchases, site cost, generator
-capital/operating cost, and storage capital/operating cost.
+team. The current score uses IT value of \$1500/MWh, a team-generator curve of
+\$60/\$100/\$160 per MWh at 25/50/25\%, site cost of \$20m/MW, generator
+capital cost of \$1.3m/MW, and storage capital costs of \$350k/MW plus
+\$200k/MWh. Storage operating cost is not charged.
 
 ## Repository layout
 

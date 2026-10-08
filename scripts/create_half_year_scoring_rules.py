@@ -4,10 +4,18 @@
 from __future__ import annotations
 
 import json
+import argparse
 from pathlib import Path
+
+from ercot_game.calendars import half_year_calendar
 
 
 AI_INTENSIVE_VALUE_PER_MWH = 1500.0
+TEAM_GENERATOR_COST_CURVE = (
+    (0.25, 60.0),
+    (0.50, 100.0),
+    (0.25, 160.0),
+)
 
 
 def build_rules(*, label: str, horizon: int) -> dict[str, object]:
@@ -27,6 +35,13 @@ def build_rules(*, label: str, horizon: int) -> dict[str, object]:
         "site_cost_per_mw": 20_000_000.0,
         "infeasible_score": 0.0,
         "default_generator_cost_per_mwh": 100.0,
+        "team_generator_cost_curve": [
+            {
+                "capacity_fraction": fraction,
+                "marginal_cost_per_mwh": marginal_cost,
+            }
+            for fraction, marginal_cost in TEAM_GENERATOR_COST_CURVE
+        ],
         "storage_capital_cost_per_mw": 350_000.0,
         "storage_capital_cost_per_mwh": 200_000.0,
         "time_step_hours_provenance": {
@@ -77,11 +92,34 @@ def build_rules(*, label: str, horizon: int) -> dict[str, object]:
     }
 
 
+def build_rules_for_year_season(*, year: int, round_name: str) -> dict[str, object]:
+    """Build rules using the released calendar for one year and half-year."""
+
+    calendar = half_year_calendar(year, round_name)
+    payload = build_rules(label=round_name, horizon=calendar.horizon)
+    provenance = payload["time_step_hours_provenance"]
+    assert isinstance(provenance, dict)
+    provenance["calendar_year"] = year
+    return payload
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--year", type=int, default=2028)
+    parser.add_argument("--round", dest="round_name", choices=("jan_jun", "jul_dec"))
+    args = parser.parse_args()
     output_dir = Path(__file__).resolve().parents[1] / "data" / "teaching"
-    for label, horizon in (("jan_jun", 4368), ("jul_dec", 4416)):
+    round_names = (args.round_name,) if args.round_name else ("jan_jun", "jul_dec")
+    for label in round_names:
         path = output_dir / f"dispatch_scoring_rules_{label}_v1.json"
-        path.write_text(json.dumps(build_rules(label=label, horizon=horizon), indent=2) + "\n", encoding="utf-8")
+        path.write_text(
+            json.dumps(
+                build_rules_for_year_season(year=args.year, round_name=label),
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         print(path)
 
 

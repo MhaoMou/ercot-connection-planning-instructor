@@ -110,8 +110,8 @@ refer to a public bus in the selected scenario block. The canonical CSV submits
 generator and storage capacities directly; it does not select an existing public
 generator or storage device by ID. Every team-built generator uses the same
 convex piecewise-linear
-operating curve at every bus: 25\% of capacity at \$12/MWh, the next 50\% at
-\$16/MWh, and the final 25\% at \$24/MWh. Students submit capacities; the
+operating curve at every bus: 25\% of capacity at \$60/MWh, the next 50\% at
+\$100/MWh, and the final 25\% at \$160/MWh. Students submit capacities; the
 evaluator determines hourly dispatch. Team-built generators and storage serve only
 their submitting team.
 
@@ -245,9 +245,15 @@ At a high level, a team's score is:
 -\text{generator capital cost}
 \\
 &-\text{storage capital cost}
--\text{storage operating cost}
 -\text{site cost}.
 \end{align*}
+
+The current release uses IT value of \USD1500/MWh, a team-built generator
+curve of \$60/\$100/\$160 per MWh at 25/50/25\%, site cost of
+\USD20m/MW, generator capital cost of \USD1.3m/MW, and storage capital costs
+of \USD350,000/MW plus \USD200,000/MWh. A four-hour storage device therefore
+has a \USD1.15m/MW capital equivalent, and storage operating cost is not
+charged.
 
 Energy purchase cost uses the validated baseline DCOPF LMP at the selected bus
 and hour. The six released LMP artifacts are stored as deterministic NPZ
@@ -292,9 +298,9 @@ below is therefore a multi-team result report, not a multi-team submission file.
 \subsection{Example score report}
 
 The following table is populated from the exact generated leaderboard and is
-not a hand-selected score illustration. The checked-in artifact predates the
-common team-built generator-cost convention; use it as a pipeline-format
-example, not as a calibration target for a new round.
+not a hand-selected score illustration. This is a historical compatibility
+result: its checked-in rules, values, and cost fields predate the current
+release and must not be used as a calibration target for a new round.
 \begin{center}
 \IfFileExists{example_score_table.tex}{\input{example_score_table.tex}}{
 \small
@@ -316,7 +322,7 @@ The decomposition should be read together with the compact
 live instructor run, retain the complete raw evaluation record separately. In
 particular, a large served-load value can improve
 IT revenue while increasing locational energy cost; storage can reduce or shift
-energy purchases but adds power-capacity, energy-capacity, and operating costs.
+energy purchases but adds power-capacity and energy-capacity costs.
 
 \subsection{Artifacts to inspect}
 \begin{itemize}[leftmargin=*]

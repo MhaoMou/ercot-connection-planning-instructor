@@ -3,7 +3,33 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+from scripts import create_half_year_scoring_rules
+
 ROOT = Path(__file__).parents[1]
+
+
+@pytest.mark.parametrize(
+    ("year", "round_name", "expected_horizon"),
+    [
+        (2027, "jan_jun", 4344),
+        (2028, "jan_jun", 4368),
+        (2029, "jan_jun", 4344),
+        (2027, "jul_dec", 4416),
+    ],
+)
+def test_rule_builder_derives_horizon_from_year_and_round(
+    year: int, round_name: str, expected_horizon: int
+):
+    payload = create_half_year_scoring_rules.build_rules_for_year_season(
+        year=year,
+        round_name=round_name,
+    )
+
+    assert len(payload["it_value_per_mwh"]) == expected_horizon
+    assert payload["time_step_hours_provenance"]["horizon_hours"] == expected_horizon
+    assert payload["time_step_hours_provenance"]["calendar_block"] == round_name
 
 
 def test_half_year_rules_have_complete_hourly_vectors_and_revised_economics():
@@ -21,6 +47,11 @@ def test_half_year_rules_have_complete_hourly_vectors_and_revised_economics():
         assert payload["storage_capital_cost_per_mw"] == 350_000.0
         assert payload["storage_capital_cost_per_mwh"] == 200_000.0
         assert "storage_operating_cost_per_mwh" not in payload
+        assert payload["team_generator_cost_curve"] == [
+            {"capacity_fraction": 0.25, "marginal_cost_per_mwh": 60.0},
+            {"capacity_fraction": 0.5, "marginal_cost_per_mwh": 100.0},
+            {"capacity_fraction": 0.25, "marginal_cost_per_mwh": 160.0},
+        ]
         assert payload["economic_profile_artifact"]["status"] == "required"
         assert payload["economic_profile_artifact"]["it_value_json_field"] == "it_value_per_mwh"
 

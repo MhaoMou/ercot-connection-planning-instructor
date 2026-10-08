@@ -1,9 +1,10 @@
 # Multi-team instructor example
 
 This directory is a compact, reproducible **historical compatibility example**
-of one four-team round. Its checked-in submissions use the retired long-form
-hourly schema and matching historical results; they do not define the current
-student submission format. Current submissions use one canonical row per site:
+of one four-team round. Its checked-in submissions, rules, and matching results
+use retired economics and the long-form hourly schema; they do not define the
+current scoring coefficients or student submission format. Current submissions
+use one canonical row per site:
 
 ```text
 team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
@@ -30,7 +31,9 @@ identity of that instructor-side artifact.
 
 ## Reproduce the run
 
-From the repository root, use the current evaluator and the copied inputs:
+From the repository root, use the evaluator and copied inputs only to reproduce
+the historical compatibility output; do not use this rule file as a current
+calibration reference:
 
 ```bash
 PYTHONPATH=.:src python3 -m ercot_game.batch_cli run \

@@ -8,7 +8,7 @@ market price and not a claim about a cloud provider's production economics.
 
 ## Current release
 
-Both released half-year profiles use the same explicit AI-intensive full-horizon policy:
+All released half-year blocks use the same explicit AI-intensive full-horizon policy:
 
 ```text
 IT_value[t] = 1,500.00 USD/MWh,  for every hour t
@@ -16,13 +16,17 @@ IT_value[t] = 1,500.00 USD/MWh,  for every hour t
 
 | Rule file | Horizon | IT-value entries |
 |---|---:|---:|
-| `dispatch_scoring_rules_jan_jun_v1.json` | 4,368 hours | 4,368 values |
-| `dispatch_scoring_rules_jul_dec_v1.json` | 4,416 hours | 4,416 values |
+| 2027/2029 January--June | 4,344 hours | 4,344 values |
+| 2028 January--June | 4,368 hours | 4,368 values |
+| 2027/2028/2029 July--December | 4,416 hours | 4,416 values |
 
 The vector is intentionally explicit and constant rather than a six-hour pattern. A
 constant vector is easier for students to audit, avoids unexplained periodicity,
 and makes strategic time variation come from the network operating state, load,
 the validated hourly scenario and the released hourly energy-price surface.
+The selected scenario block's economic-profile manifest is authoritative for the
+actual horizon; the evaluator does not assume that every January--June block has
+the leap-year length.
 
 ## Provenance and reproducibility
 

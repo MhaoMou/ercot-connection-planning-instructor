@@ -4377,12 +4377,27 @@
   "site_cost_per_mw": 20000000.0,
   "infeasible_score": 0.0,
   "default_generator_cost_per_mwh": 100.0,
+  "team_generator_cost_curve": [
+    {
+      "capacity_fraction": 0.25,
+      "marginal_cost_per_mwh": 60.0
+    },
+    {
+      "capacity_fraction": 0.5,
+      "marginal_cost_per_mwh": 100.0
+    },
+    {
+      "capacity_fraction": 0.25,
+      "marginal_cost_per_mwh": 160.0
+    }
+  ],
   "storage_capital_cost_per_mw": 350000.0,
   "storage_capital_cost_per_mwh": 200000.0,
   "time_step_hours_provenance": {
     "interpretation": "literal hourly interval",
     "horizon_hours": 4368,
-    "calendar_block": "jan_jun"
+    "calendar_block": "jan_jun",
+    "calendar_year": 2028
   },
   "storage_cost_provenance": {
     "currency_year": "2022 USD for capital benchmarks; nominal instructional coefficients",
