@@ -9,6 +9,7 @@ from .models import (
 from .asset_state import AssetLedger, AssetStateError, GeneratorAsset, StorageAsset, TeamAssetState
 from .game_state import GameState, RELEASED_ROUND_SEQUENCE, RoundTransitionError
 from .game_state_store import GameStateStore, GameStateStoreError
+from .round_coordinator import RoundCoordinatorError, RoundEvaluationResult, evaluate_round
 
 __version__ = "0.3.0"
 
@@ -27,4 +28,7 @@ __all__ = [
     "RoundTransitionError",
     "GameStateStore",
     "GameStateStoreError",
+    "RoundCoordinatorError",
+    "RoundEvaluationResult",
+    "evaluate_round",
 ]

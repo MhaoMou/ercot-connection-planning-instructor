@@ -59,3 +59,22 @@ and atomically replaces the requested path. A failed write cleans up the
 temporary file and leaves the previous target intact. Loading a missing file
 raises `FileNotFoundError`; malformed JSON or an unsupported/invalid state is
 reported as `GameStateStoreError`.
+
+## Stage 4: round evaluation coordinator
+
+`evaluate_round()` is the transactional boundary around the existing
+single-half-year evaluator. It:
+
+1. loads the prior `GameState`, or starts a new one;
+2. validates and collects the current round's complete CSV plans using the
+   existing strict submission path;
+3. checks that the requested round is the next released round and that asset
+   identities do not conflict;
+4. invokes the existing batch evaluator without changing its DCOPF or scoring
+   behavior; and
+5. saves the advanced state only after a usable dispatch result is returned.
+
+Validation failures, asset conflicts, evaluator exceptions, rejected
+submissions, and unusable dispatch results do not overwrite the prior state
+file. The existing `evaluate_csv_batch()` API remains unchanged; this
+coordinator is an opt-in multi-round wrapper.
