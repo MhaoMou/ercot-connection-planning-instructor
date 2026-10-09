@@ -20,13 +20,19 @@ are focused adversarial regression tests and this report.
 - Baseline before Task 10 changes: `380 passed, 3 skipped`.
 - Final full suite: `394 passed, 3 skipped in 3.98s` via `python -m pytest -q -rs`.
 - Focused Task 10 suite: `14 passed` via `python -m pytest -q tests/test_task10_final_audit.py`.
-- The new tests cover malformed and oversized CSV input, missing/extra/legacy
-  headers, duplicate site IDs and duplicate rows, nonfinite/negative and
-  generator-over-connection capacities, wrong bus IDs, canonical/legacy path
-  confusion, valid multi-site submissions, all six round transitions, weekly
-  reset/persistence boundaries, practice and scored energy charging, team
-  score isolation, fair-projection caps and zero-request/missing-catalog cases,
-  and projection diagnostics that contain only valid teams.
+- `tests/test_task10_final_audit.py` directly covers malformed CSV input,
+  missing/extra/legacy headers, duplicate site IDs and duplicate rows,
+  nonfinite/negative and generator-over-connection capacities, wrong bus IDs,
+  canonical/legacy path confusion, valid multi-site submissions, synthetic
+  six-round lifecycle transitions, weekly reset/persistence boundaries,
+  practice and scored energy charging, fair-projection caps and
+  zero-request/missing-catalog cases, and projection diagnostics that contain
+  only valid teams. Its lifecycle test uses mocked evaluation with
+  `horizon=1`; it is not a full-horizon solver run.
+- Broader team-score isolation coverage and oversized CSV-field coverage come
+  from pre-existing tests in the full suite, including batch-evaluation,
+  submission-parser, validator, and CLI isolation tests; those cases are not
+  newly added by `tests/test_task10_final_audit.py`.
 - Active release checks confirm six scenario blocks, calendar-derived horizons,
   canonical seven-column documentation, two submissions per week, and matching
   `blocked_pending_highspy_validation` rule status.
@@ -48,7 +54,8 @@ closed while validation is pending.
 `highspy` is not installed in this environment, and it was neither installed
 nor faked for this audit. Consequently, three solver-backed tests remain
 skipped, and the six-block/26,304-hour HiGHS-backed scenario validation remains
-unverified. The checked-in manifests and rules correctly retain
+unverified. The focused lifecycle test does not validate that full
+26,304-hour HiGHS execution. The checked-in manifests and rules correctly retain
 `unverified_dependency` / `blocked_pending_highspy_validation` status. A
 successful real HiGHS validation run is still required before claiming full
 solver validation or changing those statuses.
