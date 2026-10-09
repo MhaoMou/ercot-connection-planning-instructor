@@ -364,6 +364,172 @@ def _validate(
     return bus_by_id, reference
 
 
+class ReusableDCOPFModel:
+    """Reusable single-period DCOPF model for a fixed network topology.
+
+    The HiGHS model is assembled once.  Subsequent calls update only the
+    balance-row right-hand sides and re-solve the same LP.  This is intended
+    for repeated hourly dispatch with unchanged generators, branches, and
+    generator limits.
+    """
+
+    def __init__(
+        self,
+        *,
+        buses: tuple[Bus, ...],
+        generators: tuple[Generator, ...],
+        branches: tuple[Branch, ...],
+        base_mva: float = 1.0,
+    ) -> None:
+        if not math.isfinite(base_mva) or base_mva <= 0:
+            raise ValueError("base_mva must be finite and positive")
+        self._buses, self._reference = _validate(buses, generators, branches)
+        self._bus_order = tuple(bus.bus_id for bus in buses)
+        self._generators = tuple(generators)
+        self._branches = tuple(branches)
+        self._base_mva = base_mva
+        self._angle_scale = 1000.0
+        self._generators_by_bus, self._branches_by_bus = _cached_network_index(
+            self._branches, self._generators
+        )
+
+        Highs, _HighsModelStatus, _HighsVarType, highs_inf = _highs()
+        self._highs = Highs()
+        self._highs.setOptionValue("output_flag", False)
+        self._highs.setOptionValue("presolve", "on")
+        self._highs.setOptionValue("parallel", "off")
+        self._generator_columns: dict[str, object] = {}
+        self._angle_columns: dict[str, object] = {self._reference: None}
+        self._balance_row_indices: dict[str, int] = {}
+
+        for generator in self._generators:
+            self._generator_columns[generator.generator_id] = self._highs.addVariable(
+                lb=generator.p_min_mw,
+                ub=generator.p_max_mw,
+                obj=generator.marginal_cost_per_mwh,
+                name=f"gen:{generator.generator_id}",
+            )
+        for bus_id in self._bus_order:
+            if bus_id != self._reference:
+                self._angle_columns[bus_id] = self._highs.addVariable(
+                    lb=-highs_inf,
+                    ub=highs_inf,
+                    obj=0.0,
+                    name=f"theta:{bus_id}",
+                )
+
+        def add_coefficient(coefficients: dict[int, float], variable: object, value: float) -> None:
+            index = int(variable.index)
+            coefficients[index] = coefficients.get(index, 0.0) + value
+
+        for bus_id in self._bus_order:
+            coefficients: dict[int, float] = {}
+            for generator in self._generators_by_bus.get(bus_id, ()):
+                add_coefficient(coefficients, self._generator_columns[generator.generator_id], 1.0)
+            for branch in self._branches_by_bus.get(bus_id, ()):
+                susceptance = branch.susceptance_pu * self._base_mva
+                if branch.from_bus_id == bus_id:
+                    if branch.from_bus_id != self._reference:
+                        add_coefficient(coefficients, self._angle_columns[branch.from_bus_id], -susceptance / self._angle_scale)
+                    if branch.to_bus_id != self._reference:
+                        add_coefficient(coefficients, self._angle_columns[branch.to_bus_id], susceptance / self._angle_scale)
+                elif branch.to_bus_id == bus_id:
+                    if branch.to_bus_id != self._reference:
+                        add_coefficient(coefficients, self._angle_columns[branch.to_bus_id], -susceptance / self._angle_scale)
+                    if branch.from_bus_id != self._reference:
+                        add_coefficient(coefficients, self._angle_columns[branch.from_bus_id], susceptance / self._angle_scale)
+            self._highs.addRow(
+                0.0,
+                0.0,
+                len(coefficients),
+                list(coefficients),
+                list(coefficients.values()),
+            )
+            self._balance_row_indices[bus_id] = len(self._balance_row_indices)
+
+        for branch in self._branches:
+            coefficients: dict[int, float] = {}
+            susceptance = branch.susceptance_pu * self._base_mva
+            if branch.from_bus_id != self._reference:
+                add_coefficient(coefficients, self._angle_columns[branch.from_bus_id], susceptance / self._angle_scale)
+            if branch.to_bus_id != self._reference:
+                add_coefficient(coefficients, self._angle_columns[branch.to_bus_id], -susceptance / self._angle_scale)
+            self._highs.addRow(
+                -branch.thermal_limit_mw,
+                branch.thermal_limit_mw,
+                len(coefficients),
+                list(coefficients),
+                list(coefficients.values()),
+            )
+
+    def solve(
+        self,
+        buses: tuple[Bus, ...],
+        fixed_injection_mw_by_bus: Mapping[str, float] | None = None,
+        *,
+        return_result: bool = True,
+    ) -> DCOPFResult | str:
+        if tuple(bus.bus_id for bus in buses) != self._bus_order:
+            raise ValueError("topology inputs must match the reusable model")
+        if any(not math.isfinite(bus.demand_mw) or bus.demand_mw < 0 for bus in buses):
+            raise ValueError("invalid demand in reusable DCOPF solve")
+        injections = dict(fixed_injection_mw_by_bus or {})
+        if set(injections) - set(self._bus_order):
+            raise ValueError("fixed injection references an unknown bus")
+        if any(not math.isfinite(value) for value in injections.values()):
+            raise ValueError("fixed injections must be finite")
+        for bus in buses:
+            rhs = bus.demand_mw - injections.get(bus.bus_id, 0.0)
+            self._highs.changeRowBounds(self._balance_row_indices[bus.bus_id], rhs, rhs)
+
+        self._highs.run()
+        model_status = self._highs.getModelStatus()
+        _Highs, HighsModelStatus, _HighsVarType, _highs_inf = _highs()
+        if model_status == getattr(HighsModelStatus, "kInfeasible", None):
+            raise DCOPFInfeasible(f"DCOPF physically infeasible: {model_status}")
+        if model_status != HighsModelStatus.kOptimal:
+            raise DCOPFUnresolved(f"DCOPF solver unresolved: {model_status}")
+        if not return_result:
+            return "optimal"
+
+        solution = self._highs.getSolution()
+
+        def value(variable: object) -> float:
+            return float(solution.col_value[int(variable.index)])
+
+        generation = {
+            generator_id: round(value(variable), 10)
+            for generator_id, variable in self._generator_columns.items()
+        }
+        raw_angles = {self._reference: 0.0}
+        raw_angles.update({
+            bus_id: value(variable) / self._angle_scale
+            for bus_id, variable in self._angle_columns.items()
+            if bus_id != self._reference
+        })
+        angles = {bus_id: round(angle, 10) for bus_id, angle in raw_angles.items()}
+        flows = {
+            branch.branch_id: round(
+                branch.susceptance_pu * self._base_mva
+                * (raw_angles[branch.from_bus_id] - raw_angles[branch.to_bus_id]),
+                10,
+            )
+            for branch in self._branches
+        }
+        balance_duals = {
+            bus_id: round(self._highs.getSolution().row_dual[row_index], 10)
+            for bus_id, row_index in self._balance_row_indices.items()
+        }
+        return DCOPFResult(
+            status="optimal",
+            objective_cost=round(float(self._highs.getObjectiveValue()), 10),
+            generation_mw=generation,
+            angle_by_bus=angles,
+            flow_mw_by_branch=flows,
+            balance_dual_by_bus=balance_duals,
+        )
+
+
 def solve_dcopf(
     *,
     buses: tuple[Bus, ...],
