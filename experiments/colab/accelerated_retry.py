@@ -40,6 +40,9 @@ from tools.activsg2000.dcopf import (
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SCENARIO_ROOT = ROOT / "data/processed/activsg2000_scenarios_v1"
 HORIZON_ARTIFACTS = {
+    24: DEFAULT_SCENARIO_ROOT / "2028/jan_jun",
+    48: DEFAULT_SCENARIO_ROOT / "2028/jan_jun",
+    168: DEFAULT_SCENARIO_ROOT / "2028/jan_jun",
     720: DEFAULT_SCENARIO_ROOT / "2028/jan_jun",
     4368: DEFAULT_SCENARIO_ROOT / "2028/jan_jun",
     4416: DEFAULT_SCENARIO_ROOT / "2027/jul_dec",
@@ -206,7 +209,7 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, default=ROOT / "experiments/colab/results")
     parser.add_argument(
         "--horizons", nargs="+", type=int, default=(720, 4368, 4416),
-        choices=(720, 4368, 4416),
+        choices=(24, 48, 168, 720, 4368, 4416),
     )
     parser.add_argument("--storage", action="store_true", help="also run the storage-coupled LP")
     args = parser.parse_args()
