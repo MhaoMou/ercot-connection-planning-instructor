@@ -69,3 +69,40 @@ def test_half_year_rules_record_storage_provenance_and_generation_method():
         "economic_profile_json": "economic_profile.json",
         "manifest": "economic_profile_manifest.json",
     }
+
+
+@pytest.mark.parametrize("round_name", ["jan_jun", "jul_dec"])
+def test_active_rule_metadata_matches_generator_and_scenario_manifests(round_name: str):
+    year = 2028
+    active_rules_path = ROOT / "data" / "teaching" / f"dispatch_scoring_rules_{round_name}_v1.json"
+    block_manifest_path = (
+        ROOT
+        / "data"
+        / "processed"
+        / "activsg2000_scenarios_v1"
+        / str(year)
+        / round_name
+        / "manifest.json"
+    )
+    package_manifest_path = (
+        ROOT / "data" / "processed" / "activsg2000_scenarios_v1" / "manifest.json"
+    )
+
+    generated = create_half_year_scoring_rules.build_rules_for_year_season(
+        year=year,
+        round_name=round_name,
+    )
+    active_rules = json.loads(active_rules_path.read_text(encoding="utf-8"))
+    block_manifest = json.loads(block_manifest_path.read_text(encoding="utf-8"))
+    package_manifest = json.loads(package_manifest_path.read_text(encoding="utf-8"))
+
+    assert generated == active_rules
+    assert generated["status"] == package_manifest["validation"]["release_status"]
+
+    provenance = generated["time_step_hours_provenance"]
+    assert provenance["calendar_year"] == block_manifest["year"] == year
+    assert provenance["calendar_block"] == round_name
+    assert provenance["horizon_hours"] == block_manifest["horizon"]
+    assert block_manifest["block"] == f"{year}-{round_name}"
+    assert package_manifest["blocks"][block_manifest["block"]]["horizon"] == block_manifest["horizon"]
+    assert package_manifest["blocks"][block_manifest["block"]]["calendar_block"] == round_name

@@ -16,12 +16,18 @@ TEAM_GENERATOR_COST_CURVE = (
     (0.50, 100.0),
     (0.25, 160.0),
 )
+DEFAULT_RULE_STATUS = "blocked_pending_highspy_validation"
 
 
-def build_rules(*, label: str, horizon: int) -> dict[str, object]:
+def build_rules(
+    *,
+    label: str,
+    horizon: int,
+    status: str = DEFAULT_RULE_STATUS,
+) -> dict[str, object]:
     return {
         "rules_version": f"dispatch-scoring-{label}-v1",
-        "status": "instructor_review_required",
+        "status": status,
         "description": (
             "Literal one-hour scoring rules for the ACTIVSg2000 dispatch game. "
             "The AI-intensive IT-service value is an explicit full-horizon "
