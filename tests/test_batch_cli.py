@@ -451,7 +451,29 @@ def test_classroom_command_runs_all_six_rounds_and_writes_public_summary(
     seen = {}
 
     class _Result:
-        submissions = ()
+        submissions = tuple(
+            SimpleNamespace(
+                round_key=round_key,
+                week_id=f"week-{index // 2 + 1}",
+                submission_number=index % 2 + 1,
+                feedback_only=index < 2,
+                scored=index >= 2 and index % 2 == 1,
+                evaluation=SimpleNamespace(
+                    dispatch=SimpleNamespace(periods=()),
+                    source_period_indices=(),
+                ),
+            )
+            for index, round_key in enumerate(
+                (
+                    "2027_jan_jun",
+                    "2027_jul_dec",
+                    "2028_jan_jun",
+                    "2028_jul_dec",
+                    "2029_jan_jun",
+                    "2029_jul_dec",
+                )
+            )
+        )
 
         def to_public_dict(self):
             return {
@@ -471,6 +493,7 @@ def test_classroom_command_runs_all_six_rounds_and_writes_public_summary(
         lambda *args, **kwargs: SimpleNamespace(),
     )
     monkeypatch.setattr(batch_cli, "evaluate_classroom", fake_evaluate_classroom)
+    monkeypatch.setattr(batch_cli, "write_classroom_outputs", lambda *args, **kwargs: None)
     output_dir = tmp_path / "classroom-output"
     assert main(
         [
@@ -496,6 +519,77 @@ def test_classroom_command_runs_all_six_rounds_and_writes_public_summary(
     assert payload["submissions"][0]["round_key"] == "2027_jan_jun"
     assert "plans" not in payload
     assert "summary: 6 half-year submissions" in capsys.readouterr().out
+
+
+def test_classroom_cli_writes_only_resumed_suffix(tmp_path, monkeypatch, capsys):
+    round_keys = (
+        "2027_jan_jun",
+        "2027_jul_dec",
+        "2028_jan_jun",
+        "2028_jul_dec",
+        "2029_jan_jun",
+        "2029_jul_dec",
+    )
+    round_inputs = tuple(
+        batch_cli.ClassroomRoundInput(
+            round_key=round_key,
+            submissions=tmp_path / f"submissions-{index}",
+            artifact_dir=tmp_path / f"artifact-{index}",
+            horizon=1,
+            rules=SimpleNamespace(),
+        )
+        for index, round_key in enumerate(round_keys)
+    )
+    round_result = SimpleNamespace(
+        round_key="2027_jul_dec",
+        week_id="week-1",
+        submission_number=2,
+        feedback_only=True,
+        scored=False,
+        evaluation=SimpleNamespace(
+            dispatch=SimpleNamespace(periods=(SimpleNamespace(period_index=0),)),
+            source_period_indices=(),
+        ),
+    )
+    classroom_result = SimpleNamespace(
+        submissions=(round_result,),
+        to_public_dict=lambda: {
+            "submissions": [{"round_key": "2027_jul_dec", "team_results": []}],
+            "weekly_rankings": {},
+            "final_rankings": [],
+            "state_metadata": {},
+        },
+    )
+    writes = []
+
+    monkeypatch.setattr(batch_cli, "_classroom_round_inputs", lambda path: round_inputs)
+    monkeypatch.setattr(
+        batch_cli,
+        "evaluate_classroom",
+        lambda **kwargs: classroom_result,
+    )
+    monkeypatch.setattr(
+        batch_cli,
+        "write_classroom_outputs",
+        lambda evaluation, output_dir, **kwargs: writes.append(
+            (Path(output_dir), kwargs["scenario_version"])
+        ),
+    )
+
+    assert main(
+        [
+            "classroom",
+            "--manifest",
+            str(tmp_path / "classroom.json"),
+            "--output-dir",
+            str(tmp_path / "classroom-output"),
+        ]
+    ) == 0
+
+    assert writes == [
+        (tmp_path / "classroom-output" / "week-1" / "submission-2", "artifact-1")
+    ]
+    assert "summary: 1 half-year submission" in capsys.readouterr().out
 
 
 def test_batch_does_not_use_generator_catalog_as_submission_registry(tmp_path, capsys):

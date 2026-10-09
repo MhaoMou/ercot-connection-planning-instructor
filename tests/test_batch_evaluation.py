@@ -1722,6 +1722,57 @@ def test_classroom_outputs_are_aggregate_shared_and_team_private(tmp_path, monke
         assert all(key not in path.read_text(encoding="utf-8") for key in forbidden_keys)
 
 
+def test_classroom_outputs_replace_only_known_namespace(tmp_path, monkeypatch):
+    first = tmp_path / "team-a.csv"
+    second = tmp_path / "team-b.csv"
+    _write_submission(first, "team-a")
+    _write_submission(second, "team-b")
+
+    result = _evaluate_paths(
+        tmp_path,
+        monkeypatch,
+        (first, second),
+        lambda _artifact_dir, plans, *, period_indices: _fake_dispatch(
+            tuple(sorted(plan.team_id for plan in plans)),
+            period_indices=period_indices,
+        ),
+    )
+    output_dir = tmp_path / "classroom-output"
+    stale_files = (
+        "evaluation.json",
+        "evaluation_sha256.txt",
+        "leaderboard.csv",
+        "submission_manifest.csv",
+        "dispatch/old.json",
+        "diagnostics/old.json",
+        "shared/stale.json",
+        "teams/team-old/summary.json",
+    )
+    for relative_path in stale_files:
+        stale_path = output_dir / relative_path
+        stale_path.parent.mkdir(parents=True, exist_ok=True)
+        stale_path.write_text("stale", encoding="utf-8")
+    keep_path = output_dir / "keep.txt"
+    keep_path.write_text("user-owned", encoding="utf-8")
+
+    batch_evaluation.write_classroom_outputs(
+        result,
+        output_dir,
+        week_id="week-2",
+        submission_number=2,
+        feedback_only=False,
+        scored=True,
+        scenario_version="scenario-v1",
+        evaluator_version="evaluator-v1",
+        period_indices=(0,),
+    )
+
+    assert all(not (output_dir / relative_path).exists() for relative_path in stale_files)
+    assert (output_dir / "shared" / "summary.json").exists()
+    assert tuple((output_dir / "teams").glob("*/summary.json"))
+    assert keep_path.read_text(encoding="utf-8") == "user-owned"
+
+
 def test_write_batch_outputs_is_byte_deterministic_across_repeat_runs(tmp_path, monkeypatch):
     first = tmp_path / "team-a.csv"
     second = tmp_path / "team-b.csv"

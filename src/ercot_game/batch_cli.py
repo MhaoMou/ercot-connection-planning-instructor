@@ -255,8 +255,16 @@ def _run_classroom(args: argparse.Namespace) -> int:
     )
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    round_inputs_by_key = {item.round_key: item for item in round_inputs}
+    if len(round_inputs_by_key) != len(round_inputs):
+        raise ValueError("classroom manifest contains duplicate round_key values")
     round_output_dirs: list[str] = []
-    for round_input, round_result in zip(round_inputs, result.submissions):
+    for round_result in result.submissions:
+        round_input = round_inputs_by_key.get(round_result.round_key)
+        if round_input is None:
+            raise ValueError(
+                f"classroom evaluation returned unknown round {round_result.round_key}"
+            )
         dispatch = getattr(round_result.evaluation, "dispatch", None)
         periods = tuple(getattr(dispatch, "periods", ())) if dispatch is not None else ()
         period_indices = tuple(
@@ -289,7 +297,9 @@ def _run_classroom(args: argparse.Namespace) -> int:
         encoding="utf-8",
     )
     print(f"output directory: {output_dir.resolve()}")
-    print("summary: 6 half-year submissions")
+    processed_count = len(result.submissions)
+    submission_label = "submission" if processed_count == 1 else "submissions"
+    print(f"summary: {processed_count} half-year {submission_label}")
     return 0
 
 

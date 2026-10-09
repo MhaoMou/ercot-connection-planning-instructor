@@ -12,6 +12,7 @@ from pathlib import Path
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 import math
+import shutil
 from typing import Any, TYPE_CHECKING, NoReturn
 
 from .csv_submission import (
@@ -2453,6 +2454,32 @@ def _remove_tracked_generated_files(root: Path) -> None:
             path.unlink()
 
 
+_CLASSROOM_OUTPUT_FILES = (
+    "leaderboard.csv",
+    "submission_manifest.csv",
+    "evaluation.json",
+    "evaluation_sha256.txt",
+)
+_CLASSROOM_OUTPUT_DIRECTORIES = (
+    "dispatch",
+    "diagnostics",
+    "shared",
+    "teams",
+)
+
+
+def _remove_known_output_path(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
+
+
+def _clear_classroom_output_namespace(root: Path) -> None:
+    for relative_path in _CLASSROOM_OUTPUT_FILES + _CLASSROOM_OUTPUT_DIRECTORIES:
+        _remove_known_output_path(root / relative_path)
+
+
 def write_batch_outputs(
     evaluation: BatchEvaluation,
     output_dir: str | Path,
@@ -2706,6 +2733,8 @@ def write_classroom_outputs(
     _validate_period_mapping(tuple(period_indices), source_period_indices)
 
     root = Path(output_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    _clear_classroom_output_namespace(root)
     shared_dir = root / "shared"
     teams_dir = root / "teams"
     shared_dir.mkdir(parents=True, exist_ok=True)

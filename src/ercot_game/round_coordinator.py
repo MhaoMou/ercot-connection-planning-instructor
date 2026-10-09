@@ -344,6 +344,8 @@ def evaluate_classroom(
     A caller may supply all six rounds or a prefix when resuming an interrupted
     classroom run.  Each round is committed through :func:`evaluate_round`,
     so a failed round cannot advance the state or expose a partial ranking.
+    Persisted completed rounds are skipped and are not reconstructed in the
+    returned result; a complete persisted state returns an empty result.
     """
     round_inputs = tuple(rounds)
     if not round_inputs or len(round_inputs) > len(RELEASED_ROUND_SEQUENCE):
@@ -355,8 +357,23 @@ def evaluate_classroom(
             "classroom rounds must be a contiguous prefix of the released six-round schedule"
         )
 
+    store = GameStateStore(state_path)
+    try:
+        loaded_state = store.load() if Path(state_path).exists() else GameState.new()
+    except FileNotFoundError:
+        loaded_state = GameState.new()
+
+    pending_inputs = round_inputs[len(loaded_state.completed_rounds):]
+    if not pending_inputs:
+        return ClassroomEvaluationResult(
+            submissions=(),
+            weekly_rankings=(),
+            final_rankings=(),
+            state=loaded_state,
+        )
+
     results: list[RoundEvaluationResult] = []
-    for item in round_inputs:
+    for item in pending_inputs:
         results.append(
             evaluate_round(
                 state_path=state_path,

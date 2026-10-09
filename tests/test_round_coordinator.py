@@ -914,6 +914,105 @@ def test_classroom_coordinator_evaluates_all_six_rounds_and_ranks_only_scored_we
     assert result.state.next_round_key is None
 
 
+def test_classroom_resume_starts_at_persisted_next_round_without_replay(tmp_path) -> None:
+    state_path = tmp_path / "classroom-state.json"
+    round_keys = (
+        "2027_jan_jun",
+        "2027_jul_dec",
+        "2028_jan_jun",
+        "2028_jul_dec",
+        "2029_jan_jun",
+        "2029_jul_dec",
+    )
+    rounds = tuple(
+        ClassroomRoundInput(
+            round_key=round_key,
+            submissions=tmp_path / f"submissions-{index}",
+            artifact_dir=tmp_path / "artifacts",
+            horizon=1,
+            rules=object(),
+        )
+        for index, round_key in enumerate(round_keys)
+    )
+    seen: list[str] = []
+    calls = 0
+
+    def interrupted_evaluator(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        seen.append(Path(args[0]).name)
+        if calls == 2:
+            raise RuntimeError("simulated interruption")
+        return _UsableEvaluation()
+
+    with pytest.raises(RuntimeError, match="simulated interruption"):
+        evaluate_classroom(
+            state_path=state_path,
+            rounds=rounds,
+            plan_loader=_loader((_plan(),)),
+            evaluator=interrupted_evaluator,
+        )
+
+    resumed: list[str] = []
+
+    def resumed_evaluator(*args, **kwargs):
+        resumed.append(Path(args[0]).name)
+        return _UsableEvaluation()
+
+    result = evaluate_classroom(
+        state_path=state_path,
+        rounds=rounds,
+        plan_loader=_loader((_plan(),)),
+        evaluator=resumed_evaluator,
+    )
+
+    assert seen == ["submissions-0", "submissions-1"]
+    assert resumed == [f"submissions-{index}" for index in range(1, 6)]
+    assert result.state.next_round_key is None
+
+
+def test_classroom_resume_is_idempotent_after_all_rounds_are_complete(tmp_path) -> None:
+    state_path = tmp_path / "classroom-state.json"
+    round_keys = (
+        "2027_jan_jun",
+        "2027_jul_dec",
+        "2028_jan_jun",
+        "2028_jul_dec",
+        "2029_jan_jun",
+        "2029_jul_dec",
+    )
+    rounds = tuple(
+        ClassroomRoundInput(
+            round_key=round_key,
+            submissions=tmp_path / round_key,
+            artifact_dir=tmp_path / "artifacts",
+            horizon=1,
+            rules=object(),
+        )
+        for round_key in round_keys
+    )
+    evaluate_classroom(
+        state_path=state_path,
+        rounds=rounds,
+        plan_loader=_loader((_plan(),)),
+        evaluator=lambda *args, **kwargs: _UsableEvaluation(),
+    )
+    complete_state = GameStateStore(state_path).load()
+
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("completed classroom state was replayed")
+
+    result = evaluate_classroom(
+        state_path=state_path,
+        rounds=rounds,
+        plan_loader=_loader((_plan(),)),
+        evaluator=must_not_run,
+    )
+
+    assert result.submissions == ()
+    assert result.state == complete_state
+
+
 def test_classroom_capital_scope_charges_assets_once_per_weekly_match(tmp_path) -> None:
     state_path = tmp_path / "classroom-state.json"
     round_keys = (
