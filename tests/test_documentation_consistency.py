@@ -25,6 +25,10 @@ ACTIVE_SETTLEMENT_DOCS = (
     REPOSITORY_ROOT / "docs" / "student_manual" / "main.tex",
     REPOSITORY_ROOT / "docs" / "instructor_manual" / "main.tex",
 )
+ACTIVE_DISPATCH_RULES = (
+    REPOSITORY_ROOT / "data" / "teaching" / "dispatch_scoring_rules_jan_jun_v1.json",
+    REPOSITORY_ROOT / "data" / "teaching" / "dispatch_scoring_rules_jul_dec_v1.json",
+)
 
 
 @pytest.mark.parametrize("path", PRODUCTION_BATCH_DOCS)
@@ -130,3 +134,68 @@ def test_calibration_note_labels_superseded_values_and_points_to_active_economic
         containing = [paragraph.lower() for paragraph in paragraphs if value.lower() in paragraph.lower()]
         assert containing
         assert all("historical" in paragraph and "superseded" in paragraph for paragraph in containing)
+
+
+def test_active_dispatch_rules_are_pending_highspy_validation_without_economic_drift():
+    expected_horizons = {4368, 4416}
+
+    for path in ACTIVE_DISPATCH_RULES:
+        rules = json.loads(path.read_text(encoding="utf-8"))
+
+        assert rules["status"] == "blocked_pending_highspy_validation"
+        assert rules["status"] != "instructor_review_required"
+        assert len(rules["it_value_per_mwh"]) in expected_horizons
+        assert set(rules["it_value_per_mwh"]) == {1500.0}
+        assert rules["generator_capital_cost_per_mw"] == 1_300_000.0
+        assert rules["site_cost_per_mw"] == 20_000_000.0
+        assert rules["default_generator_cost_per_mwh"] == 100.0
+        assert rules["storage_capital_cost_per_mw"] == 350_000.0
+        assert rules["storage_capital_cost_per_mwh"] == 200_000.0
+        assert [
+            (item["capacity_fraction"], item["marginal_cost_per_mwh"])
+            for item in rules["team_generator_cost_curve"]
+        ] == [(0.25, 60.0), (0.5, 100.0), (0.25, 160.0)]
+
+
+def test_release_docs_distinguish_canonical_source_control_from_validation():
+    guide = (REPOSITORY_ROOT / "docs" / "INSTRUCTOR_REPOSITORY_GUIDE.md").read_text(
+        encoding="utf-8"
+    )
+    normalized_guide = " ".join(guide.lower().split())
+    package_lines = [
+        line.lower()
+        for line in guide.splitlines()
+        if "scenario package" in line.lower() or "scenario block" in line.lower()
+    ]
+
+    assert "canonical" in normalized_guide
+    assert "source-controlled" in normalized_guide
+    assert "release validation is pending" in normalized_guide
+    assert "not validated" in normalized_guide
+    assert package_lines
+    assert all("validated" not in line for line in package_lines)
+
+    calibration = (
+        REPOSITORY_ROOT / "docs" / "ERCOT_DISPATCH_SCORING_CALIBRATION.md"
+    ).read_text(encoding="utf-8")
+    normalized_calibration = " ".join(calibration.lower().split())
+    assert "canonical checked-in calibration" in normalized_calibration
+    assert "release validation pending" in normalized_calibration
+    assert "highspy" in normalized_calibration
+    assert "complete highs-backed validation of all 26,304 hourly states" in normalized_calibration
+    assert "instructor release approval" in normalized_calibration
+
+
+def test_student_manual_points_to_checked_in_profiles_and_instructor_control():
+    text = (REPOSITORY_ROOT / "docs" / "student_manual" / "README.md").read_text(
+        encoding="utf-8"
+    )
+    lowered = text.lower()
+
+    assert "data/teaching/dispatch_scoring_rules_" in text
+    assert "data/processed/activsg2000_scenarios_v1/" in text
+    assert "canonical" in lowered
+    assert "instructor-controlled" in lowered
+    assert "hourly price/value vectors" not in lowered
+    assert "storage-cost coefficients before" not in lowered
+    assert "manually update" not in lowered

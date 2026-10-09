@@ -3,17 +3,21 @@
 This repository contains the current instructor-side implementation of the
 ACTIVSg2000-based data-center connection-planning game. Its active
 responsibility is to validate student CSV files, run joint DCOPF dispatch on a
-validated scenario block, and produce auditable team scores.
+release-approved scenario block, and produce auditable team scores.
 
 Full six-block/hour DCOPF validation is currently pending and unverified because
 the optional `highspy` dependency is unavailable in this environment. The
-checked-in manifests are fail-closed and must not be described as passed until a
-HiGHS-backed validation run succeeds.
+checked-in manifests are fail-closed and must not be described as passed or
+validated until a HiGHS-backed validation run succeeds.
+
+The scenario package is canonical and source-controlled, but release validation
+is pending. It is not validated for release until the complete HiGHS-backed
+validation finishes successfully.
 
 ## Production boundary
 
 ```text
-Validated ACTIVSg2000 scenario block (~2,000 buses)
+Canonical ACTIVSg2000 scenario block; release validation pending (~2,000 buses)
         -> canonical seven-column site-level student CSV
         -> catalog validation (optional checker context)
         -> joint hourly DCOPF
@@ -28,7 +32,8 @@ The retired browser/practice implementation is recoverable under
 
 - `src/ercot_game/`: canonical CSV and batch-evaluation code.
 - `tools/activsg2000/`: scenario construction, validation, DCOPF, and dispatch adapter.
-- `data/processed/activsg2000_scenarios_v1/`: validated three-year scenario package.
+- `data/processed/activsg2000_scenarios_v1/`: canonical, source-controlled
+  three-year scenario package; release validation pending.
 - `data/teaching/`: January--June and July--December scoring rules.
 - `scripts/check_submission.py`: student-file validation entry point.
 - `scripts/create_meaningful_test_submissions.py`: **legacy/historical complete-horizon

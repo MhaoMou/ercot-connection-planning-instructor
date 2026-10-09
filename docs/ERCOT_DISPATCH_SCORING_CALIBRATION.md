@@ -1,6 +1,7 @@
 # Dispatch-game scoring calibration
 
-**Status:** Provisional calibration package for instructor review.
+**Status:** Canonical checked-in calibration; release validation pending because
+`highspy` is unavailable.
 
 This document separates parameters that can be anchored to public engineering or
 market data from parameters that are intentionally instructional. It applies to
@@ -149,6 +150,16 @@ The following cannot be responsibly inferred as a single market number:
 LBNL studies show that data-center demand flexibility and large-load tariffs
 are real planning considerations, but they do not establish one universal
 `$/MWh` IT-service value. See [LBNL data-center demand-response field study](https://eta.lbl.gov/publications/demand-response-opportunities-and) and [LBNL large-load rate-design brief](https://datacenters.lbl.gov/publications/electricity-rate-designs-large-loads).
+
+## Release approval dependency
+
+The calibration and active scoring rules are canonical checked-in,
+source-controlled inputs. Instructor release approval is blocked until
+`highspy` is available and a complete HiGHS-backed validation of all 26,304
+hourly states succeeds. This dependency is separate from reviewing the
+calibration choices: instructor approval must follow successful solver-backed
+validation and confirm the release-gate decisions below. Until then, the
+checked-in package remains pending validation and is not release-approved.
 
 ## Release gate
 

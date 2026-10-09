@@ -14,9 +14,13 @@ references.bib # cited sources
 ```
 
 The manual uses Times-compatible text/math fonts and GitHub-style `listings`
-blocks for CSV examples and technical identifiers. The instructor should
-update the round-specific hourly price/value vectors and storage-cost
-coefficients before distributing a final release.
+blocks for CSV examples and technical identifiers. The checked-in canonical
+profiles and rules are stored under
+`data/processed/activsg2000_scenarios_v1/` and
+`data/teaching/dispatch_scoring_rules_*.json`. Students should use those
+repository-controlled inputs as provided. Only instructors may change the
+profiles or rules in the repository, and any instructor-controlled change must
+go through the normal release-validation process.
 
 The current submission is a canonical site-level CSV: exactly one row per site
 and no hourly horizon rows. Students can check a submission before uploading it
