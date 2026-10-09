@@ -33,7 +33,6 @@ from tools.activsg2000.dcopf import (
     ReusableDCOPFModel,
     StorageDispatchAsset,
     load_prepared_artifact,
-    solve_dcopf_horizon,
 )
 
 
@@ -177,7 +176,8 @@ def solve_storage_lp(root: Path, horizon: int) -> dict:
         energy_mwh=4.0,
         initial_soc_mwh=2.0,
     )
-    result = solve_dcopf_horizon(
+    build_started = time.perf_counter()
+    model = ReusableDCOPFHorizonModel(
         periods=tuple(periods),
         storage_assets=(storage,),
         fixed_injection_mw_by_period=tuple(injections),
@@ -185,7 +185,19 @@ def solve_storage_lp(root: Path, horizon: int) -> dict:
         time_step_hours=1.0,
         base_mva=100.0,
     )
-    return {"hourly_times_s": None, "statuses": [result.status]}
+    build_time = time.perf_counter() - build_started
+    solve_started = time.perf_counter()
+    result = model.solve(
+        fixed_injection_mw_by_period=tuple(injections),
+        owner_load_mw_by_team={"benchmark-team": tuple(owner_load)},
+    )
+    solve_time = time.perf_counter() - solve_started
+    return {
+        "hourly_times_s": None,
+        "statuses": [result.status],
+        "model_build_time_s": build_time,
+        "model_reuse_solve_time_s": solve_time,
+    }
 
 
 def run_case(root: Path, horizon: int, *, storage: bool = False) -> dict:
@@ -215,6 +227,8 @@ def run_case(root: Path, horizon: int, *, storage: bool = False) -> dict:
         "process_rss_after_mb": after_mb,
         "error_type": error["type"] if error else None,
         "error_message": error["message"] if error else None,
+        "model_build_time_s": payload.get("model_build_time_s"),
+        "model_reuse_solve_time_s": payload.get("model_reuse_solve_time_s"),
     }
 
 

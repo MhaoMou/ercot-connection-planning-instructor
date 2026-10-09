@@ -665,6 +665,205 @@ def solve_dcopf(
     )
 
 
+class _ReusableHorizonModelState:
+    """Built HiGHS horizon model whose mutable rows can be updated and reused."""
+
+    def __init__(
+        self,
+        *,
+        highs: object,
+        highs_model_status: object,
+        highs_inf: float,
+        model_inputs: Sequence[tuple[dict[str, Bus], str, tuple[Generator, ...], tuple[Branch, ...], dict[str, float]]],
+        storage_assets: tuple[StorageDispatchAsset, ...],
+        owner_loads: Mapping[str, tuple[Mapping[str, float], ...]],
+        base_mva: float,
+        angle_scale: float,
+        generator_columns: Mapping[tuple[int, str], object],
+        angle_columns: Mapping[tuple[int, str], object],
+        storage_power_columns: Mapping[tuple[int, str], object],
+        soc_columns: Mapping[tuple[int, str], object],
+        balance_row_indices: Mapping[tuple[int, str], int],
+        owner_load_row_indices: Mapping[tuple[int, str, str], int],
+    ) -> None:
+        self._highs = highs
+        self._highs_model_status = highs_model_status
+        self._highs_inf = highs_inf
+        self._model_inputs = tuple(model_inputs)
+        self._storage_assets = storage_assets
+        self._owner_loads = owner_loads
+        self._base_mva = base_mva
+        self._angle_scale = angle_scale
+        self._generator_columns = generator_columns
+        self._angle_columns = angle_columns
+        self._storage_power_columns = storage_power_columns
+        self._soc_columns = soc_columns
+        self._balance_row_indices = balance_row_indices
+        self._owner_load_row_indices = owner_load_row_indices
+
+    def _validate_solve_inputs(
+        self,
+        fixed_injections: Sequence[Mapping[str, float]],
+        owner_loads: Mapping[str, Sequence[Mapping[str, float]]] | None,
+    ) -> tuple[tuple[Mapping[str, float], ...], dict[str, tuple[Mapping[str, float], ...]]]:
+        period_count = len(self._model_inputs)
+        fixed = tuple(fixed_injections)
+        if len(fixed) != period_count or any(not isinstance(values, Mapping) for values in fixed):
+            raise ValueError("fixed injections must match the number of periods and contain mappings")
+        normalized_fixed: list[Mapping[str, float]] = []
+        for period_index, values in enumerate(fixed):
+            bus_ids = set(self._model_inputs[period_index][0])
+            if set(values) - bus_ids:
+                raise ValueError("fixed injection references an unknown bus")
+            if any(not _is_finite_real(value) for value in values.values()):
+                raise ValueError("fixed injections must be finite")
+            normalized_fixed.append(dict(values))
+
+        if owner_loads is None:
+            normalized_owner = dict(self._owner_loads)
+        else:
+            if set(owner_loads) != set(self._owner_loads):
+                raise ValueError("owner load teams must match the reusable model")
+            normalized_owner = {}
+            for team_id, values in owner_loads.items():
+                values = tuple(values)
+                if len(values) != period_count:
+                    raise ValueError(f"owner load for {team_id} must match the number of periods")
+                checked_periods: list[Mapping[str, float]] = []
+                for period_index, period_load in enumerate(values):
+                    if not isinstance(period_load, Mapping):
+                        raise ValueError(f"owner load for {team_id} must contain mappings")
+                    bus_ids = set(self._model_inputs[period_index][0])
+                    if set(period_load) - bus_ids:
+                        raise ValueError(f"owner load for {team_id} references an unknown bus")
+                    if any(not _is_finite_real(value) or value < 0 for value in period_load.values()):
+                        raise ValueError(f"owner load for {team_id} must be finite and non-negative")
+                    checked_periods.append(dict(period_load))
+                normalized_owner[team_id] = tuple(checked_periods)
+        return tuple(normalized_fixed), normalized_owner
+
+    def solve(
+        self,
+        *,
+        fixed_injection_mw_by_period: Sequence[Mapping[str, float]] | None = None,
+        owner_load_mw_by_team: Mapping[str, Sequence[Mapping[str, float]]] | None = None,
+    ) -> DCOPFHorizonResult:
+        fixed, owner_loads = self._validate_solve_inputs(
+            fixed_injection_mw_by_period or ({},) * len(self._model_inputs),
+            owner_load_mw_by_team,
+        )
+        for period_index, (bus_by_id, _reference, _generators, _branches, _initial_injections) in enumerate(self._model_inputs):
+            for bus_id, bus in bus_by_id.items():
+                rhs = bus.demand_mw - fixed[period_index].get(bus_id, 0.0)
+                row_index = self._balance_row_indices[(period_index, bus_id)]
+                self._highs.changeRowBounds(row_index, rhs, rhs)
+        for (team_id, bus_id, period_index), row_index in self._owner_load_row_indices.items():
+            upper = owner_loads[team_id][period_index].get(bus_id, 0.0)
+            self._highs.changeRowBounds(row_index, -self._highs_inf, upper)
+
+        self._highs.run()
+        model_status = self._highs.getModelStatus()
+        if model_status == getattr(self._highs_model_status, "kInfeasible", None):
+            raise DCOPFInfeasible(f"DCOPF horizon physically infeasible: {model_status}")
+        if model_status != self._highs_model_status.kOptimal:
+            raise DCOPFUnresolved(f"DCOPF horizon solver unresolved: {model_status}")
+
+        solution = self._highs.getSolution()
+
+        def value(variable: object) -> float:
+            return float(solution.col_value[int(variable.index)])
+
+        results: list[DCOPFResult] = []
+        for period_index, (bus_by_id, reference, generators, branches, _injections) in enumerate(self._model_inputs):
+            generation = {
+                generator.generator_id: round(value(self._generator_columns[(period_index, generator.generator_id)]), 10)
+                for generator in generators
+            }
+            raw_angles = {reference: 0.0}
+            raw_angles.update({
+                bus_id: value(self._angle_columns[(period_index, bus_id)]) / self._angle_scale
+                for bus_id in bus_by_id
+                if bus_id != reference
+            })
+            angles = {bus_id: round(angle, 10) for bus_id, angle in raw_angles.items()}
+            flows = {
+                branch.branch_id: round(
+                    branch.susceptance_pu * self._base_mva
+                    * (raw_angles[branch.from_bus_id] - raw_angles[branch.to_bus_id]),
+                    10,
+                )
+                for branch in branches
+            }
+            balance_duals = {
+                bus_id: round(solution.row_dual[row_index], 10)
+                for (row_period, bus_id), row_index in self._balance_row_indices.items()
+                if row_period == period_index
+            }
+            net_power = {
+                storage.storage_id: value(self._storage_power_columns[(period_index, storage.storage_id)])
+                for storage in self._storage_assets
+            }
+            charge = {storage_id: round(max(-power, 0.0), 10) for storage_id, power in net_power.items()}
+            discharge = {storage_id: round(max(power, 0.0), 10) for storage_id, power in net_power.items()}
+            soc = {
+                storage.storage_id: round(value(self._soc_columns[(period_index, storage.storage_id)]), 10)
+                for storage in self._storage_assets
+            }
+            objective = sum(
+                generation[generator.generator_id] * generator.marginal_cost_per_mwh
+                for generator in generators
+            )
+            results.append(DCOPFResult(
+                status="optimal",
+                objective_cost=round(objective, 10),
+                generation_mw=generation,
+                angle_by_bus=angles,
+                flow_mw_by_branch=flows,
+                balance_dual_by_bus=balance_duals,
+                storage_charge_mw=charge,
+                storage_discharge_mw=discharge,
+                storage_soc_mwh=soc,
+            ))
+        return DCOPFHorizonResult(
+            status="optimal",
+            periods=tuple(results),
+            final_soc_mwh_by_storage={
+                storage.storage_id: results[-1].storage_soc_mwh[storage.storage_id]
+                for storage in self._storage_assets
+            },
+        )
+
+
+class ReusableDCOPFHorizonModel:
+    """Reusable fixed-structure horizon LP for repeated dispatch evaluations."""
+
+    def __init__(
+        self,
+        *,
+        periods,
+        storage_assets=(),
+        fixed_injection_mw_by_period=None,
+        owner_load_mw_by_team=None,
+        time_step_hours=1.0,
+        base_mva=1.0,
+    ) -> None:
+        self._state = solve_dcopf_horizon(
+            periods=periods,
+            storage_assets=storage_assets,
+            fixed_injection_mw_by_period=fixed_injection_mw_by_period,
+            owner_load_mw_by_team=owner_load_mw_by_team,
+            time_step_hours=time_step_hours,
+            base_mva=base_mva,
+            _return_model=True,
+        )
+
+    def solve(self, *, fixed_injection_mw_by_period=None, owner_load_mw_by_team=None):
+        return self._state.solve(
+            fixed_injection_mw_by_period=fixed_injection_mw_by_period,
+            owner_load_mw_by_team=owner_load_mw_by_team,
+        )
+
+
 def solve_dcopf_horizon(
     *,
     periods: Sequence[tuple[tuple[Bus, ...], tuple[Generator, ...], tuple[Branch, ...]]],
@@ -673,6 +872,7 @@ def solve_dcopf_horizon(
     owner_load_mw_by_team: Mapping[str, Sequence[Mapping[str, float]]] | None = None,
     time_step_hours: float = 1.0,
     base_mva: float = 1.0,
+    _return_model: bool = False,
 ) -> DCOPFHorizonResult:
     """Solve a coupled multi-period DCOPF with team-dedicated storage.
 
@@ -788,7 +988,7 @@ def solve_dcopf_horizon(
                 tuple(bus_by_id),
                 reference,
                 tuple(
-                    (generator.generator_id, generator.bus_id, generator.p_min_mw, generator.p_max_mw, generator.marginal_cost_per_mwh)
+                        (generator.generator_id, generator.bus_id, generator.p_min_mw, generator.p_max_mw)
                     for generator in generators
                 ),
                 tuple(
@@ -802,7 +1002,7 @@ def solve_dcopf_horizon(
                 tuple(bus.bus_id for bus in buses),
                 next((bus.bus_id for bus in buses if bus.reference), buses[0].bus_id),
                 tuple(
-                    (generator.generator_id, generator.bus_id, generator.p_min_mw, generator.p_max_mw, generator.marginal_cost_per_mwh)
+                        (generator.generator_id, generator.bus_id, generator.p_min_mw, generator.p_max_mw)
                     for generator in generators
                 ),
                 tuple(
@@ -842,6 +1042,7 @@ def solve_dcopf_horizon(
     storage_power_columns: dict[tuple[int, str], object] = {}
     soc_columns: dict[tuple[int, str], object] = {}
     balance_row_indices: dict[tuple[int, str], int] = {}
+    owner_load_row_indices: dict[tuple[str, str, int], int] = {}
 
     def add_coefficient(coefficients: dict[int, float], variable: object, value: float) -> None:
         index = int(variable.index)
@@ -907,7 +1108,7 @@ def solve_dcopf_horizon(
                         add_coefficient(coefficients, angle_columns[(period_index, branch.from_bus_id)], susceptance_mw_per_rad / angle_scale)
             rhs = bus.demand_mw - injections.get(bus_id, 0.0)
             highs.addRow(rhs, rhs, len(coefficients), list(coefficients), list(coefficients.values()))
-            balance_row_indices[(period_index, bus_id)] = len(balance_row_indices)
+            balance_row_indices[(period_index, bus_id)] = highs.getNumRow() - 1
 
         for branch in branches:
             coefficients: dict[int, float] = {}
@@ -948,6 +1149,26 @@ def solve_dcopf_horizon(
             }
             owner_load = owner_loads[team_id][period_index].get(bus_id, 0.0)
             highs.addRow(-highs_inf, owner_load, len(coefficients), list(coefficients), list(coefficients.values()))
+            owner_load_row_indices[(team_id, bus_id, period_index)] = highs.getNumRow() - 1
+
+    reusable_state = _ReusableHorizonModelState(
+        highs=highs,
+        highs_model_status=HighsModelStatus,
+        highs_inf=highs_inf,
+        model_inputs=model_inputs,
+        storage_assets=storage_assets,
+        owner_loads=owner_loads,
+        base_mva=base_mva,
+        angle_scale=angle_scale,
+        generator_columns=generator_columns,
+        angle_columns=angle_columns,
+        storage_power_columns=storage_power_columns,
+        soc_columns=soc_columns,
+        balance_row_indices=balance_row_indices,
+        owner_load_row_indices=owner_load_row_indices,
+    )
+    if _return_model:
+        return reusable_state
 
     highs.run()
     model_status = highs.getModelStatus()

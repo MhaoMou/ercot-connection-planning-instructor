@@ -9,6 +9,7 @@ from tools.activsg2000.dcopf import (
     Bus,
     DCOPFHorizonResult,
     Generator,
+    ReusableDCOPFHorizonModel,
     StorageDispatchAsset,
     solve_dcopf,
     solve_dcopf_horizon,
@@ -87,6 +88,42 @@ def test_horizon_solver_validates_repeated_topology_once(monkeypatch: pytest.Mon
 
     assert result.status == "optimal"
     assert calls == 1
+
+
+def test_reusable_horizon_model_solves_multiple_rhs_updates() -> None:
+    periods = (
+        _single_bus_period(2.0, demand=5.0),
+        _single_bus_period(2.0, demand=6.0),
+    )
+    model = ReusableDCOPFHorizonModel(
+        periods=periods,
+        fixed_injection_mw_by_period=({}, {}),
+    )
+
+    first = model.solve(fixed_injection_mw_by_period=({}, {}))
+    second = model.solve(fixed_injection_mw_by_period=({"B1": 1.0}, {"B1": 2.0}))
+
+    assert first.status == "optimal"
+    assert second.status == "optimal"
+    assert first.periods[0].generation_mw["grid"] == pytest.approx(5.0)
+    assert second.periods[0].generation_mw["grid"] == pytest.approx(4.0)
+
+
+def test_reusable_horizon_model_updates_storage_owner_load() -> None:
+    periods = (_single_bus_period(100.0, demand=4.0), _single_bus_period(1.0, demand=4.0))
+    storage = StorageDispatchAsset("store-a", "team-a", "B1", 3.0, 8.0, 4.0)
+    model = ReusableDCOPFHorizonModel(
+        periods=periods,
+        storage_assets=(storage,),
+        owner_load_mw_by_team={"team-a": ({"B1": 3.0}, {"B1": 3.0})},
+    )
+
+    result = model.solve(
+        owner_load_mw_by_team={"team-a": ({"B1": 1.0}, {"B1": 3.0})},
+    )
+
+    assert result.status == "optimal"
+    assert result.periods[0].storage_discharge_mw["store-a"] <= 1.0 + 1e-9
 
 
 def test_horizon_dcopf_dispatches_storage_and_returns_final_soc() -> None:
