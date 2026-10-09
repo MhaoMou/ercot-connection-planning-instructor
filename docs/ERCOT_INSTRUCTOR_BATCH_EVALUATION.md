@@ -1,42 +1,56 @@
 # ERCOT Instructor Batch Evaluation
 
-`ercot-game-batch` evaluates a directory of canonical site-level student CSV submissions
-against one validated ACTIVSg2000 scenario block. It writes the ranked leaderboard
-and audit artifacts to one output directory; that directory is the source of
-truth for the ranking and audit record.
+`ercot-game-batch` evaluates canonical site-level student CSV submissions
+against one ACTIVSg2000 scenario block. The Python evaluator and the selected
+scoring-rules JSON are authoritative. This guide describes the active
+instructor workflow; historical/legacy hourly fixtures are compatibility tests,
+not current student inputs.
 
-In the current repository state, full six-block/hour DCOPF validation is pending
-and unverified because `highspy` is unavailable in this environment. Do not
-treat the checked-in manifests as passed; a block must be revalidated with
-HiGHS before classroom use.
+## Release boundary and limitations
 
 The production data path is the public synthetic Texas ACTIVSg2000 system.
 Student files use source `bus_id` values from the selected block. The active
-seven-column CSV has no asset-ID columns, including no generator- or storage-ID
-columns. For positive
-site-level capacities, the evaluator assigns deterministic private asset IDs
-internally from the team and site IDs; students do not submit or invent those
-labels. This guide describes the only supported production evaluation path.
+scenario is controlled instructional data, not historical ERCOT telemetry, a
+forecast, or an official operating model.
 
-The ACTIVSg2000 topology and generator catalog are fixed. The three-year
-scenario package uses deterministic bus-level load and the static generator
-status, PMIN, and PMAX values supplied by ACTIVSg2000. These are controlled
-instructional scenarios, not historical ERCOT replays or official ERCOT
-operating forecasts.
+In this checkout, the root and block manifests report
+`validation_status: unverified_dependency` and
+`release_status: blocked_pending_highspy_validation` because `highspy` is
+unavailable. Do not treat the checked-in manifests as passed. Install
+`highspy` and complete HiGHS-backed validation of all 26,304 hourly states
+before classroom use. The Colab benchmark is separate measurement-only work:
+it requires `highspy`, `psutil`, prepared artifacts, and a compatible
+runtime. It does not change evaluator math, and no unrun or partial benchmark
+justifies shortening the official horizon.
 
-| Released year | January--June | July--December |
+## Classroom schedule
+
+There are three weekly matches and six half-year submissions:
+
+| Week | Submission 1 | Submission 2 | Ranking treatment |
+|---|---|---|---|
+| Week 1 | `2027_jan_jun` | `2027_jul_dec` | Feedback-only practice week; excluded from final ranking. |
+| Week 2 | `2028_jan_jun` | `2028_jul_dec` | Scored match; Submission 2 is ranked. |
+| Week 3 | `2029_jan_jun` | `2029_jul_dec` | Scored match; Submission 2 is ranked. |
+
+The released horizons are:
+
+| Released year | January-June | July-December |
 |---|---:|---:|
 | 2027 | 4,344 h | 4,416 h |
 | 2028 | 4,368 h | 4,416 h |
 | 2029 | 4,344 h | 4,416 h |
 
-The supported execution mode is from a source checkout. The Python runtime
-packages, scoring rules, and prepared dispatch CSVs remain repository-level
-resources and must be supplied by path.
+Within one week, Submission 1 is the first-stage plan. The coordinator carries
+accepted sites, evaluator-assigned generator and storage assets, and final
+storage SOC into Submission 2. Generator, storage, and newly built connection
+capital is charged once in that weekly match. At the start of the next week,
+the asset ledger and SOC reset. Final ranking aggregates valid scored
+Submission 2 results from Weeks 2 and 3.
 
-## Run a batch
+## Run a half-year batch
 
-For a 2027 January--June release (4,344 one-hour periods):
+For a 2027 January-June release:
 
 ```bash
 ercot-game-batch run \
@@ -50,7 +64,7 @@ ercot-game-batch run \
   --output-dir work/batch_results_jan_jun
 ```
 
-For July--December, use the matching year artifact and round:
+For July-December, use the matching year artifact and rules:
 
 ```bash
 ercot-game-batch run \
@@ -64,34 +78,24 @@ ercot-game-batch run \
   --output-dir work/batch_results_jul_dec
 ```
 
-The command requires a submission directory, prepared year-specific dispatch
-artifact, scoring-rules JSON, and output directory. The batch evaluator's
-`--year`/`--round` or `--horizon` options remain evaluator context; they do not
-describe rows that must appear in a student CSV. Student files identify
-ACTIVSg2000 source buses directly with `bus_id`, one site per data row.
-
 `--submission-number` is evaluator-side metadata, not a CSV field. It accepts
-`1` or `2` and defaults explicitly to `2` (scored evaluation). Use
-`--submission-number 1` for a practice run with no energy-purchase cost; use
-`--submission-number 2` for the scored run, which settles grid purchases at
-the locational marginal prices (LMPs) from the joint dispatch. All other active
-scoring terms still apply to Submission 1.
+`1` or `2` and defaults to `2`.
 
-`--period-indices`, when supplied, selects local scoring periods and is reserved
-for explicitly labeled smoke tests or debugging. `--source-period-offset`
-maps local periods to source-artifact rows. The output records both local
-`period_indices` and `source_period_indices`, so the calendar alignment is
-auditable.
+- `--submission-number 1` is practice and excludes energy-purchase cost while
+  retaining the other active scoring terms.
+- `--submission-number 2` settles each team's grid purchases at the
+  nonnegative LMP from that submission's joint dispatch.
+- Week 1 remains feedback-only even though its second submission uses the
+  Submission 2 settlement rule.
 
-`--workers` evaluates independent hourly DCOPF solves concurrently while
-preserving requested period order. `--projection-iterations` is a lower bound
-on the bisection precision used by fair continuous projection; the evaluator
-also evaluates the zero-service endpoint and uses a fixed tolerance, so the
-old `1/1024` service cutoff does not apply.
+The `--year`, `--round`, and `--horizon` options describe evaluator
+context. They do not describe rows that must appear in a student CSV.
+`--period-indices` is reserved for explicitly labeled smoke tests or
+debugging; official evaluation uses the full selected horizon.
 
-## CSV and resource contract
+## Canonical CSV and checker
 
-Use the active canonical site-level header:
+The active student header is exactly seven columns:
 
 ```text
 team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
@@ -99,58 +103,125 @@ team-blue,site-north,1001,40,20,10,40
 team-blue,site-south,1002,15,0,0,0
 ```
 
-Each data row is one site. The CSV contains no `period`, hourly `load_mw`,
-`submission_id`, `generator_id`, or `storage_id` columns, and no hourly horizon
-rows. Site capacities are specified in MW/MWh; the evaluator combines the
-site-level plan with the selected hourly scenario and economic artifacts. The
-evaluator derives deterministic private generator and storage IDs internally;
-the asset-ID fields in the retired hourly schema are not valid current inputs.
+Every row is one site. The file has no `period`, hourly `load_mw`,
+`submission_id`, `generator_id`, or `storage_id` columns and no hourly
+horizon rows. `bus_id` must exist in the selected block's `bus.csv`.
+Generator capacity cannot exceed connection capacity, and storage energy must
+equal four times storage power.
 
-The retired ten-column hourly schema is historical compatibility input only and
-must not be used as a current student submission. In Python, use
-`CANONICAL_CSV_COLUMNS`; `CSV_COLUMNS` and `BUS_CSV_COLUMNS` remain deprecated
-aliases to the same tuple.
+Run the student-facing checker:
 
-The dispatch model uses fixed submitted load and does not model curtailment.
-Student generators and storage are team-owned local resources and cannot serve
-another team. In prepared-artifact evaluation, storage is dispatched in one
-centralized HiGHS binary MIP: each asset has power and energy limits, a binary
-operating mode prevents simultaneous charge/discharge, and initial and
-terminal state of charge are at least `0.5 B`. Charge and discharge are MW,
-SOC is MWh, and each transition uses `time_step_hours` (one hour in the
-released scenario blocks). The legacy no-artifact compatibility path is a
-separate deterministic continuous peak-shaving schedule.
+```bash
+PYTHONPATH=src python scripts/check_submission.py \
+  --file path/to/team.csv
+```
 
-For the current classroom release, source generators use the status, `p_min_mw`,
-and nameplate `p_max_mw` values from the ACTIVSg2000 generator catalog in every
-hour. The source dataset does not provide hourly technology-specific
-availability, so the release does not apply synthetic renewable deratings.
+Add `--artifact-dir` to validate catalog bus IDs. The checker is a
+pre-submission convenience; batch evaluation remains authoritative.
 
-## Evaluation behavior
+The evaluator assigns deterministic private generator and storage asset IDs from
+the team/site identity. Students do not choose public generator IDs or storage
+IDs. The retired hourly format and files under explicitly labeled legacy
+fixture directories remain only for compatibility and reproducibility tests;
+never distribute them as active templates.
 
-Submissions are discovered deterministically from `.csv` files. A malformed
-submission is rejected in isolation and receives the configured infeasible
-score; other valid teams remain eligible for evaluation. If the joint dispatch
-is infeasible, the evaluator first applies one common fair continuous service
-fraction to all valid teams. If no projected dispatch is available, it uses
-deterministic leave-one-team-out and individual fallback behavior where
-possible. The applied competition scope and service fraction are recorded in
-the audit output.
+## Storage and dispatch contract
 
-The score includes IT value, generator operating cost, generator capital cost,
-capacity-dependent connection-site cost, and storage capital cost (power and
-energy components). Submission 1 in each weekly match is practice and excludes
-energy-purchase cost. Submission 2 settles each team's grid purchases at the
-locational marginal prices (LMPs) from that submission's joint dispatch. Storage has
-no operating-cost term. The evaluator's scoring-rules JSON is the authoritative
-source for the numerical coefficients.
+Students submit storage capacities. The grid operator schedules charge,
+discharge, and SOC in the centralized prepared HiGHS model. Each storage asset
+has:
+
+- power limits in MW and energy limits in MWh;
+- 100% charge/discharge efficiency and a one-hour SOC transition;
+- initial SOC equal to one-half of energy capacity;
+- terminal SOC at least one-half of energy capacity;
+- a binary operating mode preventing simultaneous charge and discharge;
+- a discharge restriction to the owning team's load.
+
+Storage cannot be used to serve another team, and storage operating cost is not
+charged. A separate continuous peak-shaving path exists only for explicitly
+marked no-artifact compatibility tests.
+
+## Economics and provenance
+
+For a valid team, the score is:
+
+```text
+IT-service value
+- energy purchase cost (Submission 2 only)
+- team-generator operating cost
+- generator capital cost
+- connection-site cost
+- storage capital cost
+```
+
+The active coefficients are:
+
+| Parameter | Active value | Units | Origin and reference |
+|---|---:|---|---|
+| IT-service value | 1,500 | USD/MWh | Instructor-chosen AI-intensive opportunity value; cloud pricing pages from AWS, Azure, and Google Cloud are contextual references. |
+| Team-generator curve | 60 / 100 / 160 over 25% / 50% / 25% | USD/MWh | Instructor-chosen convex curve informed by EIA heat-rate and generator-cost references. |
+| Generator capital | 1,300,000 | USD/MW | Instructor-chosen weekly-match coefficient informed by EIA/NREL methods. |
+| Connection-site cost | 20,000,000 | USD/MW | Instructor-chosen capacity coefficient; JLL reports 2025 shell/core construction near 10.7 million USD/MW and AI fit-out up to 25 million USD/MW. |
+| Storage power capital | 350,000 | USD/MW | EIA/NREL-informed instructional component. |
+| Storage energy capital | 200,000 | USD/MWh | EIA/NREL-informed instructional component. |
+| Four-hour storage equivalent | 1,150,000 | USD/MW | Derived from `350,000 * P + 200,000 * (4P)`. |
+| Storage operating cost | 0 | USD/MWh | Explicit instructor-chosen zero-cost rule. |
+| Invalid/infeasible fallback score | 0 | USD | Deterministic instructor policy. |
+
+The current economic-profile artifacts contain a full-horizon constant IT-value
+vector and bus/hour LMP reference data. Submission 2 settlement uses the LMP
+from the selected joint dispatch, not a student-chosen price vector. Existing
+public generators use dataset marginal costs; team-built generators use the
+common convex curve above.
+
+## Fair projection and failure isolation
+
+Malformed files are rejected independently so valid teams remain eligible. If
+the valid joint request is infeasible, the evaluator applies fixed caps before
+projection:
+
+- 100 MW per site;
+- 500 MW per team;
+- in a multi-team case, no request exceeds the smallest positive team request.
+
+It then chooses separate `alpha_i` values by first maximizing total served load.
+Within a tolerance of the optimum, it maximizes proportional-fair utility,
+the sum of log served loads, while enforcing a minimum positive service
+fraction of `1e-6`. Projection tolerance is `1e-6`; the CLI option
+`--projection-iterations 10` is a lower bound and internal ray search uses at
+least 32 iterations. The audit records per-team fractions, projected load,
+request caps, objective, and scope.
+
+No first-come-first-serve ordering is used. If projection is unavailable, the
+evaluator records deterministic leave-one-team-out and individual fallback
+attempts where possible. A valid team's score is not silently erased by one
+oversized or malformed submission.
+
+## Privacy-safe outputs
+
+The raw batch output is instructor-private and may contain submitted CSV
+hashes, exact plans, full dispatch periods, per-team diagnostics, asset
+capacities, and failure details. The classroom writer creates separate outputs:
+
+- shared `classroom-safe-v1` summaries contain aggregate team counts, aggregate
+  period/network measures, and aggregate projection metadata;
+- a team's `classroom-private-v1` file lives in a hashed directory and contains
+  that team's own score and scalar diagnostics;
+- exact competitor plans, raw dispatch JSON, and team-specific failure details
+  are not classroom-shared.
+
+Keep submission directories, state files, raw audit JSON, and full diagnostics
+instructor-only. Release only the intended team summary and shared aggregates.
 
 ## Output artifacts
 
-The output directory contains `leaderboard.csv`, `submission_manifest.csv`,
-`evaluation.json`, `evaluation_sha256.txt`, per-team files under
-`diagnostics/`, and per-period dispatch files under `dispatch/`. The JSON
-records the rules, scenario and evaluator versions, local/source period
-indices, input hashes, failure-isolation events, team scores, and output
-hashes. Use the leaderboard for ranking and the manifest, diagnostics,
-dispatch files, and evaluation JSON for audit and troubleshooting.
+A single half-year batch output contains `leaderboard.csv`,
+`submission_manifest.csv`, `evaluation.json`,
+`evaluation_sha256.txt`, per-team files under `diagnostics/`, and per-period
+dispatch files under `dispatch/`. A classroom run additionally writes
+`week-*/submission-*/shared/summary.json`,
+`shared/aggregate_periods.json`, hashed team summaries, and classroom output
+hashes. Use the leaderboard and classroom-safe summaries for release; retain
+the manifest, diagnostics, dispatch files, state file, and evaluation JSON for
+audit.

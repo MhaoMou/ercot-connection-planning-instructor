@@ -1,204 +1,129 @@
-# Multi-year team-asset state: Stage 1
+# Multi-year team-asset state
 
-Stage 1 defines the persistence contract for the multi-round game. It does
-not change the existing single-half-year dispatch evaluator yet.
+This document describes the active persistent-state contract implemented by the
+round coordinator. It is not a proposal or a pre-integration stage note.
 
-## Contract
+## Three weekly matches
 
-`AssetLedger` stores one `TeamAssetState` per team. Each state records:
+The released classroom sequence is six half-year submissions grouped into three
+two-submission matches:
 
-- team-owned generator IDs, connection IDs, source bus IDs, capacity, and
-  operating-cost parameter;
-- team-owned storage IDs, connection IDs, source bus IDs, power capacity, and
-  energy capacity;
-- the most recent round in which the team state was updated.
+| Week | Submission 1 | Submission 2 | State treatment |
+|---|---|---|---|
+| Week 1 | `2027_jan_jun` | `2027_jul_dec` | State persists within the week; feedback-only and unranked. |
+| Week 2 | `2028_jan_jun` | `2028_jul_dec` | State persists within the week; independent scored match. |
+| Week 3 | `2029_jan_jun` | `2029_jul_dec` | State persists within the week; independent scored match. |
 
-Asset IDs are scoped to a team. Two teams may both choose `gen-1`; they are
-different assets because ownership is part of the key. Within one team, an ID
-is immutable after it is first recorded: changing its site or capacity raises
-`AssetStateError` instead of silently moving or resizing an existing asset.
+The coordinator requires the six rounds in order. It rejects a second submission
+when the first submission for that week has not committed successfully. It
+resets the asset ledger at the start of Weeks 2 and 3. Week 1 produces feedback
+for both submissions but contributes no score to the final ranking. Submission
+2 of Weeks 2 and 3 supplies the weekly rankings; final rankings aggregate valid
+team scores across those two scored submissions.
 
-Registering a later plan preserves previously recorded assets and adds newly
-declared assets. The ledger is immutable from the caller's perspective and can
-be serialized with `to_dict()` and restored with `from_dict()`.
+## Canonical plan and evaluator-assigned assets
 
-The serialized `AssetLedger` schema is version 2. Version 2 writes canonical
-team/site/kind keys. `from_dict()` migrates version-1 payloads from either the
-original submitted-label-keyed layout or the intermediate canonical-keyed
-layout, then returns a version-2 ledger. Version-2 payloads must use canonical
-keys. Collection lookup prefers an exact canonical key; a submitted label is
-only an alias when it identifies exactly one asset, and ambiguous aliases are
-rejected.
-
-## Deliberate non-goals
-
-This stage does not yet:
-
-- modify CSV submission semantics;
-- automatically inject persisted assets into a later submission;
-- alter DCOPF, storage state-of-charge, or scoring;
-- define the instructor's round-transition policy.
-
-Those behaviors belong to later stages and will consume this versioned state
-contract. Keeping the contract separate first prevents asset persistence from
-changing current single-round results accidentally.
-
-## Stage 2: ordered game state
-
-`GameState` now wraps the ledger with the released round sequence:
+The active public CSV has exactly one row per site:
 
 ```text
-2027_jan_jun -> 2027_jul_dec ->
-2028_jan_jun -> 2028_jul_dec ->
-2029_jan_jun -> 2029_jul_dec
+team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
 ```
 
-Calling `advance(round_key, plans)` registers that round's plans and returns a
-new state. The transition is rejected if a round is skipped, repeated, moved
-backward, or outside the released `2027`--`2029` package. The state can be
-saved and restored with `to_dict()` and `from_dict()`; later evaluator stages
-will use this boundary to load the prior round's team assets before dispatch.
+It contains no hourly rows, public generator IDs, storage IDs, or SOC fields.
+For every positive team-owned generator or storage capacity, the evaluator
+derives a deterministic private asset ID from the team and site identity.
+Assets are owned by the submitting team and cannot serve another team.
 
-## Stage 3: durable state store
+The serialized ledger stores immutable team/site/kind identity, source bus,
+capacity, operating-cost metadata where applicable, and the last committed
+round. An asset identity conflict raises `AssetStateError`; an existing asset
+cannot silently move or resize. The ledger is immutable from the caller's
+perspective and is written as deterministic UTF-8 JSON.
 
-`GameStateStore(path)` persists a `GameState` as deterministic UTF-8 JSON.
-Saving writes to a temporary file in the target file's directory, flushes it,
-and atomically replaces the requested path. A failed write cleans up the
-temporary file and leaves the previous target intact. Loading a missing file
-raises `FileNotFoundError`; malformed JSON or an unsupported/invalid state is
-reported as `GameStateStoreError`.
+## Transactional round boundary
 
-## Stage 4: round evaluation coordinator
+`evaluate_round()`:
 
-`evaluate_round()` is the transactional boundary around the existing
-single-half-year evaluator. It:
+1. loads the prior state or starts a new state;
+2. resolves the released week and submission number;
+3. resets the ledger when the week changes;
+4. validates the current canonical CSV files and isolates rejected files;
+5. materializes the active portfolio for each accepted team;
+6. passes the materialized plans and one-time capital-cost scope to the evaluator;
+7. records final storage SOC only after a usable dispatch; and
+8. atomically saves the advanced state.
 
-1. loads the prior `GameState`, or starts a new one;
-2. validates and collects the current round's complete CSV plans using the
-   existing strict submission path;
-3. checks that the requested round is the next released round and that asset
-   identities do not conflict;
-4. invokes the existing batch evaluator without changing its DCOPF or scoring
-   behavior; and
-5. saves the advanced state only after a usable dispatch result is returned.
+A plan-loader failure, asset conflict, evaluator exception, unusable dispatch, or
+missing/malformed final SOC leaves the prior state file unchanged. Accepted
+teams can still be evaluated when another submitted file is malformed.
 
-Plan-loader validation failures, asset conflicts, evaluator exceptions, and
-unusable dispatch results do not overwrite the prior state file. Individual
-rejected submissions remain isolated by the existing batch evaluator; valid
-teams can still be evaluated and their accepted assets committed. The
-the existing evaluator's one-round behavior remains unchanged; this
-coordinator is an opt-in multi-round wrapper.
+The evaluator-facing materialized portfolio includes assets from Submission 1
+even when Submission 2 omits them. A persisted asset whose site is omitted is
+represented by a deterministic zero-load placeholder at its immutable bus, so
+the asset remains owned and auditable without inventing new demand. An exact
+re-declaration is accepted; a changed bus, site identity, or immutable capacity
+specification is rejected.
 
-## Stage 5: active-portfolio materialization
+## Capital-cost accounting
 
-`AssetLedger.materialize_plan(plan, horizon=...)` builds the evaluator-facing
-portfolio for one team without changing the single-round evaluator. The current
-submission remains the source of truth for its declared connection-site
-metadata and for newly declared generator/storage specifications. The method
-then restores every generator and storage asset already persisted for that
-team, even when the current CSV omits those assets.
+Within one weekly match:
 
-When a persisted asset's connection site is omitted from the current plan, the
-method adds a deterministic placeholder connection using the asset's persisted
-source bus, zero connection capacity, and an all-zero profile of the requested
-horizon. This keeps the owned asset visible to the evaluator without inventing
-new demand. If the site is present, its current connection metadata is retained;
-the persisted source bus must still match the asset's immutable record.
+- generator capital is charged once for each newly constructed evaluator asset;
+- storage capital is charged once for each newly constructed evaluator asset;
+- connection-site cost is charged once for newly declared connection capacity;
+- operational generator cost uses the complete materialized portfolio, including
+  assets carried from Submission 1;
+- storage operating cost is not charged.
 
-The ACTIVSg2000 storage adapter treats such a zero-load placeholder as an
-inactive site: storage attached to it remains idle for the requested horizon,
-with zero charging, zero discharging, and state of charge fixed at its carried
-state. Storage at active sites retains the normal continuous peak-shaving
-schedule.
+At the next weekly boundary, the ledger is reset and the next match starts with
+new construction accounting. Direct one-round `evaluate_csv_batch()` callers
+without a capital scope retain their original all-assets-charged behavior; the
+classroom coordinator supplies the scope needed for weekly accounting.
 
-Materialization also:
+## Persistent storage state of charge
 
-- accepts an exact re-declaration of an existing asset;
-- raises `AssetStateError` for an immutable-specification conflict, a missing
-  current asset connection, duplicate current connection IDs, or a non-positive
-  horizon; and
-- returns connections, generators, and storages in deterministic ID order.
+Storage construction fields remain immutable. The mutable
+`state_of_charge_mwh` field records the final SOC of the latest committed
+dispatch. A newly built storage asset starts half full. The public CSV never
+contains SOC.
 
-The API is pure from the caller's perspective: it does not mutate the ledger,
-commit a round, run DCOPF, or compute scores. It is an input-building boundary
-for a later multi-round evaluator integration. Stage 5 does not change
-`evaluate_csv_batch()`, CSV parsing semantics, storage state-of-charge, capital
-cost accounting, or scoring.
+The prepared storage model is grid-operated, ideal-efficiency, and
+team-dedicated. It enforces power limits, energy limits, one-hour SOC
+transitions, binary no-simultaneous-charge/discharge mode, initial half-full
+SOC, and terminal SOC at least half full. Discharge is capped to the owning
+team's load.
 
-## Stage 6: active-portfolio evaluation and one-time capital accounting
+After a usable evaluation, the coordinator reads the final dispatch period's
+`storage_soc_mwh_by_team` mapping. Every dispatched storage-bearing team must
+provide a finite SOC for every materialized storage asset. A storage asset in a
+failure-isolated team that was not dispatched retains its advanced-state SOC.
+The updated SOC is then written to the next state snapshot and is available
+only to the next submission in the same week. Week reset discards it.
 
-Stage 6 connects the persistent ledger to the round evaluator without changing
-the default one-round CSV behavior. `evaluate_round()` now uses the prior
-round's ledger to materialize each accepted team's active portfolio before
-dispatch. If a later CSV omits a previously built generator or storage asset,
-that asset is restored for dispatch and operational scoring. Malformed or
-rejected submissions are never materialized and never enter the ledger.
+## Fair projection and state safety
 
-`evaluate_csv_batch()` exposes this behavior through two opt-in arguments:
+Projection diagnostics are validated before state commit. Every diagnostic map
+must contain only accepted materialized team IDs; rejected or unknown teams
+cause the transaction to fail. Per-team service fractions, projected loads,
+request caps, and proportional-fair utility are audit data, not student input.
 
-- `plan_overrides` maps accepted team IDs to evaluator-facing `TeamPlan`
-  objects. CSV records, input hashes, and rejection records still come from
-  the submitted files; overrides affect only dispatch and operational scoring.
-- `capital_cost_scope` is a `CapitalCostScope` containing the generator and
-  storage IDs newly constructed in the current round for each team.
+Classroom output is split from raw audit output. The shared safe output contains
+aggregate counts, aggregate periods, and aggregate projection metadata. Each
+team's own scalar result is written under a hashed private directory. Exact
+competitor sites, asset capacities, raw dispatch periods, and full failure
+diagnostics remain instructor-private.
 
-With no overrides or capital scope, existing callers retain the original
-behavior: every generator and storage present in the parsed plan is charged its
-capital cost. With the Stage 6 scope, only the listed newly constructed assets
-are charged generator/storage capital cost. Generator and storage operational
-costs are always calculated from the full materialized portfolio, including
-assets carried over from earlier rounds.
+## Historical and dependency notes
 
-The current implementation charges connection cost by newly declared MW.
-`evaluate_round()` passes `site_cost_connection_capacity_mw_by_team`, computed
-from sites absent from the prior weekly ledger, so restored placeholder
-connections do not incur site cost a second time. Direct
-`evaluate_csv_batch()` callers that omit this scope charge every connection MW
-in the evaluator-facing plan. Generator and storage capital remain scoped by
-new asset IDs, and storage operating cost is not charged.
+The old long-form hourly CSV and submitted asset-label fixtures are retained
+only where tests explicitly exercise compatibility parsing. They are historical
+or legacy inputs and are not part of this state contract or student workflow.
 
-The round coordinator remains transactional: it materializes and prepares the
-advanced state in memory, evaluates the joint plans, and saves the new state
-only after a usable evaluation result is returned. An evaluator exception or
-unusable dispatch (including a missing or `None` `periods` collection) therefore
-leaves the prior state file unchanged.
-
-Because silently evaluating raw plans would defeat persistence, `evaluate_round()`
-requires a Stage 6-aware evaluator that accepts `plan_overrides`,
-`capital_cost_scope`, and `site_cost_connection_count_by_team` (or accepts
-arbitrary keyword arguments). A legacy evaluator with an explicit signature
-that lacks any of these arguments is rejected before it is called, and the
-state file is not advanced.
-
-## Stage 7: persistent storage state of charge
-
-Storage construction specifications remain immutable in `StorageAsset`, while
-the mutable `state_of_charge_mwh` field records the end-of-round energy carried
-by that asset. A newly constructed storage asset starts at one-half of its
-energy capacity. Ledgers written before Stage 7, which do not contain this
-field, load compatibly with the same half-full default.
-
-`StoragePlan` has an optional internal
-`initial_state_of_charge_mwh` field. It is omitted by the public CSV schema and
-defaults to `None`, which preserves existing positional constructors and
-one-round behavior. Materialization injects the persisted SOC into both
-omitted and exactly re-declared existing storage assets; a new current-round
-asset keeps the default `None` and therefore starts half full in the adapter.
-
-The ACTIVSg2000 adapter validates an explicitly supplied initial SOC, starts
-its continuous ideal-efficiency schedule from that value, and keeps inactive
-zero-load placeholders idle at that value. Discharge cannot exceed the current
-SOC, and a valid schedule must finish at or above one-half of the storage
-energy capacity.
-
-After a usable round evaluation, `evaluate_round()` reads the final dispatch
-period's `storage_soc_mwh_by_team` mapping. For failure-isolated partial
-dispatches, `BatchDispatchResult.team_ids` defines which teams were actually
-dispatched: only materialized storage-bearing teams present in that set must
-report every final SOC. A materialized storage-bearing team absent from the
-set retains its advanced-state SOC, whether carried from an earlier round or
-defaulted half full for a new asset, so valid teams can still commit. Missing
-or malformed SOC for a dispatched storage team remains a transactional
-failure: the state file is not saved and the prior state remains intact.
-Valid final SOC values are then written to the next immutable ledger snapshot
-and are available to the next released half-year round.
+The active scenario package currently remains
+`unverified_dependency` because `highspy` is unavailable in the checkout.
+Complete HiGHS-backed validation is required before classroom release. The
+Colab horizon benchmark is a separate measurement package and requires
+`highspy`, `psutil`, prepared artifacts, and a compatible runtime; it does
+not change the state contract or evaluator math. Without a generated,
+completed full-horizon result, it cannot support a performance claim or horizon
+reduction.

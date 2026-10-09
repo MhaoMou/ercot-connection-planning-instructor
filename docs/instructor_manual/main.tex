@@ -77,7 +77,7 @@ The recommended production workflow is:
 \fbox{\parbox{0.84\textwidth}{\centering
 ACTIVSg2000 public model\\
 $\Downarrow$\\
-Validated half-year scenario and hourly economic artifacts\\
+Scenario block and hourly economic artifacts, subject to validation gate\\
 $\Downarrow$\\
 Student CSV collection and format validation\\
 $\Downarrow$\\
@@ -94,7 +94,7 @@ The release uses the following distinction:
   \item \textbf{Public dataset:} the synthetic Texas ACTIVSg2000 topology,
   buses, branches, generators, status values, PMIN, PMAX, and marginal costs.
   \item \textbf{Derived scenario:} deterministic bus-level hourly load profiles
-  over six half-year blocks.
+  over six released half-year blocks, grouped into three weekly matches.
   \item \textbf{Instructional assumptions:} student-owned assets, IT value,
   capital costs, storage costs, DCOPF settlement, scoring, and fair projection.
 \end{itemize}
@@ -132,13 +132,33 @@ Year & Round & Evaluator hours & CSV rows\\
 \end{tabularx}
 \end{center}
 
+The classroom schedule has three weekly matches and six submissions:
+\begin{center}
+\small
+\begin{tabularx}{0.96\textwidth}{l l l X}
+\toprule
+Week & Submission 1 & Submission 2 & Ranking and state treatment\\
+\midrule
+1 & \code{2027\_jan\_jun} & \code{2027\_jul\_dec} & Feedback-only practice week; state persists within the week and is excluded from final ranking.\\
+2 & \code{2028\_jan\_jun} & \code{2028\_jul\_dec} & Independent scored match; Submission 2 is ranked.\\
+3 & \code{2029\_jan\_jun} & \code{2029\_jul\_dec} & Independent scored match; Submission 2 is ranked.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Accepted sites, evaluator-assigned assets, and final storage SOC persist from
+Submission 1 to Submission 2 within a week. Generator, storage, and newly
+built connection capital is charged once in that weekly match. The asset ledger
+and SOC reset at the beginning of the next week.
+
 The released artifacts are under
-\sloppy\code{data/processed/activsg2000\_scenarios\_v1/<year>/<block>}. The root and
+\path{data/processed/activsg2000_scenarios_v1/<year>/<block>}. The root and
 block manifests record validation status, scenario hashes, and artifact
-metadata. Full six-block/hour DCOPF validation is currently pending and
-unverified because \code{highspy} is unavailable in this environment. A block
-must report \code{validation\_status: passed} after a successful HiGHS-backed
-run before it is used for a classroom round.
+metadata. In this checkout, all six blocks are
+\code{validation\_status: unverified\_dependency} because \code{highspy} is
+unavailable. This is a dependency limitation, not a passed or failed validation.
+A block must report \code{validation\_status: passed} after a complete
+HiGHS-backed run before it is used for a classroom round.
 
 \section{Student submission contract}
 
@@ -153,8 +173,9 @@ The file has one data row per site and no hourly horizon rows. It has no
 team-defined site label; \code{bus\_id} must come from the selected block's bus
 catalog. The evaluator uses the submitted site capacities with the released
 hourly scenario and applies the common team-built generator curve described
-above. Generator and storage assets are private to the submitting team and
-cannot serve another team.
+above. It assigns deterministic private generator and storage IDs from the
+team/site identity. Students do not submit those IDs. Generator and storage
+assets are private to the submitting team and cannot serve another team.
 
 Example:
 \begin{lstlisting}
@@ -166,19 +187,21 @@ team-blue,site-south,1002,15,0,0,0
 The retired ten-column hourly format is historical compatibility input only.
 Do not distribute it as a current student template.
 
-Storage uses MW power capacity and MWh energy capacity. With ideal charging and
-discharging efficiency, the evaluator enforces power and energy bounds, no
-simultaneous charge/discharge, discharge no greater than the stored energy, an
-initial state of charge of at least $0.5B$, and a terminal state of charge of
-at least $0.5B$.
+Students submit storage capacities only. The grid operator schedules storage in
+the centralized prepared HiGHS model. Storage uses MW power capacity and MWh
+energy capacity. With ideal charging and discharging efficiency, the evaluator
+enforces power and energy bounds, binary no-simultaneous charge/discharge,
+discharge no greater than the stored energy, an initial state of charge of
+$0.5B$, and a terminal state of charge of at least $0.5B$. Discharge can reduce
+only the owning team's load.
 
 \section{Course operation}
 
-Before the first round, provide students with the student handout, the active
-scenario block, the CSV checker, and the bus catalog. A practical format
-is one submission per group per announced round. The instructor should record
-the selected year/block, deadline, submission directory, rule-file version,
-and a hash of the final input directory.
+Before Week 1, provide students with the student handout, the active scenario
+package, the CSV checker, and the bus catalog. Collect two submissions per week
+for the three weekly matches. The instructor should record the week, submission
+number, year/block, deadline, submission directory, rule-file version, and a
+hash of each frozen input directory.
 
 Recommended sequence:
 \begin{enumerate}[leftmargin=*]
@@ -186,9 +209,10 @@ Recommended sequence:
   \item Give groups time to explore candidate buses and resource portfolios.
   \item Require each group to run the checker before submission.
   \item Freeze the submission directory at the deadline.
-  \item Run the batch evaluator once on the frozen directory.
-  \item Release scores and aggregate diagnostics without exposing competitors'
-  private plans.
+  \item Run the batch evaluator once for each submission, or run the classroom
+  coordinator for the complete six-submission prefix.
+  \item Release Week 1 feedback and privacy-safe aggregate/team summaries
+  without exposing competitors' private plans.
 \end{enumerate}
 
 \section{Instructor command cookbook}
@@ -219,6 +243,19 @@ at the locational marginal price (LMP) from the selected joint dispatch.
 Submission 1 is practice and has no energy-purchase cost while retaining the
 other active scoring terms.
 
+For an end-to-end classroom run, provide a manifest containing the six released
+rounds and use:
+\begin{lstlisting}
+ercot-game-batch classroom \\
+  --manifest work/classroom_manifest.json \\
+  --state-path work/classroom_state.json \\
+  --output-dir work/classroom_results
+\end{lstlisting}
+
+The classroom coordinator rejects a second submission without a committed first
+submission for that week, persists the asset ledger and SOC within the week,
+resets them between weeks, and writes aggregate classroom-safe outputs.
+
 Validate the complete scenario package:
 \begin{lstlisting}
 PYTHONPATH=.:src python3 tools/activsg2000/validate_scenario_package.py \
@@ -237,13 +274,17 @@ PYTHONPATH=.:src python3 -m tools.activsg2000.build_economic_profiles \
 
 Malformed files are rejected independently so that valid teams remain eligible
 for evaluation. A valid plan may be feasible alone but infeasible when all
-teams are dispatched together. In that case, the evaluator computes the largest
-common $\alpha\in[0,1]$ such that every valid team's load multiplied by $\alpha$
-can be served jointly. This is the fair continuous projection. Submitted asset
-costs remain part of the score, while served-load value and energy costs reflect
-the projected load. The output records the projection scope and fraction.
+teams are dispatched together. Before projection, the evaluator caps each site
+at $100\MW$, each team at $500\MW$, and in multi-team cases caps the largest
+request at the smallest positive team request. It then chooses a separate
+$\alpha_i\in[0,1]$ for each team: first maximize total served load, then within
+$\max(10^{-6},10^{-6}L^*)$ MWh of the optimum maximize
+$\sum_i\log(\alpha_i d_i)$. The output records each team's service fraction,
+projected load, cap policy, projection scope, and proportional-fair utility.
+Submitted asset costs remain part of the score, while served-load value and
+energy costs reflect the projected load.
 
-If a common projected dispatch cannot be found, the evaluator records
+If a projected dispatch cannot be found, the evaluator records
 deterministic leave-one-team-out and individual fallback attempts where
 possible. This prevents one invalid or excessively large submission from
 silently erasing the scores of otherwise valid teams.
@@ -261,12 +302,14 @@ At a high level, a team's score is:
 -\text{site cost}.
 \end{align*}
 
-The current release uses IT value of \USD1500/MWh, a team-built generator
-curve of \$60/\$100/\$160 per MWh at 25/50/25\%, site cost of
-\USD20m/MW, generator capital cost of \USD1.3m/MW, and storage capital costs
-of \USD350,000/MW plus \USD200,000/MWh. A four-hour storage device therefore
-has a \USD1.15m/MW capital equivalent, and storage operating cost is not
-charged.
+The active instructional coefficients are IT value of \USD1500/MWh, a
+team-built generator curve of \$60/\$100/\$160 per MWh at 25/50/25\%, site
+cost of \USD20m/MW, generator capital cost of \USD1.3m/MW, and storage capital
+costs of \USD350,000/MW plus \USD200,000/MWh. A four-hour storage device
+therefore has a \USD1.15m/MW capital equivalent, and storage operating cost is
+not charged. The site coefficient is an instructor-chosen mapping informed by
+JLL shell/core and AI fit-out construction costs~\cite{jll2026dc}; EIA/NREL
+technology and battery benchmarks inform generator and storage calibration~\cite{eia2024generatorcosts,eia2025heatrate,nrel2024bess,eia2024bess}.
 
 For Submission 2, energy purchase cost uses the nonnegative LMP from the
 selected joint dispatch at the selected bus and hour. The released LMP
@@ -280,8 +323,12 @@ an extra CSV column.
 
 \section{Concrete multi-team example}
 
-The complete example package is in
-\code{docs/instructor\_manual/examples/multi\_team\_round/}. It is retained as
+The complete example package is in the following historical compatibility
+directory:
+\begin{lstlisting}
+docs/instructor_manual/examples/multi_team_round/
+\end{lstlisting}
+It is retained as
 a historical long-form compatibility package with matching results. It is not
 a current student CSV template; current submissions use the canonical
 one-row-per-site contract above. The full raw evaluation record is not checked
@@ -300,7 +347,7 @@ team-blue,site-south,1002,15,0,0,0
 The public \code{bus\_id} values must come from the current 2,000-bus artifact;
 \code{site\_id} is a team-defined label. The checked-in CSVs in the historical
 example directory retain the retired hourly format solely to preserve a
-reproducible old result and must be labeled legacy whenever shown.
+reproducible historical result and must be labeled legacy whenever shown.
 
 \subsection{Batch collection example}
 
@@ -313,9 +360,10 @@ below is therefore a multi-team result report, not a multi-team submission file.
 \subsection{Example score report}
 
 The following table is populated from the exact generated leaderboard and is
-not a hand-selected score illustration. This is a historical compatibility
-result: its checked-in rules, values, and cost fields predate the current
-release and must not be used as a calibration target for a new round.
+not a hand-selected score illustration. It is a historical/legacy
+compatibility result: its checked-in rules, values, and cost fields predate the
+active implementation and must not be used as a calibration target for a new
+round.
 \begin{center}
 \IfFileExists{example_score_table.tex}{\input{example_score_table.tex}}{
 \small
@@ -356,24 +404,29 @@ energy purchases but adds power-capacity and energy-capacity costs.
 \section{Privacy and classroom reporting}
 
 Keep raw CSVs, per-team diagnostics, bus selections, generator capacities,
-storage capacities, and hourly profiles instructor-only. Student-facing results
-may include each team's own score, rank, feasibility status, aggregate served
-load, common projection fraction, and anonymized network-level summaries.
-Avoid publishing a map that lets one group reconstruct another group's exact
-sites or resource portfolio. When showing a network figure, aggregate loads by
-region or use anonymized selected-resource markers.
+storage capacities, and hourly profiles instructor-only. The classroom writer's
+shared \code{classroom-safe-v1} output may include aggregate team counts,
+aggregate periods, and aggregate projection metadata. Each team receives only
+its own \code{classroom-private-v1} summary under a hashed directory, with its
+own score and scalar diagnostics. Never publish a map or raw JSON that lets one
+group reconstruct another group's exact sites or resource portfolio.
 
 \section{Reproducibility and release audit}
 
 Before release, verify:
 \begin{itemize}[leftmargin=*]
-  \item all six scenario blocks report 26,304 total passed hourly states;
+  \item all six scenario blocks report a passed validation manifest; if
+  \code{highspy} is unavailable, record \code{unverified\_dependency} and do
+  not release the block;
   \item every economic-profile NPZ hash matches its manifest;
   \item the chosen rule file and scenario block match the round announcement;
   \item a dry-run CSV passes the checker and batch evaluator;
   \item the output directory contains the leaderboard, manifest, evaluation
   record, diagnostics, and hashes;
   \item the frozen submission directory is archived before any feedback is released.
+  \item the Colab benchmark has a completed full-horizon result before making
+  any performance or horizon-reduction claim; the benchmark requires
+  \code{highspy}, \code{psutil}, prepared artifacts, and a compatible runtime.
 \end{itemize}
 
 \section{Troubleshooting}
@@ -387,19 +440,26 @@ Before release, verify:
   \code{site\_id}.
   \item[Joint infeasibility] Inspect projection metadata and binding diagnostics.
   A valid team may still receive a projected score.
-  \item[Missing economic profile] Confirm that the selected block contains
-  \code{economic\_profiles.npz}, \code{economic\_profile.json}, and its
-  manifest, and that the manifest hash matches.
+  \item[Missing economic profile] Confirm that the selected block contains all
+  of the following files and that the manifest hash matches:
+  \begin{itemize}[leftmargin=*]
+    \item \code{economic\_profiles.npz}
+    \item \code{economic\_profile.json}
+    \item the block manifest
+  \end{itemize}
 \end{description}
 
 \section{Instructor checklist}
 
 \begin{enumerate}[leftmargin=*]
-  \item Select the year, round, rule file, and deadline.
+  \item Select the three-week schedule, submission number, rule file, and deadlines.
   \item Publish the student handout and checker.
   \item Freeze and hash the submission directory.
-  \item Run format validation and the full batch evaluation.
-  \item Inspect valid/invalid counts, projection scope, and diagnostics.
+  \item Run format validation and the full batch evaluation for each submission,
+  or run the classroom coordinator.
+  \item Confirm weekly persistence, one-time capital charges, and reset at the
+  start of Weeks 2 and 3.
+  \item Inspect valid/invalid counts, per-team projection scope, and diagnostics.
   \item Release protected summaries and retain the complete instructor archive.
 \end{enumerate}
 

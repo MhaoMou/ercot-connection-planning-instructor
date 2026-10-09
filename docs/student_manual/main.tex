@@ -47,7 +47,7 @@
 \lstset{style=githubcode}
 
 \pagestyle{fancy}
-\setlength{\headheight}{14pt}
+\setlength{\headheight}{15pt}
 \fancyhf{}
 \lhead{Competitive Connection Planning}
 \rhead{Assignment Handout}
@@ -70,8 +70,8 @@
 \begin{center}
 \fbox{\parbox{0.91\textwidth}{
 \textbf{Assignment in one sentence.} You operate a data-center, choose
-where and how much load to connect in a power grid, optionally build private generation and storage, and maximize your profit
-over a six-month hourly operating horizon.
+where and how much load to connect in a power grid, optionally build private
+generation and storage, and maximize your score across three weekly matches.
 }}
 \end{center}
 
@@ -84,6 +84,11 @@ Each student group represents a data-center operator such as a cloud-computing
 company. Your group submits a connection-and-resource plan. Submissions of
 all groups will be collected and evaluated together using a DC optimal power
 flow (\code{DCOPF}) dispatch model. \textbf{Groups are ranked by score.}
+
+The classroom game has three weeks and six half-year submissions. Each week
+has two submissions: Submission 1 is a practice plan and Submission 2 is the
+scored plan for Weeks 2 and 3. Week 1 is feedback-only and is not included in
+the final ranking.
 
 \subsection{What you must do}
 Your team must design and submit one complete half-year connection plan in the
@@ -112,7 +117,7 @@ not submit a screenshot in place of the CSV.
   scenario: 2028 has 4,368/4,416 hours and 2027/2029 have 4,344/4,416 hours
   for January--June/July--December. Those hours are not CSV rows.
   \item \code{Generators} and \code{storage} are private to the submitting team.
-  \item The current release has no student-controlled \code{curtailment} decision.
+  \item The active contract has no student-controlled \code{curtailment} decision.
   \item The instructor evaluates valid teams jointly and ranks teams by \code{score}.
 \end{itemize}
 
@@ -197,6 +202,26 @@ states, but it does \emph{not} encode those states as CSV rows. The canonical
 CSV lists only the sites used by your team; the evaluator combines those site
 decisions with the selected hourly scenario and economic artifacts.
 
+\subsection{Three-week, six-submission schedule}
+\begin{center}
+\small
+\begin{tabularx}{0.98\textwidth}{l l l X}
+\toprule
+Week & Submission 1 & Submission 2 & Treatment\\
+\midrule
+1 & \code{2027\_jan\_jun} & \code{2027\_jul\_dec} & Feedback-only practice week; excluded from final ranking.\\
+2 & \code{2028\_jan\_jun} & \code{2028\_jul\_dec} & Scored weekly match; Submission 2 is the scored result.\\
+3 & \code{2029\_jan\_jun} & \code{2029\_jul\_dec} & Scored weekly match; Submission 2 is the scored result.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Within a week, the evaluator carries accepted sites, evaluator-assigned
+generator and storage assets, and the final storage state of charge from
+Submission 1 into Submission 2. Capital cost for an asset is charged once when
+it is first built in that weekly match. At the beginning of the next week, the
+asset ledger and SOC reset; no asset or SOC carries between weeks.
+
 For each selected site $s$, submit a nonnegative connection capacity and
 optional private generation and storage capacities. A team's resources serve
 only that team. They cannot export energy to another team or become a shared
@@ -250,11 +275,13 @@ with
   e_{i,b,0}=0.5B_{i,b},\qquad
   e_{i,b,H}\ge 0.5B_{i,b}.
 \]
-Storage is private to the submitting team. Charging appears as additional
-team demand and discharging reduces that team's grid purchase; it does not
-serve any other team's load.
+Students submit storage capacities only. The grid operator chooses charging and
+discharging in the centralized dispatch. Storage is private to the submitting
+team: charging appears as additional team demand and discharging reduces that
+team's grid purchase; it cannot serve any other team's load. The evaluator
+assigns the storage asset ID from the team/site identity.
 
-\paragraph{Storage cost calibration.} The released half-year scoring files use
+\paragraph{Storage cost calibration.} The active half-year scoring files use
 the following instructional coefficients:
 \begin{align*}
  C^{\mathrm{storage,cap}}_{i,b}={}&
@@ -265,15 +292,17 @@ For a four-hour device, the two capital terms correspond to approximately
 \USD1.15m/MW of installed power capacity. Storage operating cost is not charged.
 These are rounded teaching coefficients informed by U.S. battery-storage construction and O\&M benchmarks,
 not a project quotation or an ERCOT tariff~\cite{eia2024bess,nrel2021bess,
-nrel2024bess}. The same coefficients are used for all released half-year blocks
-unless the instructor announces a revised round file.
+nrel2024bess}. The four-hour relation gives a total capital equivalent of
+\USD1.15m/MW. Storage operating cost is zero in the active evaluator.
 
 \subsection{DCOPF}
 
 For each hour, the instructor solves a linear \code{DCOPF} on the prepared Texas
-network. Network balance, generator limits, branch thermal limits, and fixed
-base demand are enforced. Load is inelastic in the ordinary feasible case:
-there is no integer unit commitment and no ordinary load-shedding variable.
+network. Network balance, generator limits, branch thermal limits, fixed base
+demand, and the centralized team-dedicated storage model are enforced. Load is
+inelastic in the ordinary feasible case: there is no integer unit commitment
+and no ordinary load-shedding variable. The solver, not the student, selects
+the storage schedule.
 
 \section{CSV submission format}\label{sec:csv}
 
@@ -357,24 +386,28 @@ sites, generators, and storage remain part of the score. See Section~\ref{sec:sc
 
 \section{Fair continuous projection}\label{sec:projection}
 
-Let $d_{i,s,t}$ be the requested load of team $i$ at bus $s$ at time $t$. When the full joint request is
-infeasible, the evaluator finds a common continuous service fraction
-$\alpha\in[0,1]$ and evaluates the scaled requests
-\[
-  \widehat d_{i,s,t}=\alpha d_{i,s,t}.
-\]
-The largest feasible $\alpha$ is selected to \emph{maximize the minimum fraction of
-each team's requested plan that is served.} This policy has three intended properties:
-\begin{enumerate}[leftmargin=*]
-  \item every valid team remains in the competition;
-  \item teams are treated symmetrically at the service-fraction level;
-  \item the projected dispatch remains a physically feasible DCOPF solution.
-\end{enumerate}
+If the valid teams' full request is jointly infeasible, the evaluator applies
+fixed anti-manipulation caps before searching for a projected dispatch. Each
+site is capped at $100\MW$, each team at $500\MW$, and in a multi-team case the
+largest team request is capped at the smallest positive team request. These
+caps are instructor-side policy; students cannot tune them.
 
-The policy is related to \code{max--min} and proportional fairness ideas used in
-resource allocation and demand-response research~\cite{kelly1998charging,
-jacubowicz2022fairness,gebbran2021fairder}. It is a teaching rule, not an
-ERCOT operating procedure.
+Let $d_{i,s,t}$ be the capped requested load of team $i$. The evaluator chooses
+a separate service fraction $\alpha_i\in[0,1]$ for each team and evaluates
+$\widehat d_{i,s,t}=\alpha_i d_{i,s,t}$. It first maximizes total served load.
+It then restricts the search to solutions within
+$\max(10^{-6},10^{-6}L^*)$ MWh of that optimum $L^*$ and maximizes
+\[
+  \sum_{i:d_i>0}\log(\alpha_i d_i),
+\]
+which is proportional-fair tie-breaking. Positive valid requests have a
+minimum service fraction of $10^{-6}$. The result records each team's fraction,
+requested load, projected load, and the cap policy.
+
+This policy keeps valid teams eligible, prevents an oversized request from
+dominating the projection, and produces a physically feasible joint dispatch.
+It is a teaching rule, not an ERCOT operating procedure~\cite{kelly1998charging,
+jacubowicz2022fairness,gebbran2021fairder}.
 
 \section{Scoring}\label{sec:score}
 
@@ -389,41 +422,39 @@ S_i={}V_i^{\mathrm{IT}}-C_i^{\mathrm{energy}}
 
 The components are:
 \begin{itemize}[leftmargin=*]
-  \item $V_i^{\mathrm{IT}}$: cleared load multiplied by the full-horizon hourly
-  \code{IT value} vector announced for the round. The current release uses
-  \USD1500/MWh at every hour;
+  \item $V_i^{\mathrm{IT}}$: cleared load multiplied by the explicit full-horizon
+  \code{IT value} vector. The active AI-intensive profile uses \USD1500/MWh at
+  every hour;
   \item $C_i^{\mathrm{energy}}$: for Submission 2, grid purchase multiplied by
   the nonnegative LMP from the selected joint dispatch at the selected bus and
   hour. Submission 1 has no energy-purchase cost;
-  \item $C_i^{\mathrm{gen,op}}$: private-generator dispatch multiplied by the
-  dataset-derived marginal cost;
-  \item $C_i^{\mathrm{gen,cap}}$: submitted generator MW multiplied by the
-  announced generator capital coefficient;
-  \item $C_i^{\mathrm{storage,cap}}$: announced storage MW/MWh capital
-  coefficients multiplied by submitted capacities;
-  \item $C_i^{\mathrm{site}}$: submitted connection capacity multiplied by the
-  announced site coefficient;
+  \item $C_i^{\mathrm{gen,op}}$: team-generator dispatch charged at the common
+  25\%/50\%/25\% curve of \USD60/100/160 per MWh;
+  \item $C_i^{\mathrm{gen,cap}}$: newly built generator MW multiplied by
+  \USD1.3m/MW, charged once per weekly match;
+  \item $C_i^{\mathrm{storage,cap}}$: newly built storage charged at
+  \USD350,000/MW plus \USD200,000/MWh, with no storage operating cost;
+  \item $C_i^{\mathrm{site}}$: newly built connection capacity multiplied by
+  \USD20m/MW, charged once per weekly match;
 \end{itemize}
 
-The current provisional calibration anchors are listed below. The instructor
-must distribute the final hourly vectors and storage coefficients with the
-round configuration; do not infer them from this manual if the round file
-differs.
+The active instructional coefficients are listed below. The selected rule file
+and economic-profile artifacts remain authoritative for a released round.
 
 \begin{center}
 \small
 \begin{tabularx}{0.98\textwidth}{>{\ttfamily\raggedright\arraybackslash}p{0.24\textwidth} >{\raggedright\arraybackslash}p{0.27\textwidth} X}
 \toprule
-Parameter & Current release value & Basis\\
+Parameter & Active value & Basis\\
 \midrule
-Generator capital & \USD1.3m/MW & Current instructional coefficient for team-built generation.\\
-Site cost & \USD20m/MW & Current capacity-dependent instructional connection coefficient.\\
-Generator operating cost & Piecewise \$60/100/160 per MWh at 25/50/25\% & Common team-built curve; same at every site.\\
+Generator capital & \USD1.3m/MW & One-time weekly-match capital coefficient; informed by EIA/NREL technology-cost methods.\\
+Site cost & \USD20m/MW & Capacity-dependent instructional connection coefficient, informed by JLL shell/core and AI fit-out costs~\cite{jll2026dc}.\\
+Generator operating cost & Piecewise \$60/100/160 per MWh at 25/50/25\% & Common team-built curve; EIA heat-rate and generator-cost references inform the mapping~\cite{eia2024generatorcosts,eia2025heatrate}.\\
 Energy price & Submission 2 joint-dispatch LMP & Locational price at the selected bus and hour; Submission 1 has no energy-purchase cost.\\
-IT value & \USD1500/MWh hourly & Full-horizon instructor-chosen opportunity value; see the profile documentation.\\
+IT value & \USD1500/MWh hourly & Full-horizon AI-intensive opportunity value; cloud pricing pages are contextual references, not a direct tariff conversion~\cite{aws2026ec2,azure2026vm,gcp2026compute}.\\
 Storage power capital & \USD350,000/MW & Current power-capacity coefficient.\\
 Storage energy capital & \USD200,000/MWh & Current energy-capacity coefficient; together with power capital gives \USD1.15m/MW for a four-hour system.\\
-Storage operation & Not charged & The released evaluator has no storage operating-cost term.\\
+Storage operation & Not charged & The active evaluator has no storage operating-cost term.\\
 Invalid file score & 0 & Deterministic grading policy, not a market quantity.\\
 \bottomrule
 \end{tabularx}
@@ -444,19 +475,20 @@ vector is constant by policy; the energy price is not a student-chosen value.
 
 \section{Practical workflow}
 \begin{enumerate}[leftmargin=*]
-  \item Read the round configuration and identify the evaluator's scenario block.
+  \item Read the weekly schedule and identify the evaluator's scenario block.
   \item Inspect the ACTIVSg2000 bus and generator tables supplied by the instructor.
   \item Choose one or more buses and specify site capacities in the canonical CSV.
   \item Decide whether private generation or storage improves your score.
   \item Generate the \code{CSV} and run the \code{validator}.
   \item Keep the exact submitted file and validator output for reproducibility.
-  \item Submit before the announced deadline.
+  \item Submit both weekly files before the announced deadlines; revise the
+  first-stage plan for Submission 2 if the instructor permits revisions.
 \end{enumerate}
 
 \subsection{What to inspect after evaluation}
 Read the result in this order:
 \begin{enumerate}[leftmargin=*]
-  \item feasibility or projected service status;
+  \item feasibility or projected service status and your team-specific service fraction;
   \item total score and rank;
   \item cleared load, grid purchases, and resource costs;
   \item binding or limiting network diagnostics;
@@ -488,13 +520,24 @@ Before uploading, confirm:
   and the evaluator dispatches it.
 
   \item[Can my generator or storage serve another team?]
-  No. These resources are private and can reduce only your team's grid
-  purchase.
+  No. The grid operator may schedule your storage, but storage discharge and
+  team-generator output can reduce only your team's load. They cannot be shared
+  with another team.
 
   \item[What happens if the joint plan is infeasible?]
-  The evaluator first applies the fair continuous projection in
-  Section~\ref{sec:projection}, using one common service fraction for valid
-  teams.
+  The evaluator applies the capped fair projection in Section~\ref{sec:projection},
+  using a separate service fraction for each valid team. The projection first
+  maximizes total service and then uses proportional-fair tie-breaking.
+
+  \item[What carries from Submission 1 to Submission 2?]
+  Accepted sites, evaluator-assigned generators and storage assets, and final
+  storage SOC persist within the week. Capital is charged once per weekly
+  match. The ledger and SOC reset at the start of the next week.
+
+  \item[Can I schedule storage myself?]
+  No. Submit only storage power and energy capacities. The centralized grid
+  optimizer schedules charge, discharge, and SOC subject to the four-hour,
+  team-dedicated constraints.
 
   \item[Why is my score negative?]
   Served-load value may be smaller than energy, site, generator, or storage
@@ -502,7 +545,17 @@ Before uploading, confirm:
 
   \item[Which result is official?]
   The instructor-generated result and audit files determine the official
-  score. Local calculations are for debugging and strategy development.
+  score. Week 1 is feedback-only; final ranking uses scored Submission 2
+  results from Weeks 2 and 3. Local calculations are for debugging and
+  strategy development.
+
+  \item[Why can the instructor not release a score yet?]
+  The checked-in scenario manifests are currently unverified because the
+  optional \code{highspy} dependency is unavailable. The instructor must run
+  complete HiGHS-backed validation before classroom use. The Colab benchmark
+  also requires \code{highspy}, \code{psutil}, prepared artifacts, and a
+  compatible runtime; an unrun benchmark cannot justify shortening the official
+  half-year horizon.
 \end{description}
 
 \section{References}
