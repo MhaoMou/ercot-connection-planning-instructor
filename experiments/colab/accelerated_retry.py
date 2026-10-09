@@ -31,7 +31,9 @@ from tools.activsg2000.dcopf import (
     Bus,
     Generator,
     ReusableDCOPFModel,
+    StorageDispatchAsset,
     load_prepared_artifact,
+    solve_dcopf_horizon,
 )
 
 
@@ -130,11 +132,49 @@ def solve_model_reuse(root: Path, horizon: int) -> dict:
     }
 
 
-def run_case(root: Path, horizon: int) -> dict:
+def solve_storage_lp(root: Path, horizon: int) -> dict:
+    """Solve a representative one-team plan with the storage LP enabled.
+
+    The plan uses one 1 MW / 4 MWh team-owned storage asset at the first
+    positive-load bus.  This is a computational smoke test for the official
+    storage formulation, not a student strategy or a scoring result.
+    """
+    _clear_caches()
+    periods = []
+    injections = []
+    owner_load = []
+    storage_bus = None
+    for index in range(horizon):
+        buses, generators, branches, fixed = _period_inputs(root, index)
+        if storage_bus is None:
+            storage_bus = next((bus.bus_id for bus in buses if bus.demand_mw > 0.0), buses[0].bus_id)
+        periods.append((buses, generators, branches))
+        injections.append(fixed)
+        owner_load.append({storage_bus: max(next(bus.demand_mw for bus in buses if bus.bus_id == storage_bus), 0.0)})
+    storage = StorageDispatchAsset(
+        storage_id="benchmark-storage",
+        team_id="benchmark-team",
+        bus_id=storage_bus,
+        power_mw=1.0,
+        energy_mwh=4.0,
+        initial_soc_mwh=2.0,
+    )
+    result = solve_dcopf_horizon(
+        periods=tuple(periods),
+        storage_assets=(storage,),
+        fixed_injection_mw_by_period=tuple(injections),
+        owner_load_mw_by_team={"benchmark-team": tuple(owner_load)},
+        time_step_hours=1.0,
+        base_mva=100.0,
+    )
+    return {"hourly_times_s": None, "statuses": [result.status]}
+
+
+def run_case(root: Path, horizon: int, *, storage: bool = False) -> dict:
     started = time.perf_counter()
     before_mb = _rss_mb()
     try:
-        payload = solve_model_reuse(root, horizon)
+        payload = solve_storage_lp(root, horizon) if storage else solve_model_reuse(root, horizon)
         error = None
     except Exception as exc:  # checkpoint failures for diagnosis and resume
         payload = {"hourly_times_s": [], "statuses": []}
@@ -145,7 +185,7 @@ def run_case(root: Path, horizon: int) -> dict:
     return {
         "horizon_hours": horizon,
         "artifact_dir": str(root),
-        "variant": "model_reuse_status_only",
+        "variant": "storage_lp_horizon" if storage else "model_reuse_status_only",
         "run_status": "completed" if error is None else "error",
         "solver_status": status_values[0] if len(status_values) == 1 else "|".join(status_values),
         "wall_time_s": time.perf_counter() - started,
@@ -168,6 +208,7 @@ def main() -> int:
         "--horizons", nargs="+", type=int, default=(720, 4368, 4416),
         choices=(720, 4368, 4416),
     )
+    parser.add_argument("--storage", action="store_true", help="also run the storage-coupled LP")
     args = parser.parse_args()
 
     rows = []
@@ -190,6 +231,21 @@ def main() -> int:
             writer.writeheader()
             writer.writerows(rows)
         print(json.dumps(row, indent=2), flush=True)
+        if args.storage:
+            print(f"running storage LP horizon={horizon} artifact={root}", flush=True)
+            storage_row = run_case(root, horizon, storage=True)
+            rows.append(storage_row)
+            checkpoint.write_text(json.dumps({
+                "python": sys.version,
+                "platform": platform.platform(),
+                "highspy_version": __import__("importlib.metadata", fromlist=["version"]).version("highspy"),
+                "rows": rows,
+            }, indent=2), encoding="utf-8")
+            with csv_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=sorted(rows[0]))
+                writer.writeheader()
+                writer.writerows(rows)
+            print(json.dumps(storage_row, indent=2), flush=True)
     print(f"wrote {checkpoint}", flush=True)
     print(f"wrote {csv_path}", flush=True)
     return 0 if all(row["run_status"] == "completed" for row in rows) else 1

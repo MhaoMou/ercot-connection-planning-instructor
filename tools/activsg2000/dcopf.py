@@ -677,11 +677,12 @@ def solve_dcopf_horizon(
     """Solve a coupled multi-period DCOPF with team-dedicated storage.
 
     The network and generator constraints are the same linear DCOPF used by
-    :func:`solve_dcopf`.  Storage charge/discharge and SOC variables are added
-    to one coupled HiGHS model, with a binary operating-mode variable per
-    asset/period.  This makes storage-bearing horizons mixed-integer models,
-    but exactly prevents simultaneous positive charge and discharge while
-    preserving the existing result maps.  Persisted initial SOC and terminal
+    :func:`solve_dcopf`.  Storage is represented by one signed net-power
+    variable per asset/period: positive values discharge and negative values
+    charge.  This keeps the coupled horizon a linear program while preserving
+    the economically relevant storage behavior under the current assumptions
+    (unit efficiency, no storage operating cost, and no value for simultaneous
+    charge and discharge).  Persisted initial SOC and terminal
     SOC are both constrained to the half-full-to-full interval.  Owner load is
     required for storage-bearing solves, and each team's total discharge is
     capped separately at each owned storage bus by that team's load at that
@@ -803,9 +804,7 @@ def solve_dcopf_horizon(
     angle_scale = 1000.0
     generator_columns: dict[tuple[int, str], object] = {}
     angle_columns: dict[tuple[int, str], object] = {}
-    charge_columns: dict[tuple[int, str], object] = {}
-    discharge_columns: dict[tuple[int, str], object] = {}
-    mode_columns: dict[tuple[int, str], object] = {}
+    storage_power_columns: dict[tuple[int, str], object] = {}
     soc_columns: dict[tuple[int, str], object] = {}
     balance_row_indices: dict[tuple[int, str], int] = {}
 
@@ -832,25 +831,11 @@ def solve_dcopf_horizon(
 
     for storage in storage_assets:
         for period_index in range(period_count):
-            charge_columns[(period_index, storage.storage_id)] = highs.addVariable(
-                lb=0.0,
+            storage_power_columns[(period_index, storage.storage_id)] = highs.addVariable(
+                lb=-storage.power_mw,
                 ub=storage.power_mw,
                 obj=0.0,
-                name=f"storage-charge:{period_index}:{storage.storage_id}",
-            )
-            discharge_columns[(period_index, storage.storage_id)] = highs.addVariable(
-                lb=0.0,
-                ub=storage.power_mw,
-                obj=0.0,
-                name=f"storage-discharge:{period_index}:{storage.storage_id}",
-            )
-            mode_columns[(period_index, storage.storage_id)] = highs.addVariable(
-                # HiGHS integer variables plus [0, 1] bounds provide a binary
-                # mode without changing the public charge/discharge contract.
-                lb=0.0,
-                ub=1.0,
-                type=HighsVarType.kInteger,
-                name=f"storage-mode:{period_index}:{storage.storage_id}",
+                name=f"storage-net-power:{period_index}:{storage.storage_id}",
             )
             soc_columns[(period_index, storage.storage_id)] = highs.addVariable(
                 lb=storage.energy_mwh * 0.5 if period_index == period_count - 1 else 0.0,
@@ -872,8 +857,7 @@ def solve_dcopf_horizon(
             for generator in generators_by_bus.get(bus_id, ()):
                 add_coefficient(coefficients, generator_columns[(period_index, generator.generator_id)], 1.0)
             for storage in storage_by_bus.get(bus_id, ()):
-                add_coefficient(coefficients, discharge_columns[(period_index, storage.storage_id)], 1.0)
-                add_coefficient(coefficients, charge_columns[(period_index, storage.storage_id)], -1.0)
+                add_coefficient(coefficients, storage_power_columns[(period_index, storage.storage_id)], 1.0)
             for branch in branches_by_bus.get(bus_id, ()):
                 susceptance_mw_per_rad = branch.susceptance_pu * base_mva
                 if branch.from_bus_id == bus_id:
@@ -900,33 +884,10 @@ def solve_dcopf_horizon(
             highs.addRow(-branch.thermal_limit_mw, branch.thermal_limit_mw, len(coefficients), list(coefficients), list(coefficients.values()))
 
         for storage in storage_assets:
-            mode = mode_columns[(period_index, storage.storage_id)]
-            charge_mode_coefficients = {
-                int(charge_columns[(period_index, storage.storage_id)].index): 1.0,
-                int(mode.index): storage.power_mw,
-            }
-            highs.addRow(
-                -highs_inf,
-                storage.power_mw,
-                len(charge_mode_coefficients),
-                list(charge_mode_coefficients),
-                list(charge_mode_coefficients.values()),
-            )
-            discharge_mode_coefficients = {
-                int(discharge_columns[(period_index, storage.storage_id)].index): 1.0,
-                int(mode.index): -storage.power_mw,
-            }
-            highs.addRow(
-                -highs_inf,
-                0.0,
-                len(discharge_mode_coefficients),
-                list(discharge_mode_coefficients),
-                list(discharge_mode_coefficients.values()),
-            )
+            storage_power = storage_power_columns[(period_index, storage.storage_id)]
             coefficients = {
                 int(soc_columns[(period_index, storage.storage_id)].index): 1.0,
-                int(charge_columns[(period_index, storage.storage_id)].index): -time_step_hours,
-                int(discharge_columns[(period_index, storage.storage_id)].index): time_step_hours,
+                int(storage_power.index): time_step_hours,
             }
             if period_index > 0:
                 add_coefficient(coefficients, soc_columns[(period_index - 1, storage.storage_id)], -1.0)
@@ -936,7 +897,7 @@ def solve_dcopf_horizon(
             highs.addRow(rhs_lower, rhs_upper, len(coefficients), list(coefficients), list(coefficients.values()))
 
             discharge_coefficients = {
-                int(discharge_columns[(period_index, storage.storage_id)].index): time_step_hours,
+                int(storage_power.index): time_step_hours,
             }
             if period_index > 0:
                 add_coefficient(discharge_coefficients, soc_columns[(period_index - 1, storage.storage_id)], -1.0)
@@ -947,7 +908,7 @@ def solve_dcopf_horizon(
 
         for (team_id, bus_id), team_bus_storages in _group_storage_by_owner_bus(storage_assets).items():
             coefficients = {
-                int(discharge_columns[(period_index, storage.storage_id)].index): 1.0
+                int(storage_power_columns[(period_index, storage.storage_id)].index): 1.0
                 for storage in team_bus_storages
             }
             owner_load = owner_loads[team_id][period_index].get(bus_id, 0.0)
@@ -990,13 +951,17 @@ def solve_dcopf_horizon(
             for (row_period, bus_id), row_index in balance_row_indices.items()
             if row_period == period_index
         }
-        charge = {
-            storage.storage_id: round(value(charge_columns[(period_index, storage.storage_id)]), 10)
+        net_power = {
+            storage.storage_id: value(storage_power_columns[(period_index, storage.storage_id)])
             for storage in storage_assets
         }
+        charge = {
+            storage_id: round(max(-power, 0.0), 10)
+            for storage_id, power in net_power.items()
+        }
         discharge = {
-            storage.storage_id: round(value(discharge_columns[(period_index, storage.storage_id)]), 10)
-            for storage in storage_assets
+            storage_id: round(max(power, 0.0), 10)
+            for storage_id, power in net_power.items()
         }
         soc = {
             storage.storage_id: round(value(soc_columns[(period_index, storage.storage_id)]), 10)
