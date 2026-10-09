@@ -13,6 +13,7 @@ from tools.activsg2000.dcopf import (
     solve_dcopf,
     solve_dcopf_horizon,
 )
+import tools.activsg2000.dcopf as dcopf_module
 
 
 def _single_bus_period(cost: float, demand: float = 5.0):
@@ -65,6 +66,27 @@ def test_storage_free_horizon_matches_single_period_dcopf() -> None:
         assert actual.storage_charge_mw == {}
         assert actual.storage_discharge_mw == {}
         assert actual.storage_soc_mwh == {}
+
+
+def test_horizon_solver_validates_repeated_topology_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    periods = (
+        _single_bus_period(2.0, demand=5.0),
+        _single_bus_period(2.0, demand=6.0),
+        _single_bus_period(2.0, demand=7.0),
+    )
+    original_validate = dcopf_module._validate
+    calls = 0
+
+    def counted_validate(buses, generators, branches):
+        nonlocal calls
+        calls += 1
+        return original_validate(buses, generators, branches)
+
+    monkeypatch.setattr(dcopf_module, "_validate", counted_validate)
+    result = solve_dcopf_horizon(periods=periods)
+
+    assert result.status == "optimal"
+    assert calls == 1
 
 
 def test_horizon_dcopf_dispatches_storage_and_returns_final_soc() -> None:

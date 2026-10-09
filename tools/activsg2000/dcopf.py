@@ -780,8 +780,43 @@ def solve_dcopf_horizon(
             )
 
     model_inputs: list[tuple[dict[str, Bus], str, tuple[Generator, ...], tuple[Branch, ...], dict[str, float]]] = []
+    compiled_topology: tuple[tuple[str, ...], str, tuple[tuple[object, ...], ...], tuple[tuple[object, ...], ...]] | None = None
     for period_index, (buses, generators, branches) in enumerate(period_data):
-        bus_by_id, reference = _validate(buses, generators, branches)
+        if period_index == 0:
+            bus_by_id, reference = _validate(buses, generators, branches)
+            compiled_topology = (
+                tuple(bus_by_id),
+                reference,
+                tuple(
+                    (generator.generator_id, generator.bus_id, generator.p_min_mw, generator.p_max_mw, generator.marginal_cost_per_mwh)
+                    for generator in generators
+                ),
+                tuple(
+                    (branch.branch_id, branch.from_bus_id, branch.to_bus_id, branch.susceptance_pu, branch.thermal_limit_mw)
+                    for branch in branches
+                ),
+            )
+        else:
+            assert compiled_topology is not None
+            current_topology = (
+                tuple(bus.bus_id for bus in buses),
+                next((bus.bus_id for bus in buses if bus.reference), buses[0].bus_id),
+                tuple(
+                    (generator.generator_id, generator.bus_id, generator.p_min_mw, generator.p_max_mw, generator.marginal_cost_per_mwh)
+                    for generator in generators
+                ),
+                tuple(
+                    (branch.branch_id, branch.from_bus_id, branch.to_bus_id, branch.susceptance_pu, branch.thermal_limit_mw)
+                    for branch in branches
+                ),
+            )
+            if current_topology != compiled_topology:
+                raise ValueError("all horizon periods must share one fixed network topology")
+            bus_by_id = {bus.bus_id: bus for bus in buses}
+            reference = compiled_topology[1]
+            for bus in buses:
+                if not math.isfinite(bus.demand_mw) or bus.demand_mw < 0:
+                    raise ValueError(f"invalid demand for bus {bus.bus_id}")
         injections = dict(fixed_injections[period_index])
         if set(injections) - set(bus_by_id):
             raise ValueError("fixed injection references an unknown bus")

@@ -68,16 +68,10 @@ def _static_inputs(root: Path):
     return artifact, base_load, generators_raw, branches_raw, injections
 
 
-@lru_cache(maxsize=64)
-def _period_inputs(root: Path, period_index: int):
-    artifact, base_load, generators_raw, branches_raw, injections = _static_inputs(root)
-    absolute_hour = block_offset(artifact.scenario_year, artifact.scenario_block) + period_index
-    multiplier = demand_multiplier(absolute_hour, year=artifact.scenario_year)
-    demand = {bus_id: round(value * multiplier, 8) for bus_id, value in base_load.items()}
-    buses = tuple(
-        Bus(row["bus_id"], demand[row["bus_id"]], reference=row.get("type") == "3")
-        for row in artifact.buses_raw
-    )
+@lru_cache(maxsize=4)
+def _static_topology(root: Path):
+    """Build immutable generator/branch objects once per prepared artifact."""
+    artifact, _base_load, generators_raw, branches_raw, _injections = _static_inputs(root)
     generators = tuple(
         Generator(
             row["generator_id"],
@@ -98,10 +92,31 @@ def _period_inputs(root: Path, period_index: int):
         )
         for row in branches_raw
     )
+    bus_metadata = tuple(
+        (row["bus_id"], row.get("type") == "3")
+        for row in artifact.buses_raw
+    )
+    return bus_metadata, generators, branches
+
+
+@lru_cache(maxsize=64)
+def _period_inputs(root: Path, period_index: int):
+    artifact, base_load, _generators_raw, _branches_raw, injections = _static_inputs(root)
+    bus_metadata, generators, branches = _static_topology(root)
+    absolute_hour = block_offset(artifact.scenario_year, artifact.scenario_block) + period_index
+    multiplier = demand_multiplier(absolute_hour, year=artifact.scenario_year)
+    demand = {bus_id: round(value * multiplier, 8) for bus_id, value in base_load.items()}
+    buses = tuple(
+        Bus(bus_id, demand[bus_id], reference=reference)
+        for bus_id, reference in bus_metadata
+    )
     return buses, generators, branches, injections
 
 
 def _clear_caches() -> None:
+    _static_inputs.cache_clear()
+    _static_topology.cache_clear()
+    _period_inputs.cache_clear()
     dcopf_module.clear_prepared_artifact_cache()
     dcopf_module._cached_network_index.cache_clear()
 
