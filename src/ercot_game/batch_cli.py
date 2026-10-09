@@ -15,6 +15,7 @@ from typing import NoReturn
 from .batch_evaluation import (
     evaluate_csv_batch,
     load_scoring_rules,
+    write_classroom_outputs,
     write_batch_outputs,
 )
 from .calendars import half_year_calendar
@@ -262,9 +263,13 @@ def _run_classroom(args: argparse.Namespace) -> int:
             period.period_index for period in periods
         ) or tuple(range(round_input.horizon))
         round_output_dir = output_dir / round_result.week_id / f"submission-{round_result.submission_number}"
-        write_batch_outputs(
+        write_classroom_outputs(
             round_result.evaluation,
             round_output_dir,
+            week_id=round_result.week_id,
+            submission_number=round_result.submission_number,
+            feedback_only=round_result.feedback_only,
+            scored=round_result.scored,
             scenario_version=Path(round_input.artifact_dir).name,
             evaluator_version=_evaluator_version(),
             period_indices=period_indices,

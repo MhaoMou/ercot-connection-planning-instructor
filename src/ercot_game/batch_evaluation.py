@@ -2677,3 +2677,184 @@ def write_batch_outputs(
     _write_canonical_json(root / "evaluation.json", payload)
     evaluation_hash = hashlib.sha256((root / "evaluation.json").read_bytes()).hexdigest()
     (root / "evaluation_sha256.txt").write_text(evaluation_hash + "\n", encoding="utf-8")
+
+
+def write_classroom_outputs(
+    evaluation: BatchEvaluation,
+    output_dir: str | Path,
+    *,
+    week_id: str,
+    submission_number: int,
+    feedback_only: bool,
+    scored: bool,
+    scenario_version: str,
+    evaluator_version: str,
+    period_indices: tuple[int, ...],
+    source_period_indices: tuple[int, ...] | None = None,
+) -> None:
+    """Write aggregate classroom artifacts and isolated team summaries.
+
+    This writer intentionally does not call or reuse the raw audit serializer.
+    Every shared field is scalar or aggregate-only, and every team file is
+    built from one ``TeamScore`` plus that team's scalar diagnostics.
+    """
+    if not period_indices:
+        raise ValueError("period_indices must be non-empty")
+    if source_period_indices is None:
+        source_period_indices = evaluation.source_period_indices or period_indices
+    source_period_indices = tuple(source_period_indices)
+    _validate_period_mapping(tuple(period_indices), source_period_indices)
+
+    root = Path(output_dir)
+    shared_dir = root / "shared"
+    teams_dir = root / "teams"
+    shared_dir.mkdir(parents=True, exist_ok=True)
+    teams_dir.mkdir(parents=True, exist_ok=True)
+
+    selected_periods = _period_audit_payloads(
+        evaluation,
+        tuple(period_indices),
+        source_period_indices,
+    )
+    aggregate_periods = [
+        _classroom_aggregate_period(selected_periods[index])
+        for index in period_indices
+    ]
+    scores = tuple(evaluation.team_scores)
+    shared_summary = {
+        "schema_version": "classroom-safe-v1",
+        "week_id": week_id,
+        "submission_number": submission_number,
+        "feedback_only": feedback_only,
+        "scored": scored,
+        "scenario_version": scenario_version,
+        "evaluator_version": evaluator_version,
+        "competition_scope": evaluation.competition_scope,
+        "team_count": len(scores),
+        "valid_team_count": sum(score.valid for score in scores),
+        "feasible_team_count": sum(score.valid and score.feasible for score in scores),
+        "period_count": len(aggregate_periods),
+        "projection": _classroom_aggregate_projection(evaluation.projection_diagnostics),
+    }
+    shared_paths = [shared_dir / "summary.json", shared_dir / "aggregate_periods.json"]
+    _write_canonical_json(shared_paths[0], shared_summary)
+    _write_canonical_json(shared_paths[1], {"periods": aggregate_periods})
+
+    for score in scores:
+        team_dir = teams_dir / f"team-{hashlib.sha256(score.team_id.encode('utf-8')).hexdigest()[:16]}"
+        team_dir.mkdir(parents=True, exist_ok=True)
+        _write_canonical_json(
+            team_dir / "summary.json",
+            _classroom_team_summary(
+                evaluation,
+                score,
+                week_id=week_id,
+                submission_number=submission_number,
+                feedback_only=feedback_only,
+                scored=scored,
+                all_team_ids={item.team_id for item in scores},
+            ),
+        )
+
+    generated_paths = sorted(
+        path
+        for path in root.rglob("*")
+        if path.is_file() and path.name != "output_sha256.json"
+    )
+    output_hashes = _output_hashes(root, generated_paths)
+    _write_canonical_json(shared_dir / "output_sha256.json", output_hashes)
+
+
+def _classroom_aggregate_period(period: Mapping[str, Any]) -> dict[str, Any]:
+    def total_values(values: Mapping[str, Any]) -> float:
+        return sum(float(value) for value in values.values())
+
+    def total_nested_values(values: Mapping[str, Any]) -> float:
+        return sum(total_values(nested) for nested in values.values() if isinstance(nested, Mapping))
+
+    flow_values = period.get("flow_mw_by_branch", {})
+    dual_values = period.get("balance_dual_by_bus", {})
+    return {
+        "period_index": period.get("period_index"),
+        "source_period_index": period.get("source_period_index"),
+        "solver_status": period.get("solver_status"),
+        "objective_cost": period.get("objective_cost"),
+        "total_submitted_load_mw": total_values(period.get("submitted_load_mw_by_team", {})),
+        "total_generator_dispatch_mw": total_nested_values(
+            period.get("generator_dispatch_mw_by_team", {})
+        ),
+        "total_grid_purchase_mw": total_values(period.get("grid_purchase_mw_by_team", {})),
+        "total_storage_charge_mw": total_nested_values(
+            period.get("storage_charge_mw_by_team", {})
+        ),
+        "total_storage_discharge_mw": total_nested_values(
+            period.get("storage_discharge_mw_by_team", {})
+        ),
+        "network_branch_count": len(flow_values),
+        "maximum_absolute_flow_mw": max(
+            (abs(float(value)) for value in flow_values.values()),
+            default=0.0,
+        ),
+        "constraint_bus_count": len(dual_values),
+        "maximum_absolute_constraint_dual": max(
+            (abs(float(value)) for value in dual_values.values()),
+            default=0.0,
+        ),
+        "binding_diagnostic_available": bool(period.get("binding_diagnostics")),
+    }
+
+
+def _classroom_aggregate_projection(diagnostics: Any) -> dict[str, Any] | None:
+    if diagnostics is None:
+        return None
+    return {
+        "total_requested_load_mwh": diagnostics.total_requested_load_mwh,
+        "total_projected_load_mwh": diagnostics.total_projected_load_mwh,
+        "proportional_fair_utility": diagnostics.proportional_fair_utility,
+        "total_load_tolerance_mwh": diagnostics.total_load_tolerance_mwh,
+    }
+
+
+def _classroom_team_summary(
+    evaluation: BatchEvaluation,
+    score: TeamScore,
+    *,
+    week_id: str,
+    submission_number: int,
+    feedback_only: bool,
+    scored: bool,
+    all_team_ids: set[str],
+) -> dict[str, Any]:
+    diagnostics = evaluation.projection_diagnostics
+    projection = None
+    if diagnostics is not None:
+        projection = {
+            "service_fraction": diagnostics.service_fraction_by_team.get(score.team_id),
+            "projected_capacity_mw": diagnostics.projected_capacity_mw_by_team.get(score.team_id),
+            "capped_request_capacity_mw": diagnostics.capped_request_capacity_mw_by_team.get(score.team_id),
+            "requested_load_mwh": diagnostics.requested_load_mwh_by_team.get(score.team_id),
+            "projected_load_mwh": diagnostics.projected_load_mwh_by_team.get(score.team_id),
+        }
+    score_payload = _classroom_public_score(score)
+    failure_reason = score_payload.get("failure_reason")
+    if isinstance(failure_reason, str) and any(
+        team_id != score.team_id and team_id in failure_reason
+        for team_id in all_team_ids
+    ):
+        score_payload["failure_reason"] = "team-specific diagnostic withheld"
+    return {
+        "schema_version": "classroom-private-v1",
+        "team_id": score.team_id,
+        "week_id": week_id,
+        "submission_number": submission_number,
+        "feedback_only": feedback_only,
+        "scored": scored,
+        "score": score_payload,
+        "projection": projection,
+    }
+
+
+def _classroom_public_score(score: TeamScore) -> dict[str, Any]:
+    payload = asdict(score)
+    payload.pop("submission_key", None)
+    return payload

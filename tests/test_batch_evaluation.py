@@ -1663,6 +1663,65 @@ def test_write_batch_outputs_matches_auditable_output_contract(tmp_path, monkeyp
     )
 
 
+def test_classroom_outputs_are_aggregate_shared_and_team_private(tmp_path, monkeypatch):
+    first = tmp_path / "team-a.csv"
+    second = tmp_path / "team-b.csv"
+    _write_submission(first, "team-a")
+    _write_submission(second, "team-b")
+
+    result = _evaluate_paths(
+        tmp_path,
+        monkeypatch,
+        (first, second),
+        lambda _artifact_dir, plans, *, period_indices: _fake_dispatch(
+            tuple(sorted(plan.team_id for plan in plans)),
+            period_indices=period_indices,
+        ),
+    )
+    output_dir = tmp_path / "classroom-output"
+    writer = getattr(batch_evaluation, "write_classroom_outputs")
+    writer(
+        result,
+        output_dir,
+        week_id="week-2",
+        submission_number=2,
+        feedback_only=False,
+        scored=True,
+        scenario_version="scenario-v1",
+        evaluator_version="evaluator-v1",
+        period_indices=(0,),
+    )
+
+    shared_files = tuple((output_dir / "shared").rglob("*"))
+    private_files = tuple((output_dir / "teams").rglob("summary.json"))
+    assert shared_files
+    assert len(private_files) == 2
+    forbidden_keys = (
+        "submission_key",
+        "accepted_submissions",
+        "rejected_submissions",
+        "submitted_load_mw_by_team",
+        "generator_dispatch_mw_by_team",
+        "storage_charge_mw_by_team",
+        "storage_discharge_mw_by_team",
+        "storage_soc_mwh_by_team",
+    )
+    for path in shared_files:
+        if path.is_file():
+            text = path.read_text(encoding="utf-8")
+            assert "team-a" not in text
+            assert "team-b" not in text
+            assert all(key not in text for key in forbidden_keys)
+
+    for path in private_files:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        own_team = payload["team_id"]
+        other_team = "team-b" if own_team == "team-a" else "team-a"
+        assert other_team not in path.read_text(encoding="utf-8")
+        assert payload["score"]["team_id"] == own_team
+        assert all(key not in path.read_text(encoding="utf-8") for key in forbidden_keys)
+
+
 def test_write_batch_outputs_is_byte_deterministic_across_repeat_runs(tmp_path, monkeypatch):
     first = tmp_path / "team-a.csv"
     second = tmp_path / "team-b.csv"

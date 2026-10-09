@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -527,8 +528,8 @@ def test_later_round_materializes_prior_assets_and_scopes_new_capital_costs(tmp_
         StoragePlan("store-old", "site-old", 5.0, 20.0, 10.0),
     )
     assert seen["capital_cost_scope"] == CapitalCostScope(
-        generator_ids_by_team={"team-a": {"gen-new"}},
-        storage_ids_by_team={"team-a": {"store-new"}},
+        generator_ids_by_team={"team-a": {"gen-old", "gen-new"}},
+        storage_ids_by_team={"team-a": {"store-old", "store-new"}},
     )
     assert seen["site_cost_connection_count_by_team"] == {"team-a": 1}
     assert seen["site_cost_connection_capacity_mw_by_team"] == {"team-a": 30.0}
@@ -575,8 +576,8 @@ def test_label_rename_at_same_site_does_not_recharge_capital_cost(tmp_path) -> N
     )
 
     assert seen["capital_cost_scope"] == CapitalCostScope(
-        generator_ids_by_team={},
-        storage_ids_by_team={},
+        generator_ids_by_team={"team-a": {"gen-renamed"}},
+        storage_ids_by_team={"team-a": {"store-renamed"}},
     )
     assert seen["plan_overrides"]["team-a"].generators[0].generator_id == "gen-renamed"
     assert result.state.asset_ledger.team("team-a").generators["gen-renamed"].asset_key == (
@@ -629,7 +630,9 @@ def test_reusing_label_at_new_site_charges_capital_cost_for_new_asset(tmp_path) 
     )
 
     assert seen["capital_cost_scope"] == CapitalCostScope(
-        generator_ids_by_team={"team-a": {"generator:team-a:site-new"}},
+        generator_ids_by_team={
+            "team-a": {"generator:team-a:site-old", "generator:team-a:site-new"}
+        },
         storage_ids_by_team={"team-a": {"store-old"}},
     )
 
@@ -715,8 +718,8 @@ def test_site_plan_round_two_keeps_omitted_site_active_and_does_not_recharge_ass
     )
     assert seen[1]["plan_overrides"]["team-a"].storages[0].initial_state_of_charge_mwh == 15.0
     assert seen[1]["capital_cost_scope"] == CapitalCostScope(
-        generator_ids_by_team={},
-        storage_ids_by_team={},
+        generator_ids_by_team={"team-a": {"generator:team-a:site-a"}},
+        storage_ids_by_team={"team-a": {"storage:team-a:site-a"}},
     )
 
 
@@ -960,19 +963,19 @@ def test_classroom_capital_scope_charges_assets_once_per_weekly_match(tmp_path) 
 
     assert [scope.generator_ids_by_team for scope in scopes] == [
         {"team-a": {"gen-old"}},
-        {},
         {"team-a": {"gen-old"}},
-        {},
         {"team-a": {"gen-old"}},
-        {},
+        {"team-a": {"gen-old"}},
+        {"team-a": {"gen-old"}},
+        {"team-a": {"gen-old"}},
     ]
     assert [scope.storage_ids_by_team for scope in scopes] == [
         {"team-a": {"store-old"}},
-        {},
         {"team-a": {"store-old"}},
-        {},
         {"team-a": {"store-old"}},
-        {},
+        {"team-a": {"store-old"}},
+        {"team-a": {"store-old"}},
+        {"team-a": {"store-old"}},
     ]
 
 
@@ -1029,8 +1032,178 @@ def test_classroom_output_summary_contains_only_team_scores_and_not_other_team_p
     )
 
     payload = result.to_public_dict()
-    assert payload["submissions"][0]["team_results"]
+    assert payload["submissions"][0]["team_results"]["team_count"] == 1
     assert "plans" not in payload["submissions"][0]
-    assert {item["team_id"] for item in payload["submissions"][0]["team_results"]} == {"team-a"}
-    assert "submission_key" not in payload["submissions"][0]["team_results"][0]
+    serialized = str(payload)
+    assert "team-a" not in serialized
+    assert "submission_key" not in serialized
     assert "week-1" in payload["weekly_rankings"]
+
+
+def test_scored_week_includes_submission_one_capex_when_submission_two_omits_assets(
+    tmp_path,
+) -> None:
+    state_path = tmp_path / "classroom-state.json"
+    first_plan = TeamPlan(
+        team_id="team-a",
+        sites=(SitePlan("site-a", "b0001", 40.0, 10.0, 5.0, 20.0),),
+    )
+    second_plan = TeamPlan(team_id="team-a", sites=())
+    rounds = tuple(
+        ClassroomRoundInput(
+            round_key=round_key,
+            submissions=tmp_path / label,
+            artifact_dir=tmp_path / "artifacts",
+            horizon=1,
+            rules=object(),
+        )
+        for round_key, label in (
+            ("2027_jan_jun", "week-1-practice"),
+            ("2027_jul_dec", "week-1-scored"),
+            ("2028_jan_jun", "practice"),
+            ("2028_jul_dec", "scored"),
+        )
+    )
+    observed: list[dict[str, object]] = []
+
+    def loader(submissions, **kwargs):
+        return (
+            first_plan
+            if Path(submissions).name == "practice"
+            else second_plan
+            if Path(submissions).name == "scored"
+            else TeamPlan("team-a", sites=()),
+        )
+
+    def evaluator(*args, **kwargs):
+        observed.append(kwargs)
+        scope = kwargs["capital_cost_scope"]
+        materialized = kwargs["plan_overrides"]["team-a"]
+        generator_cost = sum(
+            generator.capacity_mw
+            for generator in materialized.generators
+            if generator.generator_id in scope.generator_ids_for("team-a")
+        )
+        storage_cost = sum(
+            storage.power_mw + storage.energy_mwh
+            for storage in materialized.storages
+            if storage.storage_id in scope.storage_ids_for("team-a")
+        )
+        site_cost = kwargs["site_cost_connection_capacity_mw_by_team"]["team-a"]
+        return _UsableEvaluation(
+            team_scores=(
+                TeamScore(
+                    team_id="team-a",
+                    rank=1,
+                    valid=True,
+                    feasible=True,
+                    score=100.0 - generator_cost - storage_cost - site_cost,
+                    served_load_mwh=1.0,
+                    it_value=100.0,
+                    energy_cost=0.0,
+                    generator_operating_cost=0.0,
+                    generator_capital_cost=generator_cost,
+                    site_cost=site_cost,
+                    storage_capital_cost=storage_cost,
+                    competition_scope="joint",
+                ),
+            ),
+            dispatch=SimpleNamespace(
+                periods=(
+                    SimpleNamespace(
+                        storage_soc_mwh_by_team={
+                            "team-a": {
+                                storage.storage_id: storage.energy_mwh * 0.75
+                                for storage in materialized.storages
+                            }
+                        }
+                    ),
+                )
+            ),
+        )
+
+    result = evaluate_classroom(
+        state_path=state_path,
+        rounds=rounds,
+        plan_loader=loader,
+        evaluator=evaluator,
+    )
+
+    assert observed[2]["capital_cost_scope"] == CapitalCostScope(
+        generator_ids_by_team={"team-a": {"generator:team-a:site-a"}},
+        storage_ids_by_team={"team-a": {"storage:team-a:site-a"}},
+    )
+    assert observed[2]["site_cost_connection_capacity_mw_by_team"] == {"team-a": 40.0}
+    assert observed[3]["capital_cost_scope"] == observed[2]["capital_cost_scope"]
+    assert observed[3]["site_cost_connection_capacity_mw_by_team"] == {"team-a": 40.0}
+    scored = result.weekly_rankings[1].rankings[0]
+    assert scored.generator_capital_cost == 10.0
+    assert scored.storage_capital_cost == 25.0
+    assert scored.site_cost == 40.0
+    assert scored.score == 25.0
+
+
+def test_scored_week_does_not_repeat_capex_for_reused_submission_two_site(
+    tmp_path,
+) -> None:
+    state_path = tmp_path / "classroom-state.json"
+    plan = TeamPlan(
+        team_id="team-a",
+        sites=(SitePlan("site-a", "b0001", 40.0, 10.0, 5.0, 20.0),),
+    )
+    rounds = tuple(
+        ClassroomRoundInput(
+            round_key=round_key,
+            submissions=tmp_path / label,
+            artifact_dir=tmp_path / "artifacts",
+            horizon=1,
+            rules=object(),
+        )
+        for round_key, label in (
+            ("2027_jan_jun", "week-1-practice"),
+            ("2027_jul_dec", "week-1-scored"),
+            ("2028_jan_jun", "practice"),
+            ("2028_jul_dec", "scored"),
+        )
+    )
+    observed: list[dict[str, object]] = []
+
+    def evaluator(*args, **kwargs):
+        observed.append(kwargs)
+        return _UsableEvaluation(
+            team_scores=(
+                TeamScore(
+                    team_id="team-a",
+                    rank=1,
+                    valid=True,
+                    feasible=True,
+                    score=25.0,
+                    served_load_mwh=1.0,
+                    it_value=100.0,
+                    energy_cost=0.0,
+                    generator_operating_cost=0.0,
+                    generator_capital_cost=10.0,
+                    site_cost=40.0,
+                    storage_capital_cost=25.0,
+                    competition_scope="joint",
+                ),
+            ),
+            dispatch=SimpleNamespace(
+                periods=(
+                    SimpleNamespace(
+                        storage_soc_mwh_by_team={"team-a": {"storage:team-a:site-a": 15.0}}
+                    ),
+                )
+            ),
+        )
+
+    evaluate_classroom(
+        state_path=state_path,
+        rounds=rounds,
+        plan_loader=_loader((plan,)),
+        evaluator=evaluator,
+    )
+
+    assert observed[1]["capital_cost_scope"] == observed[0]["capital_cost_scope"]
+    assert observed[1]["site_cost_connection_capacity_mw_by_team"] == {"team-a": 40.0}
+    assert observed[1]["site_cost_connection_count_by_team"] == {"team-a": 1}

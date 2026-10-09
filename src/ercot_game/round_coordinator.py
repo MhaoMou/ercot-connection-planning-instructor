@@ -148,6 +148,7 @@ def evaluate_round(
     new_generator_ids: dict[str, frozenset[str]] = {}
     new_storage_ids: dict[str, frozenset[str]] = {}
     new_site_capacity_mw: dict[str, float] = {}
+    new_site_counts: dict[str, int] = {}
     for plan in plans:
         # Materialize before dispatch so custom loaders cannot bypass the
         # Task 1 state/schema boundary with a raw site-only TeamPlan.
@@ -168,18 +169,34 @@ def evaluate_round(
             else frozenset()
         )
         prior_site_ids = frozenset(prior_team.sites) if prior_team is not None else frozenset()
+        prior_site_capacity_mw = (
+            sum(site.connection_capacity_mw for site in prior_team.sites.values())
+            if prior_team is not None
+            else 0.0
+        )
         if plan.connections:
-            new_site_capacity_mw[plan.team_id] = sum(
+            current_new_site_capacity_mw = sum(
                 connection.capacity_mw
                 for connection in plan.connections
                 if connection.connection_id not in prior_site_ids
             )
+            current_new_site_count = sum(
+                connection.connection_id not in prior_site_ids
+                for connection in plan.connections
+            )
         else:
-            new_site_capacity_mw[plan.team_id] = sum(
+            current_new_site_capacity_mw = sum(
                 site.connection_capacity_mw
                 for site in plan.sites
                 if site.site_id not in prior_site_ids
             )
+            current_new_site_count = sum(
+                site.site_id not in prior_site_ids for site in plan.sites
+            )
+        new_site_capacity_mw[plan.team_id] = (
+            prior_site_capacity_mw + current_new_site_capacity_mw
+        )
+        new_site_counts[plan.team_id] = len(prior_site_ids) + current_new_site_count
         materialized_generator_ids = {
             canonical_asset_key(plan.team_id, generator.connection_id, "generator"): generator.generator_id
             for generator in materialized.generators
@@ -200,10 +217,22 @@ def evaluate_round(
             for asset_key in declared_storage_keys
             if asset_key not in prior_storage_keys
         )
-        if new_generators:
-            new_generator_ids[plan.team_id] = new_generators
-        if new_storages:
-            new_storage_ids[plan.team_id] = new_storages
+        prior_generator_scope_ids = frozenset(
+            materialized_generator_ids[asset_key]
+            for asset_key in prior_generator_keys
+            if asset_key in materialized_generator_ids
+        )
+        prior_storage_scope_ids = frozenset(
+            materialized_storage_ids[asset_key]
+            for asset_key in prior_storage_keys
+            if asset_key in materialized_storage_ids
+        )
+        weekly_generator_ids = prior_generator_scope_ids | new_generators
+        weekly_storage_ids = prior_storage_scope_ids | new_storages
+        if weekly_generator_ids:
+            new_generator_ids[plan.team_id] = weekly_generator_ids
+        if weekly_storage_ids:
+            new_storage_ids[plan.team_id] = weekly_storage_ids
 
     kwargs = dict(evaluator_kwargs or {})
     if any(name in kwargs for name in _STAGE6_EVALUATOR_KWARGS):
@@ -216,10 +245,7 @@ def evaluate_round(
             generator_ids_by_team=new_generator_ids,
             storage_ids_by_team=new_storage_ids,
         ),
-        "site_cost_connection_count_by_team": {
-            plan.team_id: len(plan.connections) if plan.connections else len(plan.sites)
-            for plan in plans
-        },
+        "site_cost_connection_count_by_team": new_site_counts,
         "site_cost_connection_capacity_mw_by_team": new_site_capacity_mw,
         "submission_number": weekly_match_for(round_key).round_keys.index(round_key) + 1,
     }
@@ -285,20 +311,18 @@ class ClassroomEvaluationResult:
     state: GameState
 
     def to_public_dict(self) -> dict[str, Any]:
-        """Return score-only output safe to publish to classroom consumers."""
+        """Return aggregate metadata safe to publish to classroom consumers."""
         return {
             "submissions": [submission.to_public_dict() for submission in self.submissions],
             "weekly_rankings": {
                 ranking.week_id: {
                     "feedback_only": ranking.feedback_only,
-                    "practice_feedback": [
-                        _public_score_dict(score) for score in ranking.practice_feedback
-                    ],
-                    "rankings": [_public_score_dict(score) for score in ranking.rankings],
+                    "practice_feedback": _score_counts(ranking.practice_feedback),
+                    "rankings": _score_counts(ranking.rankings),
                 }
                 for ranking in self.weekly_rankings
             },
-            "final_rankings": [_public_score_dict(score) for score in self.final_rankings],
+            "final_rankings": _score_counts(self.final_rankings),
             "state_metadata": {
                 "current_round_key": self.state.current_round_key,
                 "next_round_key": self.state.next_round_key,
@@ -425,6 +449,14 @@ def _public_score_dict(score: Any) -> dict[str, Any]:
     payload = asdict(score)
     payload.pop("submission_key", None)
     return payload
+
+
+def _score_counts(scores: Sequence[TeamScore]) -> dict[str, int]:
+    return {
+        "team_count": len(scores),
+        "valid_team_count": sum(score.valid for score in scores),
+        "feasible_team_count": sum(score.valid and score.feasible for score in scores),
+    }
 
 
 def _validate_projection_team_isolation(
@@ -636,7 +668,7 @@ class RoundEvaluationResult:
         return tuple(getattr(self.evaluation, "team_scores", ()))
 
     def to_public_dict(self) -> dict[str, Any]:
-        """Serialize metadata and score feedback without exposing submitted plans."""
+        """Serialize round metadata without exposing team-specific classroom data."""
         return {
             "round_key": self.round_key,
             "week_id": self.week_id,
@@ -646,5 +678,5 @@ class RoundEvaluationResult:
             "ledger_reset": self.ledger_reset,
             "preserves_prior_submission": self.preserves_prior_submission,
             "predecessor_round_key": self.predecessor_round_key,
-            "team_results": [_public_score_dict(score) for score in self.team_results],
+            "team_results": _score_counts(self.team_results),
         }
