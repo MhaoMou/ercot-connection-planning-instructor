@@ -210,7 +210,7 @@ def run_case(root: Path, horizon: int, *, storage: bool = False) -> dict:
         "median_hourly_solve_time_s": (
             sorted(hourly)[len(hourly) // 2] if hourly else None
         ),
-        "hourly_count": len(hourly),
+        "hourly_count": len(hourly) if hourly is not None else 0,
         "process_rss_before_mb": before_mb,
         "process_rss_after_mb": after_mb,
         "error_type": error["type"] if error else None,
