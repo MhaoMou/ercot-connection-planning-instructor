@@ -1,3 +1,4 @@
+import ast
 import json
 from pathlib import Path
 
@@ -46,6 +47,15 @@ def notebook_source() -> str:
     )
 
 
+def notebook_code_source() -> str:
+    notebook = json.loads(NOTEBOOK_PATH.read_text(encoding="utf-8"))
+    return "\n".join(
+        "".join(cell.get("source", []))
+        for cell in notebook["cells"]
+        if cell.get("cell_type") == "code"
+    )
+
+
 def test_notebook_measures_sampled_native_rss_and_records_limits() -> None:
     source = notebook_source()
     for marker in (
@@ -91,6 +101,39 @@ def test_recommendation_requires_optimal_solver_status() -> None:
     source = notebook_source()
     assert 'row["solver_status"] == "optimal"' in source
     assert "dependency_limited_unverified" in source
+
+
+def test_recommendation_marks_non_optimal_measurements_unverified() -> None:
+    tree = ast.parse(notebook_code_source())
+    recommendation_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "recommend"
+    )
+    namespace = {
+        "WALL_TIME_BUDGET_S": 1800.0,
+        "PEAK_RSS_BUDGET_MB": 12000.0,
+    }
+    exec(compile(ast.Module([recommendation_node], type_ignores=[]), "<recommend>", "exec"), namespace)
+    recommend = namespace["recommend"]
+
+    non_optimal = recommend([{
+        "horizon_hours": 4416,
+        "variant": "sparse_reuse",
+        "run_status": "completed",
+        "solver_status": "empty",
+    }])
+    assert non_optimal["recommendation"] == "dependency_limited_unverified"
+
+    optimal = recommend([{
+        "horizon_hours": 4416,
+        "variant": "sparse_reuse",
+        "run_status": "completed",
+        "solver_status": "optimal",
+        "median_wall_time_s": 1.0,
+        "peak_memory_mb": 1.0,
+    }])
+    assert optimal["recommendation"] == "retain_official_4416_hour_horizon"
 
 
 def test_benchmark_docs_warn_against_unrun_results_and_preserve_official_horizon() -> None:
