@@ -67,6 +67,12 @@ checked-in prompts and transcripts; missing generated inputs cause the command
 to fail instead of compiling a partial tutorial. The `generated/` and `build/`
 directories contain rebuildable artifacts and are intentionally ignored.
 
+The build requires the local `latexmk` or `pdflatex` engine plus `bibtex`, and
+always passes `-no-shell-escape`. It fails if bibliography warnings or
+overfull boxes remain in the compiler logs. Underfull boxes can be emitted by
+long breakable examples and are documented as benign; long CSV and path lines
+are configured to wrap rather than clip.
+
 ## Verification and privacy
 
 Treat every AI response as a starting point. Verify file names, columns, units,

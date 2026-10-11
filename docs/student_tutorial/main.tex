@@ -18,6 +18,7 @@
 \usepackage{fancyhdr}
 \usepackage{lastpage}
 \usepackage{hyperref}
+\usepackage{xurl}
 \usepackage{cleveref}
 
 \definecolor{ink}{HTML}{24292F}
@@ -40,7 +41,9 @@
 
 \lstdefinestyle{tutorialcode}{basicstyle=\ttfamily\small,backgroundcolor=\color{codebg},
   frame=single,rulecolor=\color{codeborder},framerule=0.5pt,columns=fullflexible,
-  keepspaces=true,breaklines=true,showstringspaces=false,xleftmargin=0.5em,xrightmargin=0.5em}
+  keepspaces=true,breaklines=true,breakatwhitespace=false,breakautoindent=true,
+  postbreak=\mbox{\textcolor{gray}{$\hookrightarrow$\space}},showstringspaces=false,
+  xleftmargin=0.5em,xrightmargin=0.5em}
 \lstset{style=tutorialcode}
 \lstdefinelanguage{CSV}{morestring=[b]",morecomment=[l]{\#}}
 \lstdefinelanguage{JSON}{morestring=[b]",morecomment=[l]{//}}
@@ -64,9 +67,10 @@
 \lhead{AI-Assisted Student Tutorial}
 \rhead{ACTIVSg2000 connection planning}
 \cfoot{\thepage\ of \pageref{LastPage}}
-\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\code}[1]{\path{#1}}
 \newcommand{\MW}{\ensuremath{\,\mathrm{MW}}}
 \newcommand{\MWh}{\ensuremath{\,\mathrm{MWh}}}
+\emergencystretch=3em
 
 \title{\textbf{AI-Assisted Student Tutorial}\\[0.4em]
   \large ACTIVSg2000 Connection Planning}

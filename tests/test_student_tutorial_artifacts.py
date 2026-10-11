@@ -314,11 +314,15 @@ def test_latex_presentation_layer_has_required_source_contracts():
         "tabularx",
         "booktabs",
         "hyperref",
+        "xurl",
         "cleveref",
     ):
         assert package in main
     for environment in ("promptbox", "aibox", "verifybox", "checkpointbox", "warningbox", "outputbox"):
         assert f"{environment}" in main
+    assert "breaklines=true" in main
+    assert "breakatwhitespace=false" in main
+    assert "emergencystretch=3em" in main
     for phrase in ("AI-use", "privacy", "fact-check", "one-hour half-year", "student preview"):
         assert phrase.lower() in main.lower()
     assert "@misc{activsg2000" in bibliography
@@ -330,8 +334,8 @@ def test_latex_input_builder_escapes_plain_text_and_preserves_code(tmp_path):
     module = importlib.util.module_from_spec(module_spec)
     assert module_spec.loader is not None
     module_spec.loader.exec_module(module)
-    escaped = module.latex_escape(r"percent % ampersand & underscore _ hash # braces { } slash \\ marker")
-    assert all(token in escaped for token in (r"\%", r"\&", r"\_", r"\#", r"\{", r"\}", r"\textbackslash{}"))
+    escaped = module.latex_escape(r"percent % ampersand & underscore _ hash # braces { } dollar $ slash \\ marker")
+    assert all(token in escaped for token in (r"\%", r"\&", r"\_", r"\#", r"\{", r"\}", r"\$", r"\textbackslash{}"))
     result = __import__("subprocess").run(
         ["python3", str(builder), "--output-dir", str(tmp_path)],
         cwd=REPO_ROOT,
@@ -342,6 +346,7 @@ def test_latex_input_builder_escapes_plain_text_and_preserves_code(tmp_path):
     assert result.returncode == 0, result.stderr
     rendered = (tmp_path / "transcripts.tex").read_text(encoding="utf-8")
     assert "\\begin{lstlisting}" in rendered
+    assert r"\path{" in module._markdown_text("a long `team_id,site_id,bus_id` value")
     assert "assignment-overview" in rendered
 
 
@@ -454,11 +459,78 @@ def test_tutorial_pdf_build_uses_only_local_toolchain(monkeypatch, tmp_path):
     assert module.LATEXMK in {"latexmk", "tectonic", "pdflatex"}
 
 
+def test_tutorial_pdf_build_commands_disable_shell_escape():
+    script = TUTORIAL_ROOT / "scripts" / "build_pdf.py"
+    module_spec = importlib.util.spec_from_file_location("build_pdf_commands", script)
+    module = importlib.util.module_from_spec(module_spec)
+    assert module_spec.loader is not None
+    module_spec.loader.exec_module(module)
+
+    latexmk_command = module._latexmk_command(Path("main.tex"), Path("build"))
+    pdflatex_command = module._pdflatex_command(Path("main.tex"), Path("build"))
+
+    assert "-no-shell-escape" in latexmk_command
+    assert "-no-shell-escape" in pdflatex_command
+
+
+def test_tutorial_pdf_build_requires_bibliography_toolchain(monkeypatch, tmp_path):
+    script = TUTORIAL_ROOT / "scripts" / "build_pdf.py"
+    module_spec = importlib.util.spec_from_file_location("build_pdf_bibtool", script)
+    module = importlib.util.module_from_spec(module_spec)
+    assert module_spec.loader is not None
+    module_spec.loader.exec_module(module)
+    generated = tmp_path / "generated"
+    generated.mkdir()
+    (generated / "transcripts.tex").write_text("% generated\n", encoding="utf-8")
+    (tmp_path / "main.tex").write_text("\\documentclass{article}\\begin{document}x\\end{document}\n", encoding="utf-8")
+    monkeypatch.setattr(module, "run_input_builder", lambda *args: None)
+    monkeypatch.setattr(module.shutil, "which", lambda name: "/usr/bin/latexmk" if name == module.LATEXMK else None)
+
+    with pytest.raises(RuntimeError, match="bibliography toolchain.*bibtex"):
+        module.build(tutorial_root=tmp_path)
+
+
+def test_tutorial_pdf_build_rejects_bibliography_warnings():
+    script = TUTORIAL_ROOT / "scripts" / "build_pdf.py"
+    module_spec = importlib.util.spec_from_file_location("build_pdf_bibwarning", script)
+    module = importlib.util.module_from_spec(module_spec)
+    assert module_spec.loader is not None
+    module_spec.loader.exec_module(module)
+
+    with pytest.raises(RuntimeError, match="bibliography warnings"):
+        module._check_build_output("Warning--I didn't find a database entry for 'missing'")
+
+
+def test_tutorial_pdf_build_allows_documented_underfull_warnings():
+    script = TUTORIAL_ROOT / "scripts" / "build_pdf.py"
+    module_spec = importlib.util.spec_from_file_location("build_pdf_underfull", script)
+    module = importlib.util.module_from_spec(module_spec)
+    assert module_spec.loader is not None
+    module_spec.loader.exec_module(module)
+
+    module._check_build_output("Underfull \\hbox (badness 10000) in paragraph")
+
+
+def test_tutorial_pdf_build_rejects_overfull_boxes():
+    script = TUTORIAL_ROOT / "scripts" / "build_pdf.py"
+    module_spec = importlib.util.spec_from_file_location("build_pdf_overfull", script)
+    module = importlib.util.module_from_spec(module_spec)
+    assert module_spec.loader is not None
+    module_spec.loader.exec_module(module)
+
+    with pytest.raises(RuntimeError, match="overfull boxes"):
+        module._check_build_output("Overfull \\hbox (12.0pt too wide) in paragraph")
+
+
 def test_tutorial_build_docs_and_hygiene_rules_are_present():
     readme = (TUTORIAL_ROOT / "README.md").read_text(encoding="utf-8")
     ignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
 
     assert "python3 docs/student_tutorial/scripts/build_pdf.py" in readme
+    assert "-no-shell-escape" in readme
+    assert "bibliography warnings" in readme
+    assert "Underfull" in readme
+    assert "overfull boxes" in readme
     assert "docs/student_tutorial/generated/" in ignore
     assert "docs/student_tutorial/build/" in ignore
     assert "docs/student_tutorial/*.pdf" in ignore

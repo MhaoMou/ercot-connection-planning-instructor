@@ -16,6 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 FENCE_RE = re.compile(r"```([A-Za-z0-9_+.-]*)\n(.*?)```", re.DOTALL)
+INLINE_CODE_RE = re.compile(r"`([^`]+)`")
 
 
 def latex_escape(text: str) -> str:
@@ -28,6 +29,7 @@ def latex_escape(text: str) -> str:
         "#": r"\#",
         "{": r"\{",
         "}": r"\}",
+        "$": r"\$",
         "~": r"\textasciitilde{}",
         "^": r"\textasciicircum{}",
     }
@@ -35,16 +37,26 @@ def latex_escape(text: str) -> str:
 
 
 def _markdown_text(text: str) -> str:
+    def render_inline(value: str) -> str:
+        chunks = []
+        cursor = 0
+        for match in INLINE_CODE_RE.finditer(value):
+            chunks.append(latex_escape(value[cursor : match.start()]))
+            chunks.append(r"\path{" + match.group(1) + "}")
+            cursor = match.end()
+        chunks.append(latex_escape(value[cursor:]))
+        return "".join(chunks)
+
     lines = []
     for line in text.splitlines():
         if line.startswith("### "):
-            lines.append(r"\textbf{" + latex_escape(line[4:]) + "}\\")
+            lines.append(r"\textbf{" + render_inline(line[4:]) + "}\\")
         elif line.startswith("## "):
-            lines.append(r"\textbf{" + latex_escape(line[3:]) + "}\\")
+            lines.append(r"\textbf{" + render_inline(line[3:]) + "}\\")
         elif line.startswith("- ") or line.startswith("* "):
-            lines.append(r"\textbullet\ " + latex_escape(line[2:]) + r"\\")
+            lines.append(r"\textbullet\ " + render_inline(line[2:]) + r"\\")
         else:
-            lines.append(latex_escape(line) + r"\par")
+            lines.append(render_inline(line) + r"\par")
     return "\n".join(lines)
 
 
