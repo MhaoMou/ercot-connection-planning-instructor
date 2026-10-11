@@ -9,6 +9,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = REPO_ROOT / "docs" / "student_tutorial" / "prompt_registry.json"
 TUTORIAL_VALIDATOR = REPO_ROOT / "docs" / "student_tutorial" / "scripts" / "validate_tutorial_examples.py"
+TUTORIAL_ROOT = REPO_ROOT / "docs" / "student_tutorial"
 
 REQUIRED_PROMPT_IDS = [
     "assignment-overview",
@@ -298,6 +299,49 @@ def test_all_registered_transcripts_use_curation_safe_schema():
         assert transcript["response"]
         assert transcript["verification_checklist"]
         assert transcript["review_status"] == "fact-checked"
+
+
+def test_latex_presentation_layer_has_required_source_contracts():
+    main = (TUTORIAL_ROOT / "main.tex").read_text(encoding="utf-8")
+    bibliography = (TUTORIAL_ROOT / "references.bib").read_text(encoding="utf-8")
+
+    for package in (
+        "geometry",
+        "newtxtext,newtxmath",
+        "tcolorbox",
+        "listings",
+        "tabularx",
+        "booktabs",
+        "hyperref",
+        "cleveref",
+    ):
+        assert package in main
+    for environment in ("promptbox", "aibox", "verifybox", "checkpointbox", "warningbox", "outputbox"):
+        assert f"{environment}" in main
+    for phrase in ("AI-use", "privacy", "fact-check", "one-hour half-year", "student preview"):
+        assert phrase.lower() in main.lower()
+    assert "@misc{activsg2000" in bibliography
+
+
+def test_latex_input_builder_escapes_plain_text_and_preserves_code(tmp_path):
+    builder = REPO_ROOT / "docs" / "student_tutorial" / "scripts" / "build_latex_inputs.py"
+    module_spec = importlib.util.spec_from_file_location("build_latex_inputs", builder)
+    module = importlib.util.module_from_spec(module_spec)
+    assert module_spec.loader is not None
+    module_spec.loader.exec_module(module)
+    escaped = module.latex_escape(r"percent % ampersand & underscore _ hash # braces { } slash ")
+    assert all(token in escaped for token in (r"\%", r"\&", r"\_", r"\#", r"\{", r"\}", r"\textbackslash{}"))
+    result = __import__("subprocess").run(
+        ["python3", str(builder), "--output-dir", str(tmp_path)],
+        cwd=REPO_ROOT,
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+    rendered = (tmp_path / "transcripts.tex").read_text(encoding="utf-8")
+    assert "\\begin{lstlisting}" in rendered
+    assert "assignment-overview" in rendered
         assert transcript["private_information_present"] is False
 
 

@@ -1,0 +1,261 @@
+\documentclass[11pt]{article}
+
+% Student-facing tutorial: Times-like text/math and an offline, source-only build.
+\usepackage[margin=1in]{geometry}
+\usepackage{newtxtext,newtxmath}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{microtype}
+\usepackage{amsmath,mathtools}
+\usepackage{booktabs,tabularx,longtable,array}
+\usepackage[most]{tcolorbox}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+\usepackage{hyperref}
+\usepackage{cleveref}
+
+\definecolor{ink}{HTML}{24292F}
+\definecolor{blue}{HTML}{0969DA}
+\definecolor{green}{HTML}{1A7F37}
+\definecolor{orange}{HTML}{9A6700}
+\definecolor{purple}{HTML}{8250DF}
+\definecolor{gray}{HTML}{57606A}
+\definecolor{codebg}{HTML}{F6F8FA}
+\definecolor{codeborder}{HTML}{D0D7DE}
+\definecolor{promptbg}{HTML}{EEF6FF}
+\definecolor{aibg}{HTML}{F6F0FF}
+\definecolor{verifybg}{HTML}{F0FFF4}
+\definecolor{checkpointbg}{HTML}{FFF8C5}
+\definecolor{warningbg}{HTML}{FFF1E5}
+\definecolor{outputbg}{HTML}{F6F8FA}
+
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue,
+  pdftitle={AI-Assisted Student Tutorial},pdfauthor={Power Systems Course}}
+
+\lstdefinestyle{tutorialcode}{basicstyle=\ttfamily\small,backgroundcolor=\color{codebg},
+  frame=single,rulecolor=\color{codeborder},framerule=0.5pt,columns=fullflexible,
+  keepspaces=true,breaklines=true,showstringspaces=false,xleftmargin=0.5em,xrightmargin=0.5em}
+\lstset{style=tutorialcode}
+\lstdefinelanguage{CSV}{morestring=[b]",morecomment=[l]{\#}}
+\lstdefinelanguage{JSON}{morestring=[b]",morecomment=[l]{//}}
+
+\newtcolorbox{promptbox}{breakable,colback=promptbg,colframe=blue!55!black,
+  title=Prompt used in the reviewed example,fonttitle=\bfseries}
+\newtcolorbox{aibox}{breakable,colback=aibg,colframe=purple!55!black,
+  title=Reviewed AI response (frozen; no live model call),fonttitle=\bfseries}
+\newtcolorbox{verifybox}{breakable,colback=verifybg,colframe=green!55!black,
+  title=Verify before relying on this, fonttitle=\bfseries}
+\newtcolorbox{checkpointbox}{breakable,colback=checkpointbg,colframe=orange!70!black,
+  title=Student checkpoint,fonttitle=\bfseries}
+\newtcolorbox{warningbox}{breakable,colback=warningbg,colframe=orange!80!black,
+  title=Important boundary,fonttitle=\bfseries}
+\newtcolorbox{outputbox}{breakable,colback=outputbg,colframe=gray!70!black,
+  title=Expected evidence,fonttitle=\bfseries}
+
+\pagestyle{fancy}
+\setlength{\headheight}{14pt}
+\fancyhf{}
+\lhead{AI-Assisted Student Tutorial}
+\rhead{ACTIVSg2000 connection planning}
+\cfoot{\thepage\ of \pageref{LastPage}}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\MW}{\ensuremath{\,\mathrm{MW}}}
+\newcommand{\MWh}{\ensuremath{\,\mathrm{MWh}}}
+
+\title{\textbf{AI-Assisted Student Tutorial}\\[0.4em]
+  \large ACTIVSg2000 Connection Planning}
+\author{Power Systems Course}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{warningbox}
+This tutorial is explanatory. The current student assignment handout and
+instructor-released scenario files remain authoritative for rules, sites,
+deadlines, scoring, and deliverables. AI text below is representative,
+reviewed, and frozen; ordinary PDF and notebook builds do not call a model.
+\end{warningbox}
+
+\tableofcontents
+\newpage
+
+\section{How to use this tutorial}
+Read the short concept sections, run the seven notebooks in order when useful,
+and treat each prompt/response pair as a worked example rather than as a new
+assignment rule. Start with a small fixture, inspect the evidence, and only
+then scale to the released ACTIVSg2000 artifacts. Keep a record of the command,
+source version, and output you actually used.
+
+The companion notebooks are \code{01\_dataset\_inspection.ipynb},
+\code{02\_network\_visualization.ipynb}, \code{03\_three\_bus\_dcopf.ipynb},
+\code{04\_storage\_soc.ipynb}, \code{05\_csv\_validation.ipynb},
+\code{06\_student\_preview.ipynb}, and \code{07\_strategy\_ablation.ipynb}.
+
+\section{AI use, privacy, and fact-checking}
+AI can help explain equations, draft small experiments, and interpret a
+traceback. It cannot establish that a bus ID, scenario, score, or evaluator
+behavior is current. Ask for verified facts, interpretations, and unknowns in
+separate sections. Check generated code on a small fixture, inspect units and
+shapes, and compare claims with the handout and repository sources.
+
+Never upload private team plans, credentials, rankings, instructor-only
+diagnostics, or unpublished evaluation results to a shared AI tool. Use public
+data, synthetic examples, or instructor-approved fixtures. The student
+preview is conservative and non-authoritative; it is not an official score.
+
+\begin{checkpointbox}
+Before accepting an AI answer, identify its source, reproduce its smallest
+claim, check the exact current CSV schema, and write down what remains unknown.
+\end{checkpointbox}
+
+\section{Assignment orientation}
+The public model is the synthetic Texas ACTIVSg2000 2,000-bus system. The
+student-facing task is to prepare a current site-level plan using the released
+inputs. The evaluator interprets the plan across one-hour half-year scenarios;
+those hours are not rows in the student CSV. Student-owned generation and
+storage serve only the submitting team, while the evaluator controls dispatch
+and the official result. These statements describe the repository contract;
+the authoritative handout controls details not repeated here.
+
+\section{Data and provenance}
+Keep the raw public network, the released scenario package, and your derived
+figures distinct. The scenario package is an instructor-prepared release built
+around the public synthetic model, not a claim about historical ERCOT telemetry.
+Record paths and manifest status. A structural network plot is not geographic
+evidence unless the input actually supplies coordinates.
+
+\begin{outputbox}
+Useful evidence includes file names and shapes, required columns, duplicate
+keys, missing-value checks, bus-reference checks, manifest status, and the
+exact command used to produce the result.
+\end{outputbox}
+
+\section{Dataset inspection}
+Begin with \code{01\_dataset\_inspection.ipynb}. Confirm the input files and
+their schemas before making a planning claim. A manifest that does not say
+\code{validation\_status: passed} must not be described as a validated release.
+Use \code{docs/ACTIVSG2000\_SCENARIO\_PACKAGE.md} and the repository README for
+provenance and scenario boundaries.
+
+\section{Visualization}
+The deterministic visualization notebook produces structural bus/branch,
+generator-overlay, and demand-summary views. It should state when geographic
+coordinates are unavailable. MATLAB is optional for local exploration; it is
+not a substitute for the repository's executable Python checks.
+
+\section{DCOPF}
+A DCOPF couples generation, demand, voltage-angle differences, and branch
+limits. A useful small example enforces nodal balance and a reference angle
+before scaling. For a branch from $i$ to $j$, a common convention is
+$f_{ij}=b_{ij}(\theta_i-\theta_j)$, with the sign checked against the chosen
+incidence convention. The objective and bounds must be read from the current
+inputs; do not invent costs or solver behavior.
+
+\begin{lstlisting}[language=Python,caption={A small verification pattern}]
+assert status == "optimal"
+assert all(abs(balance) < tolerance for balance in nodal_balances)
+assert all(abs(flow) <= limit + tolerance for flow, limit in zip(flows, limits))
+\end{lstlisting}
+
+\section{Storage}
+The submission expresses storage as power capacity in \MW and energy capacity
+in \MWh. The evaluator dispatches storage across the scenario. In a teaching
+example, check state transitions, nonnegative state of charge, charge/discharge
+power limits, stored-energy bounds, and the terminal state convention. Do not
+turn a small illustrative trajectory into a claim about the official score.
+
+\section{CSV submission}
+The current canonical site-level CSV has exactly these seven columns:
+
+\begin{center}
+\begin{tabularx}{0.98\textwidth}{@{}lX@{}}
+\toprule
+\textbf{Column} & \textbf{Meaning / unit boundary}\\
+\midrule
+\code{team\_id}, \code{site\_id}, \code{bus\_id} & identifiers from the released contract\\
+\code{connection\_capacity\_mw} & requested connection capacity (MW)\\
+\code{generator\_capacity\_mw} & private generation capacity (MW)\\
+\code{storage\_power\_mw} & storage power capacity (MW)\\
+\code{storage\_energy\_mwh} & storage energy capacity (MWh)\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{lstlisting}[language=CSV,caption={Canonical header; verify against the released handout}]
+team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
+\end{lstlisting}
+
+There are no hourly rows, retired identifier fields, or second submission
+schema. Run the repository checker from the repository root:
+\begin{lstlisting}[language=bash]
+PYTHONPATH=src python scripts/check_submission.py --file team.csv
+\end{lstlisting}
+
+\section{Colab and local preview}
+The notebooks can be opened locally or in Colab after providing the repository
+and its versioned inputs. Run the validator before the preview, save its output,
+and label preview metrics as non-authoritative. The preview helps diagnose
+format and modeling issues; only the official evaluation determines the score.
+
+\section{Strategy experiments}
+Use \code{07\_strategy\_ablation.ipynb} to vary one factor at a time on a
+controlled fixture. Record candidate parameters, validation status, preview
+metrics, and the figure produced. An ablation can reveal sensitivity; it does
+not prove an optimal strategy and must not include another team's private data.
+
+\section{Debugging and reproducibility}
+When a cell fails, preserve the traceback, input path, package version, and
+smallest reproducer. Separate a path/schema problem from a numerical or solver
+problem. Re-run after fixing one layer, and keep the exact command in your
+notes. The repository scripts provide the stable entry points for notebook
+execution and tutorial validation.
+
+From the repository root, the validation sequence is:
+\begin{lstlisting}[language=bash]
+python docs/student_tutorial/scripts/validate_prompt_registry.py
+python docs/student_tutorial/scripts/validate_transcripts.py
+python docs/student_tutorial/scripts/execute_notebooks.py \
+  --input-dir docs/student_tutorial/notebooks \
+  --output-dir docs/student_tutorial/outputs/notebook_runs
+python docs/student_tutorial/scripts/validate_tutorial_examples.py
+\end{lstlisting}
+
+\section{Final checklist}
+\begin{itemize}[leftmargin=*]
+  \item I used the authoritative handout and released scenario/catalog inputs.
+  \item I verified the exact seven-column site-level CSV schema.
+  \item I did not add hourly rows or unsupported fields to the submission.
+  \item I checked units, bus IDs, file paths, and validator output.
+  \item I treated the preview as non-authoritative.
+  \item I protected private team information and recorded provenance.
+  \item I can explain every generated code fragment I submit.
+\end{itemize}
+
+\section{Reviewed prompt and transcript examples}
+The following sections are generated from the frozen, fact-checked JSON
+transcripts. Run \code{python docs/student\_tutorial/scripts/build\_latex\_inputs.py}
+before compiling from a clean checkout. The generator escapes ordinary prose
+and routes fenced code to \code{listings}.
+
+\IfFileExists{generated/transcripts.tex}{\input{generated/transcripts.tex}}{%
+  \begin{warningbox}
+  Transcript includes are absent. Run \code{build\_latex\_inputs.py} before
+  compiling the complete tutorial.
+  \end{warningbox}}
+
+\section{References and appendices}
+The repository's assignment handout, student manual, scenario-package guide,
+and current checker instructions are the first sources to consult. The
+background tools listed below document formats and reproducible notebook
+execution, not the assignment contract.
+\nocite{activsg2000,matpower,colab,tcolorbox,nbclient,jupyterbook,quarto,nbgrader}
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}
