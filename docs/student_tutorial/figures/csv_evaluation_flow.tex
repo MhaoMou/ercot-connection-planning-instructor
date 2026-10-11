@@ -1,0 +1,18 @@
+\begin{tikzpicture}[font=\small, >=latex, node distance=7mm and 8mm]
+  \tikzset{flowbox/.style={draw, rounded corners=2pt, align=center, minimum height=11mm, text width=29mm},
+    input/.style={flowbox, fill=orange!12, draw=orange!70!black},
+    check/.style={flowbox, fill=green!10, draw=green!55!black},
+    run/.style={flowbox, fill=blue!10, draw=blue!65!black},
+    output/.style={flowbox, fill=purple!10, draw=purple!65!black}}
+  \node[input] (csv) {Seven-column\\{\bfseries student CSV}};
+  \node[check, right=of csv] (schema) {Schema and\\identifier checks};
+  \node[run, right=of schema] (model) {Planning model\\DCOPF + storage};
+  \node[output, right=of model, yshift=8mm] (preview) {Student preview\\diagnostics};
+  \node[output, right=of model, yshift=-8mm] (eval) {Official evaluator\\authoritative result};
+  \draw[->, thick] (csv) -- (schema);
+  \draw[->, thick] (schema) -- (model);
+  \draw[->, thick] (model) -- (preview);
+  \draw[->, thick] (model) -- (eval);
+  \node[below=4mm of schema, align=center, text width=42mm] {Reject stale fields and malformed units before any model run.};
+  \node[below=4mm of model, align=center, text width=42mm] {Use released ACTIVSg2000 scenarios; do not invent a regional reduction.};
+\end{tikzpicture}

@@ -19,6 +19,7 @@
 \usepackage{enumitem}
 \usepackage{graphicx}
 \usepackage{tikz}
+\usetikzlibrary{positioning}
 \usepackage{xcolor}
 \usepackage{fancyhdr}
 \usepackage{lastpage}
@@ -135,6 +136,13 @@ storage serve only the submitting team, while the evaluator controls dispatch
 and the official result. These statements describe the repository contract;
 the authoritative handout controls details not repeated here.
 
+\begin{figure}[htbp]
+  \centering
+  \resizebox{\linewidth}{!}{\input{figures/pipeline.tex}}
+  \caption{Current tutorial pipeline: the public ACTIVSg2000 source is distinct from the released scenario package, which feeds the seven-column site CSV and then the student preview or official evaluator.}
+  \label{fig:pipeline}
+\end{figure}
+
 \section{Data and provenance}
 Keep the raw public network, the released scenario package, and your derived
 figures distinct. The scenario package is an instructor-prepared release built
@@ -147,6 +155,13 @@ Useful evidence includes file names and shapes, required columns, duplicate
 keys, missing-value checks, bus-reference checks, manifest status, and the
 exact command used to produce the result.
 \end{outputbox}
+
+\begin{figure}[htbp]
+  \centering
+  \resizebox{\linewidth}{!}{\input{figures/data_relationships.tex}}
+  \caption{Relationships among the public ACTIVSg2000 model, released scenario package, planning model, and student CSV. This is a structural data-flow view, not a geographic or planning-region reduction.}
+  \label{fig:data-relationships}
+\end{figure}
 
 \section{Dataset inspection}
 Begin with \code{01\_dataset\_inspection.ipynb}. Confirm the input files and
@@ -175,12 +190,26 @@ assert all(abs(balance) < tolerance for balance in nodal_balances)
 assert all(abs(flow) <= limit + tolerance for flow, limit in zip(flows, limits))
 \end{lstlisting}
 
+\begin{figure}[htbp]
+  \centering
+  \resizebox{\linewidth}{!}{\input{figures/three_bus_dcopf.tex}}
+  \caption{Three-bus DCOPF teaching fixture. The small network exposes nodal balance, reference angle, and branch-flow limits before students scale to the ACTIVSg2000 planning model.}
+  \label{fig:three-bus-dcopf}
+\end{figure}
+
 \section{Storage}
 The submission expresses storage as power capacity in \MW and energy capacity
 in \MWh. The evaluator dispatches storage across the scenario. In a teaching
 example, check state transitions, nonnegative state of charge, charge/discharge
 power limits, stored-energy bounds, and the terminal state convention. Do not
 turn a small illustrative trajectory into a claim about the official score.
+
+\begin{figure}[htbp]
+  \centering
+  \resizebox{\linewidth}{!}{\input{figures/storage_soc.tex}}
+  \caption{Illustrative storage state-of-charge trajectory. Power and energy capacities are submitted; the evaluator dispatches storage across the scenario, so the curve is a teaching illustration rather than an official result.}
+  \label{fig:storage-soc}
+\end{figure}
 
 \section{CSV submission}
 The current canonical site-level CSV has exactly these seven columns:
@@ -209,17 +238,38 @@ schema. Run the repository checker from the repository root:
 PYTHONPATH=src python scripts/check_submission.py --file team.csv
 \end{lstlisting}
 
+\begin{figure}[htbp]
+  \centering
+  \resizebox{\linewidth}{!}{\input{figures/csv_evaluation_flow.tex}}
+  \caption{CSV-to-evaluation flow. Schema checks precede the planning model; student preview diagnostics and the official evaluator are distinct outputs.}
+  \label{fig:csv-evaluation-flow}
+\end{figure}
+
 \section{Colab and local preview}
 The notebooks can be opened locally or in Colab after providing the repository
 and its versioned inputs. Run the validator before the preview, save its output,
 and label preview metrics as non-authoritative. The preview helps diagnose
 format and modeling issues; only the official evaluation determines the score.
 
+\begin{figure}[htbp]
+  \centering
+  \resizebox{\linewidth}{!}{\input{figures/student_vs_evaluator.tex}}
+  \caption{Student preview versus official evaluator. Both use the current submission contract, but only the evaluator produces the authoritative result.}
+  \label{fig:student-vs-evaluator}
+\end{figure}
+
 \section{Strategy experiments}
 Use \code{07\_strategy\_ablation.ipynb} to vary one factor at a time on a
 controlled fixture. Record candidate parameters, validation status, preview
 metrics, and the figure produced. An ablation can reveal sensitivity; it does
 not prove an optimal strategy and must not include another team's private data.
+
+\begin{figure}[htbp]
+  \centering
+  \resizebox{\linewidth}{!}{\input{figures/strategy_experiment.tex}}
+  \caption{A reproducible strategy experiment varies one factor at a time, validates the seven-column student CSV, and records preview evidence without claiming an official score.}
+  \label{fig:strategy-experiment}
+\end{figure}
 
 \section{Debugging and reproducibility}
 When a cell fails, preserve the traceback, input path, package version, and
@@ -266,7 +316,7 @@ The repository's assignment handout, student manual, scenario-package guide,
 and current checker instructions are the first sources to consult. The
 background tools listed below document formats and reproducible notebook
 execution, not the assignment contract.
-\nocite{activsg2000,matpower,colab,tcolorbox,nbclient,jupyterbook,quarto,nbgrader}
+\nocite{activsg2000,matpower,colab,tcolorbox,minted,pandaplotting,nbclient,jupyterbook,quarto,nbgrader}
 \bibliographystyle{plain}
 \bibliography{references}
 

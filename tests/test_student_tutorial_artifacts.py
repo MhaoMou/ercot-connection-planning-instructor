@@ -40,6 +40,15 @@ REQUIRED_PROMPT_HEADINGS = [
     "## Expected evidence",
     "## Privacy constraints",
 ]
+REQUIRED_FIGURES = [
+    "pipeline.tex",
+    "data_relationships.tex",
+    "student_vs_evaluator.tex",
+    "three_bus_dcopf.tex",
+    "csv_evaluation_flow.tex",
+    "storage_soc.tex",
+    "strategy_experiment.tex",
+]
 TRANSCRIPT_KEYS = {
     "prompt_id",
     "prompt",
@@ -186,6 +195,29 @@ def test_tutorial_registry_lists_all_required_prompt_ids():
     registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
 
     assert [item["id"] for item in registry["prompts"]] == REQUIRED_PROMPT_IDS
+
+
+def test_student_tutorial_has_all_planned_tikz_figures():
+    figures = TUTORIAL_ROOT / "figures"
+    assert [path.name for path in sorted(figures.glob("*.tex"))] == sorted(REQUIRED_FIGURES)
+
+
+def test_main_integrates_each_tikz_figure_with_caption():
+    main = (TUTORIAL_ROOT / "main.tex").read_text(encoding="utf-8")
+    for figure_name in REQUIRED_FIGURES:
+        stem = Path(figure_name).stem
+        assert f"figures/{stem}" in main
+    assert main.count("\\caption{") >= len(REQUIRED_FIGURES)
+
+
+def test_tikz_figures_use_current_architecture_terms_only():
+    forbidden = ("teaching bus", "path corridor", "planning region", "six-period")
+    required = ("ACTIVSg2000", "student CSV", "DCOPF", "student preview")
+    for figure_name in REQUIRED_FIGURES:
+        text = (TUTORIAL_ROOT / "figures" / figure_name).read_text(encoding="utf-8")
+        lowered = text.lower()
+        assert not any(term in lowered for term in forbidden)
+        assert all(term.lower() in lowered for term in required)
 
 
 def test_registry_has_expected_top_level_shape():

@@ -1,0 +1,14 @@
+\begin{tikzpicture}[font=\small, >=latex, node distance=7mm and 8mm]
+  \tikzset{box/.style={draw, rounded corners=2pt, align=center, minimum height=11mm, text width=31mm}}
+  \node[box, fill=blue!10, draw=blue!65!black] (fixture) {Controlled fixture\\ACTIVSg2000-derived inputs};
+  \node[box, fill=orange!12, draw=orange!70!black] (variant) {One-factor change\\capacity or storage};
+  \node[box, fill=green!10, draw=green!55!black] (validate) {Validate the\\student CSV};
+  \node[box, fill=purple!10, draw=purple!65!black] (preview) {Run student preview\\record diagnostics};
+  \node[box, fill=yellow!15, draw=orange!70!black] (evidence) {Compare evidence\\not an official score};
+  \draw[->, thick] (fixture) -- (variant);
+  \draw[->, thick] (variant) -- (validate);
+  \draw[->, thick] (validate) -- (preview);
+  \draw[->, thick] (preview) -- (evidence);
+  \draw[->, dashed] (evidence.south) to[bend right=35] node[below, font=\scriptsize] {repeat with one factor} (variant.south);
+  \node[below=9mm of validate, align=center, text width=115mm] {Use the planning model and DCOPF consistently across variants. Keep the seven-column student CSV contract fixed, record the source/version, and never treat student preview metrics as the evaluator's authoritative result.};
+\end{tikzpicture}

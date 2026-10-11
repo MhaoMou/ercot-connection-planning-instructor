@@ -1,0 +1,17 @@
+\begin{tikzpicture}[font=\small, >=latex, node distance=8mm and 12mm]
+  \tikzset{box/.style={draw, rounded corners=2pt, align=center, minimum height=12mm, text width=33mm},
+    student/.style={box, fill=orange!12, draw=orange!70!black},
+    system/.style={box, fill=blue!10, draw=blue!65!black},
+    result/.style={box, fill=purple!10, draw=purple!65!black}}
+  \node[student] (input) {Student\\{\bfseries student CSV}};
+  \node[student, below=of input] (choice) {Student choices:\\generation and storage capacities};
+  \node[system, right=of input] (preview) {Student preview\\diagnostic, non-authoritative};
+  \node[system, right=of choice] (dcopf) {Official evaluator\\DCOPF + storage dispatch};
+  \node[result, right=of dcopf] (score) {Official result\\source of score};
+  \draw[->, thick] (input) -- (preview);
+  \draw[->, thick] (input) -- (dcopf);
+  \draw[->, thick] (choice) -- (dcopf);
+  \draw[->, thick] (dcopf) -- (score);
+  \draw[->, dashed] (preview) -- node[above, font=\scriptsize] {check, do not substitute} (score);
+  \node[below=9mm of choice, align=center, text width=115mm] {Both paths consume the same current ACTIVSg2000 planning contract and student CSV, but only the evaluator controls the authoritative DCOPF computation. The student preview is useful for debugging, not for claiming an official outcome.};
+\end{tikzpicture}
