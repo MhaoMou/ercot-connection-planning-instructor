@@ -263,16 +263,135 @@ def test_transcript_validator_accepts_existing_required_repository_sources(tmp_p
         json.dumps(transcript), encoding="utf-8"
     )
     registry = {
+        "schema_version": 1,
         "prompts": [
             {
                 "id": "example",
+                "module": "Example",
+                "prompt_file": "prompts/example.md",
                 "transcript_file": "transcripts/example.json",
+                "notebook_files": [],
                 "required_sources": ["README.md", "docs/manual.md"],
+                "verification_requirements": ["evidence"],
+                "privacy_level": EXPECTED_PRIVACY_LEVEL,
             }
         ]
     }
+    (tutorial_root / "prompts").mkdir()
+    (tutorial_root / "prompts" / "example.md").write_text("prompt\n", encoding="utf-8")
     registry_path = tutorial_root / "prompt_registry.json"
     registry_path.write_text(json.dumps(registry), encoding="utf-8")
     monkeypatch.setattr(validator, "TUTORIAL_ROOT", tutorial_root)
 
     assert validator.validate_transcripts(registry_path) == 0
+
+
+def _write_minimal_validator_fixture(tmp_path, transcript, registry=None):
+    validator_root = tmp_path / "docs" / "student_tutorial"
+    (tmp_path / "README.md").write_text("readme\n", encoding="utf-8")
+    (validator_root / "transcripts").mkdir(parents=True)
+    (validator_root / "transcripts" / "example.json").write_text(
+        json.dumps(transcript), encoding="utf-8"
+    )
+    if registry is None:
+        registry = {
+            "schema_version": 1,
+            "prompts": [
+                {
+                    "id": "example",
+                    "module": "Example",
+                    "prompt_file": "prompts/example.md",
+                    "transcript_file": "transcripts/example.json",
+                    "notebook_files": [],
+                    "required_sources": ["README.md"],
+                    "verification_requirements": ["evidence"],
+                    "privacy_level": EXPECTED_PRIVACY_LEVEL,
+                }
+            ],
+        }
+    (validator_root / "prompts").mkdir()
+    (validator_root / "prompts" / "example.md").write_text("prompt\n", encoding="utf-8")
+    registry_path = validator_root / "prompt_registry.json"
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+    return validator_root, registry_path
+
+
+def _valid_minimal_transcript():
+    return {
+        "prompt_id": "example",
+        "prompt": "prompt",
+        "response": "A complete response grounded in the source.",
+        "verification_checklist": ["check"],
+        "agent_label": "agent",
+        "generated_at": "2026-10-11",
+        "review_status": "fact-checked",
+        "review_notes": "review",
+        "sources": ["README.md"],
+        "private_information_present": False,
+    }
+
+
+def test_transcript_validator_reports_malformed_valid_json_instead_of_raising(tmp_path, monkeypatch):
+    validator = _load_transcript_validator()
+    tutorial_root, registry_path = _write_minimal_validator_fixture(
+        tmp_path, ["not", "an", "object"]
+    )
+    monkeypatch.setattr(validator, "TUTORIAL_ROOT", tutorial_root)
+
+    assert validator.validate_transcripts(registry_path) == 1
+
+
+def test_transcript_validator_reports_malformed_registry_shape_instead_of_raising(tmp_path, monkeypatch):
+    validator = _load_transcript_validator()
+    tutorial_root = tmp_path / "docs" / "student_tutorial"
+    tutorial_root.mkdir(parents=True)
+    registry_path = tutorial_root / "prompt_registry.json"
+    registry_path.write_text(json.dumps({"schema_version": 1, "prompts": {}}), encoding="utf-8")
+    monkeypatch.setattr(validator, "TUTORIAL_ROOT", tutorial_root)
+
+    assert validator.validate_transcripts(registry_path) == 1
+
+
+def test_transcript_validator_rejects_source_symlink_escape(tmp_path, monkeypatch):
+    validator = _load_transcript_validator()
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.md"
+    outside.write_text("outside\n", encoding="utf-8")
+    tutorial_root, registry_path = _write_minimal_validator_fixture(
+        tmp_path, _valid_minimal_transcript()
+    )
+    (tmp_path / "README.md").unlink()
+    (tmp_path / "README.md").symlink_to(outside)
+    monkeypatch.setattr(validator, "TUTORIAL_ROOT", tutorial_root)
+
+    assert validator.validate_transcripts(registry_path) == 1
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        ("response", ["not text"]),
+        ("verification_checklist", ["ok", 3]),
+        ("sources", ["README.md", 3]),
+        ("private_information_present", "false"),
+    ],
+)
+def test_transcript_validator_rejects_wrong_transcript_field_types(
+    tmp_path, monkeypatch, field, value
+):
+    validator = _load_transcript_validator()
+    transcript = _valid_minimal_transcript()
+    transcript[field] = value
+    tutorial_root, registry_path = _write_minimal_validator_fixture(tmp_path, transcript)
+    monkeypatch.setattr(validator, "TUTORIAL_ROOT", tutorial_root)
+
+    assert validator.validate_transcripts(registry_path) == 1
+
+
+def test_transcript_validator_rejects_placeholder_response(tmp_path, monkeypatch):
+    validator = _load_transcript_validator()
+    transcript = _valid_minimal_transcript()
+    transcript["response"] = "CURATION PENDING"
+    tutorial_root, registry_path = _write_minimal_validator_fixture(tmp_path, transcript)
+    monkeypatch.setattr(validator, "TUTORIAL_ROOT", tutorial_root)
+
+    assert validator.validate_transcripts(registry_path) == 1

@@ -91,7 +91,7 @@ full-half-year plan without waiting for the exact storage-coupled LP:
 PYTHONPATH=src python -m ercot_game.student_preview \
   --submissions-dir path/to/submissions \
   --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
-  --rules config/scoring_rules.json \
+  --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
   --horizon 4368 \
   --workers 2 \
   --output preview.json
