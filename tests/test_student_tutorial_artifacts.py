@@ -59,6 +59,15 @@ def _load_transcript_validator():
     return module
 
 
+def _load_registry_validator():
+    path = REPO_ROOT / "docs" / "student_tutorial" / "scripts" / "validate_prompt_registry.py"
+    spec = importlib.util.spec_from_file_location("validate_prompt_registry", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
 def _assert_relative_artifact_path(path, expected_root):
     assert isinstance(path, str) and path
     assert not path.endswith(("/", "\\"))
@@ -364,6 +373,95 @@ def test_transcript_validator_rejects_source_symlink_escape(tmp_path, monkeypatc
     monkeypatch.setattr(validator, "TUTORIAL_ROOT", tutorial_root)
 
     assert validator.validate_transcripts(registry_path) == 1
+
+
+def test_transcript_validator_rejects_sibling_prefix_transcript_root(tmp_path, monkeypatch):
+    validator = _load_transcript_validator()
+    tutorial_root, registry_path = _write_minimal_validator_fixture(
+        tmp_path,
+        _valid_minimal_transcript(),
+        registry={
+            "schema_version": 1,
+            "prompts": [
+                {
+                    "id": "example",
+                    "module": "Example",
+                    "prompt_file": "prompts/example.md",
+                    "transcript_file": "transcripts_backup/example.json",
+                    "notebook_files": [],
+                    "required_sources": ["README.md"],
+                    "verification_requirements": ["evidence"],
+                    "privacy_level": EXPECTED_PRIVACY_LEVEL,
+                }
+            ],
+        },
+    )
+    (tutorial_root / "transcripts_backup").mkdir()
+    (tutorial_root / "transcripts_backup" / "example.json").write_text(
+        json.dumps(_valid_minimal_transcript()), encoding="utf-8"
+    )
+    monkeypatch.setattr(validator, "TUTORIAL_ROOT", tutorial_root)
+
+    assert validator.validate_transcripts(registry_path) == 1
+
+
+def _registry_validator_fixture(tmp_path, monkeypatch):
+    validator = _load_registry_validator()
+    monkeypatch.setattr(validator, "REQUIRED_IDS", ["example"])
+    tutorial_root = tmp_path / "docs" / "student_tutorial"
+    (tutorial_root / "prompts").mkdir(parents=True)
+    (tutorial_root / "transcripts").mkdir()
+    (tutorial_root / "notebooks").mkdir()
+    (tutorial_root / "prompts" / "example.md").write_text(
+        "\n".join(REQUIRED_PROMPT_HEADINGS), encoding="utf-8"
+    )
+    (tutorial_root / "transcripts" / "example.json").write_text("{}", encoding="utf-8")
+    (tutorial_root / "notebooks" / "example.ipynb").write_text("{}", encoding="utf-8")
+    registry = {
+        "schema_version": 1,
+        "prompts": [
+            {
+                "id": "example",
+                "prompt_file": "prompts/example.md",
+                "transcript_file": "transcripts/example.json",
+                "notebook_files": ["notebooks/example.ipynb"],
+            }
+        ],
+    }
+    registry_path = tutorial_root / "prompt_registry.json"
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+    monkeypatch.setattr(validator, "TUTORIAL_ROOT", tutorial_root)
+    return validator, registry_path, registry
+
+
+def test_registry_validator_rejects_sibling_prefix_artifact_root(tmp_path, monkeypatch):
+    validator, registry_path, registry = _registry_validator_fixture(tmp_path, monkeypatch)
+    registry["prompts"][0]["prompt_file"] = "prompts_backup/example.md"
+    (registry_path.parent / "prompts_backup").mkdir()
+    (registry_path.parent / "prompts_backup" / "example.md").write_text(
+        "\n".join(REQUIRED_PROMPT_HEADINGS), encoding="utf-8"
+    )
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+
+    assert validator.validate_registry(registry_path) == 1
+
+
+def test_registry_validator_rejects_symlink_escape(tmp_path, monkeypatch):
+    validator, registry_path, registry = _registry_validator_fixture(tmp_path, monkeypatch)
+    outside = tmp_path / "outside.md"
+    outside.write_text("\n".join(REQUIRED_PROMPT_HEADINGS), encoding="utf-8")
+    prompt = registry_path.parent / "prompts" / "example.md"
+    prompt.unlink()
+    prompt.symlink_to(outside)
+
+    assert validator.validate_registry(registry_path) == 1
+
+
+def test_registry_validator_rejects_missing_notebook(tmp_path, monkeypatch):
+    validator, registry_path, registry = _registry_validator_fixture(tmp_path, monkeypatch)
+    registry_path.parent.joinpath("notebooks", "example.ipynb").unlink()
+
+    assert validator.validate_registry(registry_path) == 1
 
 
 @pytest.mark.parametrize(

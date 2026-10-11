@@ -44,7 +44,13 @@ def _relative_path(value: object, root: str) -> Path:
         raise ValueError(f"artifact path must be relative: {value!r}")
     if "\\" in value or ".." in posix.parts or not value.startswith(root):
         raise ValueError(f"artifact path is unsafe or incorrectly rooted: {value!r}")
-    return TUTORIAL_ROOT / Path(*posix.parts)
+    if not posix.parts or posix.parts[0] != root.rstrip("/"):
+        raise ValueError(f"artifact path is unsafe or incorrectly rooted: {value!r}")
+    tutorial_root = TUTORIAL_ROOT.resolve()
+    resolved = (TUTORIAL_ROOT / Path(*posix.parts)).resolve(strict=False)
+    if resolved != tutorial_root and tutorial_root not in resolved.parents:
+        raise ValueError(f"artifact path escapes tutorial root: {value!r}")
+    return resolved
 
 
 def validate_registry(path: Path = REGISTRY_PATH) -> int:

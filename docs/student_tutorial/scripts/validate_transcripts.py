@@ -70,7 +70,11 @@ def _tutorial_relative_file(
     *,
     require_file: bool = True,
 ) -> Path:
-    if not isinstance(value, str) or not value.startswith(expected_root):
+    if (
+        not isinstance(value, str)
+        or not value.startswith(expected_root)
+        or PurePosixPath(value).parts[:1] != (expected_root.rstrip("/"),)
+    ):
         raise ValueError(f"path must start with {expected_root!r}: {value!r}")
     return _repository_relative_file(value, tutorial_root, require_file=require_file)
 
@@ -233,7 +237,7 @@ def validate_transcripts(path: Path = REGISTRY_PATH) -> int:
         for notebook in notebook_files:
             try:
                 _tutorial_relative_file(
-                    notebook, "notebooks/", TUTORIAL_ROOT, require_file=False
+                    notebook, "notebooks/", TUTORIAL_ROOT
                 )
             except ValueError as exc:
                 errors.append(f"{prompt_id}: invalid notebook_file: {exc}")
