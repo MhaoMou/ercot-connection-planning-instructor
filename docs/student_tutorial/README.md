@@ -67,6 +67,12 @@ checked-in prompts and transcripts; missing generated inputs cause the command
 to fail instead of compiling a partial tutorial. The `generated/` and `build/`
 directories contain rebuildable artifacts and are intentionally ignored.
 
+The release audit also requires the generated transcript include and verifies
+that it remains contained within this tutorial and includes every registered
+transcript. For source-only development checks before generating that file,
+pass `--allow-unbuilt` explicitly to `audit_tutorial_content.py`; this mode is
+not the release default.
+
 The build requires the local `latexmk` or `pdflatex` engine plus `bibtex`, and
 always passes `-no-shell-escape`. It fails if bibliography warnings or
 overfull boxes remain in the compiler logs. Underfull boxes can be emitted by

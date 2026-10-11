@@ -185,6 +185,10 @@ def _validate_transcript(
                 _repository_relative_file(source, repository_root)
             except ValueError as exc:
                 errors.append(f"{label}: {exc}")
+            if isinstance(required_sources, list) and source not in required_sources:
+                errors.append(
+                    f"{label}: transcript source is not listed in registry required_sources: {source!r}"
+                )
     if not isinstance(required_sources, list) or not required_sources:
         errors.append(f"{label}: required_sources must be a non-empty list")
     elif not all(_non_empty_text(source) for source in required_sources):

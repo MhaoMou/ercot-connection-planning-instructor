@@ -199,6 +199,64 @@ def test_audit_requires_all_prompt_transcript_notebook_and_figure_integrations(t
     assert any("prompt/transcript modules" in error for error in errors)
 
 
+def test_release_audit_requires_generated_transcripts(tmp_path):
+    auditor = _load_auditor()
+    root = _copy_tutorial(tmp_path)
+
+    errors = auditor.audit(root)
+
+    assert any("generated/transcripts.tex" in error for error in errors)
+
+
+def test_audit_rejects_generated_transcripts_symlink_escape(tmp_path):
+    auditor = _load_auditor()
+    root = _copy_tutorial(tmp_path)
+    generated = root / "generated"
+    generated.mkdir()
+    outside = tmp_path / "outside.tex"
+    outside.write_text("% outside\n", encoding="utf-8")
+    (generated / "transcripts.tex").symlink_to(outside)
+
+    errors = auditor.audit(root)
+
+    assert any("generated/transcripts.tex" in error and "outside" in error for error in errors)
+
+
+def test_audit_rejects_prompt_registry_symlink_escape(tmp_path):
+    auditor = _load_auditor()
+    root = _copy_tutorial(tmp_path)
+    outside = tmp_path / "outside.json"
+    outside.write_text((root / "prompt_registry.json").read_text(encoding="utf-8"), encoding="utf-8")
+    (root / "prompt_registry.json").unlink()
+    (root / "prompt_registry.json").symlink_to(outside)
+
+    errors = auditor.audit(root)
+
+    assert any("registry" in error and "outside tutorial root" in error for error in errors)
+
+
+def test_audit_ignores_legacy_terms_in_external_historical_docs_but_checks_tutorial(tmp_path):
+    auditor = _load_auditor()
+    root = _copy_tutorial(tmp_path)
+    historical = root.parent / "docs" / "historical"
+    historical.mkdir(parents=True)
+    (historical / "old_manual.md").write_text(
+        "The legacy intervention and six-period fields were retired.\n",
+        encoding="utf-8",
+    )
+    tutorial_readme = root / "README.md"
+    tutorial_readme.write_text(
+        tutorial_readme.read_text(encoding="utf-8")
+        + "\nCurrent field: intervention\n",
+        encoding="utf-8",
+    )
+
+    errors = auditor.audit(root)
+
+    assert any("README.md" in error and "intervention" in error for error in errors)
+    assert not any("old_manual" in error for error in errors)
+
+
 def test_audit_rejects_explicit_private_identifiers_but_not_synthetic_fixture_names(tmp_path):
     auditor = _load_auditor()
     root = _copy_tutorial(tmp_path)

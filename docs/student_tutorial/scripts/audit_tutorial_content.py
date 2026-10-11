@@ -129,7 +129,12 @@ def _read_json_object(path: Path, label: str, errors: list[str]) -> dict | None:
 
 
 def _read_student_texts(root: Path, errors: list[str]) -> list[tuple[str, str]]:
-    paths = [root / "README.md", root / "main.tex", root / "references.bib"]
+    paths = [
+        root / "README.md",
+        root / "main.tex",
+        root / "references.bib",
+        root / "generated" / "transcripts.tex",
+    ]
     paths += sorted((root / "prompts").glob("*.md"))
     paths += sorted((root / "transcripts").glob("*.json"))
     paths += sorted((root / "figures").glob("*.tex"))
@@ -167,7 +172,13 @@ def _read_student_texts(root: Path, errors: list[str]) -> list[tuple[str, str]]:
     return texts
 
 
-def _check_transcript(prompt_id: str, transcript: dict, errors: list[str]) -> None:
+def _check_transcript(
+    prompt_id: str,
+    transcript: dict,
+    errors: list[str],
+    repository_root: Path,
+    allowed_sources: object,
+) -> None:
     for key in ("prompt", "response", "review_notes"):
         if not isinstance(transcript.get(key), str) or not transcript[key].strip():
             errors.append(f"{prompt_id}: transcript {key} must be a non-null string")
@@ -177,6 +188,17 @@ def _check_transcript(prompt_id: str, transcript: dict, errors: list[str]) -> No
         errors.append(f"{prompt_id}: verification checklist must be a non-null list of strings")
     if not isinstance(sources, list) or any(not isinstance(value, str) or not value.strip() for value in sources):
         errors.append(f"{prompt_id}: transcript sources must be a non-null list of strings")
+    else:
+        for source in sources:
+            source_path = _safe_path(
+                repository_root, source, f"{prompt_id}: transcript source {source}", errors
+            )
+            if source_path is not None and not source_path.is_file():
+                errors.append(f"{prompt_id}: missing transcript source {source}")
+            if isinstance(allowed_sources, list) and source not in allowed_sources:
+                errors.append(
+                    f"{prompt_id}: transcript source is not listed in registry required_sources: {source}"
+                )
     if transcript.get("prompt_id") != prompt_id:
         errors.append(f"{prompt_id}: prompt/transcript ID mismatch")
     if transcript.get("review_status") != "fact-checked":
@@ -186,7 +208,12 @@ def _check_transcript(prompt_id: str, transcript: dict, errors: list[str]) -> No
 
 
 def _check_registry(root: Path, errors: list[str]) -> dict:
-    registry = _read_json_object(root / "prompt_registry.json", "registry", errors)
+    registry_path = _safe_path(root, "prompt_registry.json", "registry", errors)
+    if registry_path is None or not registry_path.is_file():
+        if registry_path is not None:
+            errors.append("registry: prompt_registry.json is missing")
+        return {}
+    registry = _read_json_object(registry_path, "registry", errors)
     if registry is None:
         return {}
     entries = registry.get("prompts")
@@ -228,7 +255,13 @@ def _check_registry(root: Path, errors: list[str]) -> dict:
             else:
                 transcript = _read_json_object(path, f"{prompt_id}: transcript", errors)
                 if transcript is not None:
-                    _check_transcript(prompt_id, transcript, errors)
+                    _check_transcript(
+                        prompt_id,
+                        transcript,
+                        errors,
+                        repo_root,
+                        entry.get("required_sources"),
+                    )
         notebook_files = entry.get("notebook_files")
         if not isinstance(notebook_files, list) or any(not isinstance(value, str) for value in notebook_files):
             errors.append(f"{prompt_id}: notebook_files must be a non-null list of strings")
@@ -267,7 +300,14 @@ def _check_registry(root: Path, errors: list[str]) -> dict:
     return registry
 
 
-def _check_coverage(root: Path, registry: dict, texts: list[tuple[str, str]], errors: list[str]) -> None:
+def _check_coverage(
+    root: Path,
+    registry: dict,
+    texts: list[tuple[str, str]],
+    errors: list[str],
+    *,
+    allow_unbuilt: bool = False,
+) -> None:
     entries = registry.get("prompts", []) if isinstance(registry, dict) else []
     registered_notebooks = {Path(path).name for entry in entries if isinstance(entry, dict) for path in entry.get("notebook_files", []) if isinstance(path, str)}
     if registered_notebooks != EXPECTED_NOTEBOOKS:
@@ -288,8 +328,13 @@ def _check_coverage(root: Path, registry: dict, texts: list[tuple[str, str]], er
     for notebook in EXPECTED_NOTEBOOKS:
         if notebook not in normalized_main:
             errors.append(f"main.tex does not reference notebook {notebook}")
-    generated = root / "generated" / "transcripts.tex"
-    if generated.is_file():
+    generated = _safe_path(
+        root, "generated/transcripts.tex", "generated/transcripts.tex", errors
+    )
+    if generated is None or not generated.is_file():
+        if not allow_unbuilt:
+            errors.append("generated/transcripts.tex is required for the release audit")
+    else:
         generated_text = _read_text(generated, "generated/transcripts.tex", errors) or ""
         for prompt_id in REQUIRED_IDS:
             if f"transcript:{prompt_id}" not in generated_text:
@@ -352,12 +397,12 @@ def _check_content_contract(root: Path, texts: list[tuple[str, str]], errors: li
                 errors.append(f"{name}: current submission/legacy {label} appears without an explicit historical/rejection context")
 
 
-def audit(root: Path) -> list[str]:
+def audit(root: Path, *, allow_unbuilt: bool = False) -> list[str]:
     errors: list[str] = []
     root = root.resolve()
     texts = _read_student_texts(root, errors)
     registry = _check_registry(root, errors)
-    _check_coverage(root, registry, texts, errors)
+    _check_coverage(root, registry, texts, errors, allow_unbuilt=allow_unbuilt)
     _check_content_contract(root, texts, errors)
     return errors
 
@@ -365,8 +410,13 @@ def audit(root: Path) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tutorial-root", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument(
+        "--allow-unbuilt",
+        action="store_true",
+        help="development-only: audit source artifacts before generated/transcripts.tex exists",
+    )
     args = parser.parse_args(argv)
-    errors = audit(args.tutorial_root)
+    errors = audit(args.tutorial_root, allow_unbuilt=args.allow_unbuilt)
     if errors:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)

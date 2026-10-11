@@ -87,7 +87,12 @@
       "prompt_file": "prompts/09_storage_model.md",
       "transcript_file": "transcripts/09_storage_model.json",
       "notebook_files": ["notebooks/04_storage_soc.ipynb"],
-      "required_sources": ["README.md", "docs/student_manual/README.md"],
+      "required_sources": [
+        "README.md",
+        "docs/student_manual/README.md",
+        "docs/student_manual/HYPERPARAMETERS.md",
+        "docs/ERCOT_INSTRUCTOR_BATCH_EVALUATION.md"
+      ],
       "verification_requirements": ["power capacity", "energy capacity", "state of charge"],
       "privacy_level": "public-or-instructor-approved-fixture"
     },
@@ -97,7 +102,13 @@
       "prompt_file": "prompts/10_colab_preview.md",
       "transcript_file": "transcripts/10_colab_preview.json",
       "notebook_files": ["notebooks/06_student_preview.ipynb"],
-      "required_sources": ["README.md", "docs/student_manual/README.md"],
+      "required_sources": [
+        "README.md",
+        "docs/student_manual/README.md",
+        "pyproject.toml",
+        "docs/INSTRUCTOR_REPOSITORY_GUIDE.md",
+        "src/ercot_game/student_preview.py"
+      ],
       "verification_requirements": ["environment setup", "validator output", "non-authoritative preview"],
       "privacy_level": "public-or-instructor-approved-fixture"
     },

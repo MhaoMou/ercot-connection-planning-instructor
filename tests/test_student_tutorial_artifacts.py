@@ -759,6 +759,44 @@ def test_transcript_validator_accepts_existing_required_repository_sources(tmp_p
     assert validator.validate_transcripts(registry_path) == 0
 
 
+def test_transcript_validator_rejects_source_not_listed_in_registry(tmp_path, monkeypatch):
+    validator = _load_transcript_validator()
+    tutorial_root = tmp_path / "docs" / "student_tutorial"
+    (tmp_path / "README.md").write_text("readme\n", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "manual.md").write_text("manual\n", encoding="utf-8")
+    (tutorial_root / "transcripts").mkdir(parents=True)
+    transcript = {
+        "prompt_id": "example",
+        "prompt": "prompt",
+        "response": "response",
+        "verification_checklist": ["check"],
+        "agent_label": "agent",
+        "generated_at": "2026-10-11",
+        "review_status": "fact-checked",
+        "review_notes": "review",
+        "sources": ["README.md", "docs/manual.md"],
+        "private_information_present": False,
+    }
+    (tutorial_root / "transcripts" / "example.json").write_text(json.dumps(transcript), encoding="utf-8")
+    (tutorial_root / "prompts").mkdir()
+    (tutorial_root / "prompts" / "example.md").write_text("prompt\n", encoding="utf-8")
+    registry = {
+        "schema_version": 1,
+        "prompts": [{
+            "id": "example", "module": "Example", "prompt_file": "prompts/example.md",
+            "transcript_file": "transcripts/example.json", "notebook_files": [],
+            "required_sources": ["README.md"], "verification_requirements": ["evidence"],
+            "privacy_level": EXPECTED_PRIVACY_LEVEL,
+        }],
+    }
+    registry_path = tutorial_root / "prompt_registry.json"
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+    monkeypatch.setattr(validator, "TUTORIAL_ROOT", tutorial_root)
+
+    assert validator.validate_transcripts(registry_path) == 1
+
+
 def _write_minimal_validator_fixture(tmp_path, transcript, registry=None):
     validator_root = tmp_path / "docs" / "student_tutorial"
     (tmp_path / "README.md").write_text("readme\n", encoding="utf-8")
