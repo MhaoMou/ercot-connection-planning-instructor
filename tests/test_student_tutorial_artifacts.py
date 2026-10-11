@@ -1,5 +1,7 @@
 import json
+import hashlib
 import importlib.util
+import subprocess
 from pathlib import Path
 from pathlib import PurePosixPath, PureWindowsPath
 
@@ -471,6 +473,44 @@ def test_tutorial_pdf_build_commands_disable_shell_escape():
 
     assert "-no-shell-escape" in latexmk_command
     assert "-no-shell-escape" in pdflatex_command
+
+
+def test_tutorial_pdf_clean_builds_are_byte_and_metadata_reproducible(tmp_path):
+    script = TUTORIAL_ROOT / "scripts" / "build_pdf.py"
+    module_spec = importlib.util.spec_from_file_location("build_pdf_reproducible", script)
+    module = importlib.util.module_from_spec(module_spec)
+    assert module_spec.loader is not None
+    module_spec.loader.exec_module(module)
+
+    pdfs = []
+    for index in (1, 2):
+        pdfs.append(
+            module.build(
+                tutorial_root=TUTORIAL_ROOT,
+                build_dir=tmp_path / f"build-{index}",
+            )
+        )
+
+    assert all(pdf.is_file() for pdf in pdfs)
+    assert hashlib.sha256(pdfs[0].read_bytes()).hexdigest() == hashlib.sha256(
+        pdfs[1].read_bytes()
+    ).hexdigest()
+    metadata = []
+    for pdf in pdfs:
+        info = subprocess.run(
+            ["pdfinfo", str(pdf)],
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout
+        metadata.append(
+            "\n".join(
+                line
+                for line in info.splitlines()
+                if not line.startswith(("File size:", "Pages:"))
+            )
+        )
+    assert metadata[0] == metadata[1]
 
 
 def test_tutorial_pdf_build_requires_bibliography_toolchain(monkeypatch, tmp_path):

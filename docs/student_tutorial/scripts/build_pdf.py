@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -16,6 +17,7 @@ DEFAULT_TUTORIAL_ROOT = SCRIPT_DIR.parent
 LATEXMK = "latexmk"
 PDFLATEX = "pdflatex"
 BIBTEX = "bibtex"
+SOURCE_DATE_EPOCH = "0"
 
 _BIBLIOGRAPHY_WARNING_RE = re.compile(
     r"(?:Warning--|I didn't find a database entry|undefined citation|undefined references|No file .*\.bbl)",
@@ -24,6 +26,8 @@ _BIBLIOGRAPHY_WARNING_RE = re.compile(
 
 
 def run_command(command: list[str], *, cwd: Path) -> str:
+    environment = os.environ.copy()
+    environment["SOURCE_DATE_EPOCH"] = SOURCE_DATE_EPOCH
     completed = subprocess.run(
         command,
         cwd=cwd,
@@ -32,6 +36,7 @@ def run_command(command: list[str], *, cwd: Path) -> str:
         encoding="utf-8",
         errors="replace",
         capture_output=True,
+        env=environment,
     )
     return (completed.stdout or "") + (completed.stderr or "")
 
@@ -99,10 +104,12 @@ def _read_build_logs(build_dir: Path) -> str:
     return "\n".join(chunks)
 
 
-def build(*, tutorial_root: Path = DEFAULT_TUTORIAL_ROOT) -> Path:
+def build(
+    *, tutorial_root: Path = DEFAULT_TUTORIAL_ROOT, build_dir: Path | None = None
+) -> Path:
     tutorial_root = tutorial_root.resolve()
     generated_dir = tutorial_root / "generated"
-    build_dir = tutorial_root / "build"
+    build_dir = (build_dir or tutorial_root / "build").resolve()
     run_input_builder(tutorial_root, generated_dir)
     generated_input = generated_dir / "transcripts.tex"
     if not generated_input.is_file() or generated_input.stat().st_size == 0:
@@ -110,6 +117,10 @@ def build(*, tutorial_root: Path = DEFAULT_TUTORIAL_ROOT) -> Path:
     main_tex = tutorial_root / "main.tex"
     if not main_tex.is_file():
         raise RuntimeError(f"LaTeX source is missing: {main_tex}")
+    if build_dir.exists():
+        if build_dir.is_symlink() or not build_dir.is_dir():
+            raise RuntimeError(f"build directory is not a regular directory: {build_dir}")
+        shutil.rmtree(build_dir)
     build_dir.mkdir(parents=True, exist_ok=True)
     tool = _toolchain()
     if not shutil.which(BIBTEX):
@@ -131,8 +142,9 @@ def build(*, tutorial_root: Path = DEFAULT_TUTORIAL_ROOT) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tutorial-root", type=Path, default=DEFAULT_TUTORIAL_ROOT)
+    parser.add_argument("--build-dir", type=Path)
     args = parser.parse_args()
-    output = build(tutorial_root=args.tutorial_root)
+    output = build(tutorial_root=args.tutorial_root, build_dir=args.build_dir)
     print(f"built {output}")
     return 0
 

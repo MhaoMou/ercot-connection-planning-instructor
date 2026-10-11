@@ -1,5 +1,10 @@
 \documentclass[11pt]{article}
 
+% Keep the PDF trailer identifier stable across isolated reproducible builds.
+\ifdefined\pdftrailerid
+  \pdftrailerid{0123456789ABCDEF0123456789ABCDEF}
+\fi
+
 % Student-facing tutorial: Times-like text/math and an offline, source-only build.
 \usepackage[margin=1in]{geometry}
 \usepackage{newtxtext,newtxmath}
