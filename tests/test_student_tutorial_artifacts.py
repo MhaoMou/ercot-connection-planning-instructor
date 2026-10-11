@@ -21,6 +21,7 @@ REQUIRED_PROMPT_IDS = [
     "strategy-experiments",
     "reproducibility",
 ]
+EXPECTED_PRIVACY_LEVEL = "public-or-instructor-approved-fixture"
 
 
 def test_tutorial_registry_lists_all_required_prompt_ids():
@@ -33,9 +34,17 @@ def test_registry_entries_have_stable_deferred_artifact_paths():
     registry = json.loads(REGISTRY.read_text())
 
     for item in registry["prompts"]:
+        assert isinstance(item["module"], str) and item["module"]
+        assert isinstance(item["prompt_file"], str) and item["prompt_file"]
+        assert isinstance(item["transcript_file"], str) and item["transcript_file"]
+        assert isinstance(item["notebook_files"], list)
+        assert isinstance(item["required_sources"], list)
+        assert item["required_sources"]
+        assert isinstance(item["verification_requirements"], list)
+        assert item["verification_requirements"]
+        assert item["privacy_level"] == EXPECTED_PRIVACY_LEVEL
         assert item["prompt_file"].startswith("prompts/")
         assert item["transcript_file"].startswith("transcripts/")
-        assert isinstance(item["notebook_files"], list)
         assert all(path.startswith("notebooks/") for path in item["notebook_files"])
 
 
