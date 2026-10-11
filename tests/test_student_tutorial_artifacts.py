@@ -95,6 +95,54 @@ def test_tutorial_validator_rejects_malformed_strategy_csv_rows(tmp_path):
     assert any("non-negative" in error for error in errors)
 
 
+def test_tutorial_validator_rejects_blank_strategy_ids_and_required_numbers(tmp_path):
+    validator = _load_tutorial_validator()
+    path = tmp_path / "strategy_ablation.csv"
+    path.write_text(
+        "team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh,variant,validation_status,preview_metric\n"
+        ",site-1,1001,40,20,10,50,baseline,valid,1\n"
+        "fixture-team,   ,1001,40,20,10,50,baseline,valid,1\n"
+        "fixture-team,site-3,  ,40,20,10,50,baseline,valid,1\n"
+        "fixture-team,site-4,1001,,20,10,50,baseline,valid,1\n"
+        "fixture-team,site-5,1001,40,not-a-number,10,50,baseline,valid,1\n"
+        "fixture-team,site-6,1001,40,20,10,50,baseline,valid,\n",
+        encoding="utf-8",
+    )
+
+    errors = validator.validate_strategy_csv(path)
+
+    assert any("team_id" in error and "required" in error for error in errors)
+    assert any("site_id" in error and "required" in error for error in errors)
+    assert any("bus_id" in error and "required" in error for error in errors)
+    assert sum("must be numeric" in error for error in errors) >= 3
+
+
+def test_tutorial_validator_rejects_unexpected_published_artifacts(tmp_path):
+    validator = _load_tutorial_validator()
+    output_dir = tmp_path / "notebook_runs"
+    output_dir.mkdir()
+    for notebook_name in validator.EXPECTED_NOTEBOOKS:
+        (output_dir / notebook_name).write_text(
+            '{"cells": [], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}',
+            encoding="utf-8",
+        )
+    for artifact_name in validator.EXPECTED_ARTIFACTS:
+        path = tmp_path / artifact_name
+        if path.suffix == ".json":
+            path.write_text("{}", encoding="utf-8")
+        elif path.suffix == ".csv":
+            path.write_text(
+                ",".join(validator.STRATEGY_COLUMNS) + "\n"
+                "fixture-team,site-1,1001,40,20,10,50,baseline,valid,1\n",
+                encoding="utf-8",
+            )
+        else:
+            path.write_bytes(b"x")
+    (tmp_path / "stale-output.json").write_text("{}", encoding="utf-8")
+
+    assert validator.validate(output_dir) == 1
+
+
 def _assert_relative_artifact_path(path, expected_root):
     assert isinstance(path, str) and path
     assert not path.endswith(("/", "\\"))

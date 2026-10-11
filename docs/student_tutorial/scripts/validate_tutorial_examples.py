@@ -72,6 +72,9 @@ def validate_strategy_csv(path: Path) -> list[str]:
                 if len(row) != len(STRATEGY_COLUMNS):
                     errors.append(f"strategy_ablation.csv row {row_number} must have exactly {len(STRATEGY_COLUMNS)} fields")
                     continue
+                for column in CANONICAL_COLUMNS[:3]:
+                    if not row[CANONICAL_COLUMNS.index(column)].strip():
+                        errors.append(f"strategy_ablation.csv row {row_number} {column} is required")
                 for column in CANONICAL_COLUMNS[3:]:
                     try:
                         value = float(row[CANONICAL_COLUMNS.index(column)])
@@ -108,6 +111,13 @@ def validate(run_dir: Path) -> int:
                     errors.append(f"{path.name} cell {cell_index} contains an error output")
 
     artifact_root = run_dir.parent
+    allowed_published_entries = EXPECTED_ARTIFACTS | {run_dir.name}
+    unexpected = sorted(
+        path.name
+        for path in artifact_root.iterdir()
+        if path.name not in allowed_published_entries
+    )
+    errors.extend(f"unexpected published output: {name}" for name in unexpected)
     missing = sorted(name for name in EXPECTED_ARTIFACTS if not (artifact_root / name).is_file())
     errors.extend(f"missing output artifact: {name}" for name in missing)
     for name in EXPECTED_ARTIFACTS:
