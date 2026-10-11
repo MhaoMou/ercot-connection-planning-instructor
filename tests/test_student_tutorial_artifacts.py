@@ -81,10 +81,10 @@ def test_tutorial_validator_rejects_malformed_strategy_csv_rows(tmp_path):
     validator = _load_tutorial_validator()
     path = tmp_path / "strategy_ablation.csv"
     path.write_text(
-        "team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh,variant,validation_status,preview_metric\n"
-        "fixture-team,site-1,1001,40,20,-1,not-a-number,baseline,valid,1,extra\n"
-        "fixture-team,site-2,1001,40,20,-1,not-a-number,baseline,valid,1\n"
-        "fixture-team,site-3,1001,40,20,-1,0,baseline,valid,1\n",
+        ",".join(validator.CANONICAL_COLUMNS) + "\n"
+        "fixture-team,site-1,1001,40,20,-1,not-a-number,extra\n"
+        "fixture-team,site-2,1001,40,20,-1,not-a-number\n"
+        "fixture-team,site-3,1001,40,20,-1,0\n",
         encoding="utf-8",
     )
 
@@ -95,17 +95,31 @@ def test_tutorial_validator_rejects_malformed_strategy_csv_rows(tmp_path):
     assert any("non-negative" in error for error in errors)
 
 
+def test_tutorial_validator_rejects_retired_hourly_csv_header(tmp_path):
+    validator = _load_tutorial_validator()
+    path = tmp_path / "strategy_ablation.csv"
+    path.write_text(
+        "submission_id,team_id,period,site_id,bus_id,generator_id,storage_id,load_mw,generator_capacity_mw,storage_power_mw\n"
+        "submission-1,fixture-team,1,site-1,1001,generator-1,storage-1,35,20,5\n",
+        encoding="utf-8",
+    )
+
+    errors = validator.validate_strategy_csv(path)
+
+    assert any("exact canonical CSV header" in error for error in errors)
+
+
 def test_tutorial_validator_rejects_blank_strategy_ids_and_required_numbers(tmp_path):
     validator = _load_tutorial_validator()
     path = tmp_path / "strategy_ablation.csv"
     path.write_text(
-        "team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh,variant,validation_status,preview_metric\n"
-        ",site-1,1001,40,20,10,50,baseline,valid,1\n"
-        "fixture-team,   ,1001,40,20,10,50,baseline,valid,1\n"
-        "fixture-team,site-3,  ,40,20,10,50,baseline,valid,1\n"
-        "fixture-team,site-4,1001,,20,10,50,baseline,valid,1\n"
-        "fixture-team,site-5,1001,40,not-a-number,10,50,baseline,valid,1\n"
-        "fixture-team,site-6,1001,40,20,10,50,baseline,valid,\n",
+        ",".join(validator.CANONICAL_COLUMNS) + "\n"
+        ",site-1,1001,40,20,10,50\n"
+        "fixture-team,   ,1001,40,20,10,50\n"
+        "fixture-team,site-3,  ,40,20,10,50\n"
+        "fixture-team,site-4,1001,,20,10,50\n"
+        "fixture-team,site-5,1001,40,not-a-number,10,50\n"
+        "fixture-team,site-6,1001,40,20,10,\n",
         encoding="utf-8",
     )
 
@@ -132,8 +146,8 @@ def test_tutorial_validator_rejects_unexpected_published_artifacts(tmp_path):
             path.write_text("{}", encoding="utf-8")
         elif path.suffix == ".csv":
             path.write_text(
-                ",".join(validator.STRATEGY_COLUMNS) + "\n"
-                "fixture-team,site-1,1001,40,20,10,50,baseline,valid,1\n",
+                ",".join(validator.CANONICAL_COLUMNS) + "\n"
+                "fixture-team,site-1,1001,40,20,10,50\n",
                 encoding="utf-8",
             )
         else:

@@ -13,10 +13,8 @@ repository sources, and are not official evaluator results.
 
 ## Using the tutorial
 
-The prompt, transcript, and notebook directories are planned tutorial
-artifacts. They will be added by later tutorial tasks; Task 1 currently
-provides their stable registry paths and metadata only. Once those artifacts
-are available, open the notebooks locally or upload them to Google Colab.
+The prompt, transcript, and notebook directories contain the reviewed tutorial
+artifacts. Open the notebooks locally or upload them to Google Colab.
 When using Colab, clone or otherwise provide the repository before running
 cells so paths and versioned data resolve consistently. The local tutorial
 dependencies can be installed with:
@@ -25,8 +23,7 @@ dependencies can be installed with:
 python3 -m pip install -e '.[tutorial]'
 ```
 
-After the later tutorial tasks add the notebooks and notebook runner, execute
-the examples locally from the repository root with:
+From the repository root, execute the examples locally with:
 
 ```bash
 PYTHONPATH=src python3 docs/student_tutorial/scripts/execute_notebooks.py \
@@ -34,13 +31,23 @@ PYTHONPATH=src python3 docs/student_tutorial/scripts/execute_notebooks.py \
   --output-dir docs/student_tutorial/outputs/notebook_runs
 ```
 
-That runner executes the planned notebooks with the repository package on the
+That runner executes the notebooks with the repository package on the
 Python path and writes executed notebooks to the indicated output directory.
-It is not available in the current Task 1 scaffold.
 
-Prompt files and reviewed transcripts will be paired through
-`prompt_registry.json` after the later curation tasks add the deferred files.
-The registry establishes their stable paths now.
+The validator checks the executed notebooks and published artifacts:
+
+```bash
+PYTHONPATH=src python3 docs/student_tutorial/scripts/validate_tutorial_examples.py \
+  --run-dir docs/student_tutorial/outputs/notebook_runs
+```
+
+Run the tutorial regression tests with:
+
+```bash
+pytest -q tests/test_student_tutorial_artifacts.py tests/test_student_tutorial_notebooks.py
+```
+
+Prompt files and reviewed transcripts are paired through `prompt_registry.json`.
 
 ## Verification and privacy
 

@@ -42,7 +42,6 @@ CANONICAL_COLUMNS = [
     "storage_power_mw",
     "storage_energy_mwh",
 ]
-STRATEGY_COLUMNS = CANONICAL_COLUMNS + ["variant", "validation_status", "preview_metric"]
 
 
 def _finite_numbers(value: object) -> bool:
@@ -66,11 +65,11 @@ def validate_strategy_csv(path: Path) -> list[str]:
                 header = next(reader)
             except StopIteration:
                 return ["strategy_ablation.csv is empty"]
-            if header != STRATEGY_COLUMNS:
-                errors.append("strategy_ablation.csv must use the exact canonical CSV header and strategy columns")
+            if header != CANONICAL_COLUMNS:
+                errors.append("strategy_ablation.csv must use the exact canonical CSV header")
             for row_number, row in enumerate(reader, start=2):
-                if len(row) != len(STRATEGY_COLUMNS):
-                    errors.append(f"strategy_ablation.csv row {row_number} must have exactly {len(STRATEGY_COLUMNS)} fields")
+                if len(row) != len(CANONICAL_COLUMNS):
+                    errors.append(f"strategy_ablation.csv row {row_number} must have exactly {len(CANONICAL_COLUMNS)} fields")
                     continue
                 for column in CANONICAL_COLUMNS[:3]:
                     if not row[CANONICAL_COLUMNS.index(column)].strip():
@@ -85,13 +84,6 @@ def validate_strategy_csv(path: Path) -> list[str]:
                         errors.append(f"strategy_ablation.csv row {row_number} {column} must be numeric and finite")
                     elif value < 0:
                         errors.append(f"strategy_ablation.csv row {row_number} {column} must be non-negative")
-                try:
-                    preview_metric = float(row[-1])
-                except ValueError:
-                    errors.append(f"strategy_ablation.csv row {row_number} preview_metric must be numeric")
-                else:
-                    if not math.isfinite(preview_metric):
-                        errors.append(f"strategy_ablation.csv row {row_number} preview_metric must be finite")
     except (OSError, UnicodeDecodeError, csv.Error) as exc:
         errors.append(f"strategy_ablation.csv is malformed: {exc}")
     return errors
