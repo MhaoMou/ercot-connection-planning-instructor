@@ -34,6 +34,19 @@ docs/student_manual/*.out
 docs/student_manual/*.synctex.gz
 docs/student_manual/*.toc
 
+# Student tutorial build products; source prompts/transcripts remain tracked.
+docs/student_tutorial/generated/
+docs/student_tutorial/build/
+docs/student_tutorial/*.aux
+docs/student_tutorial/*.bbl
+docs/student_tutorial/*.blg
+docs/student_tutorial/*.fdb_latexmk
+docs/student_tutorial/*.fls
+docs/student_tutorial/*.out
+docs/student_tutorial/*.synctex.gz
+docs/student_tutorial/*.toc
+docs/student_tutorial/*.pdf
+
 # Raw downloads and large source artifacts. Obtain raw datasets through the
 # documented provenance steps rather than committing local downloads.
 data/raw/*

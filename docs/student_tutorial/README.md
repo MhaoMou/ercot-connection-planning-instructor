@@ -49,6 +49,24 @@ pytest -q tests/test_student_tutorial_artifacts.py tests/test_student_tutorial_n
 
 Prompt files and reviewed transcripts are paired through `prompt_registry.json`.
 
+### Reproducible PDF build
+
+From the repository root, build the frozen tutorial PDF with the local LaTeX
+toolchain:
+
+```bash
+python3 docs/student_tutorial/scripts/build_pdf.py
+```
+
+The command first runs the prompt-registry and transcript validators, generates
+`docs/student_tutorial/generated/transcripts.tex`, verifies that the generated
+input is present, and then compiles `docs/student_tutorial/main.tex` into
+`docs/student_tutorial/build/main.pdf` using installed `latexmk` or `pdflatex`.
+It never calls a model or downloads data. A clean checkout must have all
+checked-in prompts and transcripts; missing generated inputs cause the command
+to fail instead of compiling a partial tutorial. The `generated/` and `build/`
+directories contain rebuildable artifacts and are intentionally ignored.
+
 ## Verification and privacy
 
 Treat every AI response as a starting point. Verify file names, columns, units,

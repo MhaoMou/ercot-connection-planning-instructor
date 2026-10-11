@@ -299,6 +299,7 @@ def test_all_registered_transcripts_use_curation_safe_schema():
         assert transcript["response"]
         assert transcript["verification_checklist"]
         assert transcript["review_status"] == "fact-checked"
+        assert transcript["private_information_present"] is False
 
 
 def test_latex_presentation_layer_has_required_source_contracts():
@@ -329,7 +330,7 @@ def test_latex_input_builder_escapes_plain_text_and_preserves_code(tmp_path):
     module = importlib.util.module_from_spec(module_spec)
     assert module_spec.loader is not None
     module_spec.loader.exec_module(module)
-    escaped = module.latex_escape(r"percent % ampersand & underscore _ hash # braces { } slash ")
+    escaped = module.latex_escape(r"percent % ampersand & underscore _ hash # braces { } slash \\ marker")
     assert all(token in escaped for token in (r"\%", r"\&", r"\_", r"\#", r"\{", r"\}", r"\textbackslash{}"))
     result = __import__("subprocess").run(
         ["python3", str(builder), "--output-dir", str(tmp_path)],
@@ -342,7 +343,125 @@ def test_latex_input_builder_escapes_plain_text_and_preserves_code(tmp_path):
     rendered = (tmp_path / "transcripts.tex").read_text(encoding="utf-8")
     assert "\\begin{lstlisting}" in rendered
     assert "assignment-overview" in rendered
-        assert transcript["private_information_present"] is False
+
+
+def test_latex_input_builder_runs_both_offline_validators(monkeypatch, tmp_path):
+    builder = REPO_ROOT / "docs" / "student_tutorial" / "scripts" / "build_latex_inputs.py"
+    module_spec = importlib.util.spec_from_file_location("build_latex_inputs_validators", builder)
+    module = importlib.util.module_from_spec(module_spec)
+    assert module_spec.loader is not None
+    module_spec.loader.exec_module(module)
+    calls = []
+    monkeypatch.setattr(module, "validate_sources", lambda: calls.append("validated"))
+
+    module.build(tmp_path)
+
+    assert calls == ["validated"]
+
+
+def test_latex_input_builder_rejects_unreviewed_or_placeholder_transcripts(monkeypatch, tmp_path):
+    builder = REPO_ROOT / "docs" / "student_tutorial" / "scripts" / "build_latex_inputs.py"
+    module_spec = importlib.util.spec_from_file_location("build_latex_inputs_policy", builder)
+    module = importlib.util.module_from_spec(module_spec)
+    assert module_spec.loader is not None
+    module_spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "validate_sources", lambda: None)
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    (tmp_path / "transcripts").mkdir()
+    (tmp_path / "prompt_registry.json").write_text(
+        json.dumps({"prompts": [{"id": "example", "module": "Example", "transcript_file": "transcripts/example.json"}]}),
+        encoding="utf-8",
+    )
+    transcript = {
+        "prompt": "prompt",
+        "response": "[placeholder]",
+        "verification_checklist": ["check"],
+        "review_status": "pending",
+    }
+    (tmp_path / "transcripts/example.json").write_text(json.dumps(transcript), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="fact-checked|placeholder"):
+        module.build(tmp_path / "generated")
+
+
+def test_latex_input_builder_escapes_literal_listing_end_marker():
+    builder = REPO_ROOT / "docs" / "student_tutorial" / "scripts" / "build_latex_inputs.py"
+    module_spec = importlib.util.spec_from_file_location("build_latex_inputs_listing", builder)
+    module = importlib.util.module_from_spec(module_spec)
+    assert module_spec.loader is not None
+    module_spec.loader.exec_module(module)
+
+    rendered = module.render_response("```python\nprint(r'\\end{lstlisting}')\n```")
+
+    assert r"\textbackslash end\{lstlisting\}" in rendered
+    assert rendered.count(r"\begin{lstlisting}") == rendered.count(r"\end{lstlisting}")
+
+
+def test_tutorial_latex_source_and_builder_are_offline_and_deterministic():
+    main = (TUTORIAL_ROOT / "main.tex").read_text(encoding="utf-8")
+    builder = (TUTORIAL_ROOT / "scripts" / "build_latex_inputs.py").read_text(encoding="utf-8")
+
+    assert r"\today" not in main
+    assert "fact-checked" in builder
+    assert "openai" not in builder.lower()
+    assert "requests" not in builder.lower()
+
+
+def test_latex_input_builder_succeeds_without_network_or_model_access(monkeypatch, tmp_path):
+    import socket
+
+    builder = REPO_ROOT / "docs" / "student_tutorial" / "scripts" / "build_latex_inputs.py"
+    module_spec = importlib.util.spec_from_file_location("build_latex_inputs_offline", builder)
+    module = importlib.util.module_from_spec(module_spec)
+    assert module_spec.loader is not None
+    module_spec.loader.exec_module(module)
+
+    def fail_network(*args, **kwargs):
+        raise AssertionError("network access is forbidden during tutorial input generation")
+
+    monkeypatch.setattr(socket, "socket", fail_network)
+    assert module.build(tmp_path) == 13
+
+
+def test_tutorial_pdf_build_fails_when_generated_inputs_are_missing(monkeypatch, tmp_path):
+    script = TUTORIAL_ROOT / "scripts" / "build_pdf.py"
+    module_spec = importlib.util.spec_from_file_location("build_pdf_missing_inputs", script)
+    module = importlib.util.module_from_spec(module_spec)
+    assert module_spec.loader is not None
+    module_spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "run_input_builder", lambda *args: None)
+
+    with pytest.raises(RuntimeError, match="generated/transcripts.tex"):
+        module.build(tutorial_root=tmp_path)
+
+
+def test_tutorial_pdf_build_uses_only_local_toolchain(monkeypatch, tmp_path):
+    script = TUTORIAL_ROOT / "scripts" / "build_pdf.py"
+    module_spec = importlib.util.spec_from_file_location("build_pdf_offline", script)
+    module = importlib.util.module_from_spec(module_spec)
+    assert module_spec.loader is not None
+    module_spec.loader.exec_module(module)
+    generated = tmp_path / "generated"
+    generated.mkdir()
+    (generated / "transcripts.tex").write_text("% generated\n", encoding="utf-8")
+    (tmp_path / "main.tex").write_text("\\documentclass{article}\\begin{document}x\\end{document}\n", encoding="utf-8")
+    monkeypatch.setattr(module, "run_input_builder", lambda *args: None)
+    monkeypatch.setattr(module, "run_command", lambda *args, **kwargs: None)
+    monkeypatch.setattr(module.shutil, "which", lambda name: "/usr/bin/" + name)
+
+    module.build(tutorial_root=tmp_path)
+
+    assert module.LATEXMK in {"latexmk", "tectonic", "pdflatex"}
+
+
+def test_tutorial_build_docs_and_hygiene_rules_are_present():
+    readme = (TUTORIAL_ROOT / "README.md").read_text(encoding="utf-8")
+    ignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
+
+    assert "python3 docs/student_tutorial/scripts/build_pdf.py" in readme
+    assert "docs/student_tutorial/generated/" in ignore
+    assert "docs/student_tutorial/build/" in ignore
+    assert "docs/student_tutorial/*.pdf" in ignore
 
 
 def test_transcript_validator_rejects_unsafe_missing_and_unregistered_sources(tmp_path, monkeypatch):
