@@ -65,9 +65,8 @@ LEGACY_PATTERNS = {
         r"(?<![A-Za-z0-9_-])(?:period|load_mw|submission_id|generator_id|storage_id)(?![A-Za-z0-9_-])", re.I
     ),
 }
-EXPLICIT_COMPARISON = re.compile(
-    r"\b(?:historical|legacy|retired|obsolete|deprecated|comparison|warning)\b"
-    r"|\b(?:reject(?:ed|s)?|not\s+(?:a\s+)?current|not\s+(?:part\s+of|contain|include|use)|"
+EXPLICIT_REJECTION = re.compile(
+    r"\b(?:reject(?:ed|s)?|not\s+(?:a\s+)?current|not\s+(?:part\s+of|contain|include|use)|"
     r"do\s+not\s+add|not\s+hourly|no\s+hourly)\b", re.I
 )
 PRIVATE_PATH = re.compile(r"(?:/Users/|/home/|[A-Za-z]:\\Users\\|/private/var/)", re.I)
@@ -126,6 +125,28 @@ def _read_json_object(path: Path, label: str, errors: list[str]) -> dict | None:
         errors.append(f"{label}: JSON value must be an object")
         return None
     return value
+
+
+def _is_explicit_legacy_context(line: str, match: re.Match[str]) -> bool:
+    """Return whether a legacy term is explicitly labeled, not merely nearby."""
+    if EXPLICIT_REJECTION.search(line):
+        return True
+    term = re.escape(match.group(0))
+    before = line[: match.start()]
+    after = line[match.end() :]
+    marked_before = re.search(
+        rf"\b(?:historical|legacy|retired|obsolete|deprecated|comparison)\b"
+        rf"(?:[\s`*_/-]+[A-Za-z0-9]+){{0,3}}[\s`*_/-]*{term}\b",
+        before + match.group(0),
+        re.I,
+    )
+    marked_after = re.search(
+        rf"{term}\b(?:[\s`*_/-]+[A-Za-z0-9]+){{0,4}}[\s`*_/-]+"
+        rf"(?:historical|legacy|retired|obsolete|deprecated|comparison)\b",
+        match.group(0) + after,
+        re.I,
+    )
+    return bool(marked_before or marked_after)
 
 
 def _read_student_texts(root: Path, errors: list[str]) -> list[tuple[str, str]]:
@@ -390,7 +411,8 @@ def _check_content_contract(root: Path, texts: list[tuple[str, str]], errors: li
             errors.append(f"{name}: privacy pattern appears in student-facing content")
         for label, pattern in LEGACY_PATTERNS.items():
             for line in text.splitlines():
-                if not pattern.search(line) or EXPLICIT_COMPARISON.search(line):
+                match = pattern.search(line)
+                if match is None or _is_explicit_legacy_context(line, match):
                     continue
                 if label == "obsolete hourly submission field" and not re.search(r"\b(?:current|submission|csv|header|column|field|hourly|retired|not\s+contain|no\s+.*(?:field|column))\b", line, re.I):
                     continue

@@ -39,7 +39,7 @@ def _write_registry(root: Path, mutate) -> None:
 def test_audit_passes_for_the_checked_in_tutorial():
     auditor = _load_auditor()
 
-    errors = auditor.audit(TUTORIAL_ROOT)
+    errors = auditor.audit(TUTORIAL_ROOT, allow_unbuilt=True)
 
     assert errors == []
 
@@ -69,6 +69,19 @@ def test_legacy_terms_are_allowed_only_as_explicit_rejections_or_comparisons(tmp
     errors = auditor.audit(tmp_path)
 
     assert not any("legacy" in error or "six-period" in error for error in errors)
+
+
+def test_historical_context_does_not_hide_a_current_legacy_field(tmp_path):
+    auditor = _load_auditor()
+    (tmp_path / "README.md").write_text(
+        "The current seven-column site CSV is authoritative.\n"
+        "Historical context; current field: intervention.\n",
+        encoding="utf-8",
+    )
+
+    errors = auditor.audit(tmp_path)
+
+    assert any("intervention field" in error for error in errors)
 
 
 def test_audit_rejects_current_legacy_field_claims_and_private_paths(tmp_path):
