@@ -12,6 +12,13 @@ dependencies = [
     "openpyxl>=3.1,<4",
 ]
 
+[project.optional-dependencies]
+tutorial = [
+    "nbclient",
+    "nbformat",
+    "jupyter",
+]
+
 [project.scripts]
 ercot-game-batch = "ercot_game.batch_cli:main"
 ercot-game-check-csv = "ercot_game.csv_validator:main"

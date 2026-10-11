@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "prompts": [
+    {
+      "id": "assignment-overview",
+      "module": "Assignment orientation",
+      "prompt_file": "prompts/01_assignment_overview.md",
+      "transcript_file": "transcripts/01_assignment_overview.json",
+      "notebook_files": [],
+      "required_sources": ["README.md", "docs/student_manual/README.md"],
+      "verification_requirements": ["current assignment scope", "authoritative handout", "privacy"],
+      "privacy_level": "public-or-instructor-approved-fixture"
+    },
+    {
+      "id": "dataset-inspection",
+      "module": "ACTIVSg2000 data inspection",
+      "prompt_file": "prompts/02_dataset_inspection.md",
+      "transcript_file": "transcripts/02_dataset_inspection.json",
+      "notebook_files": ["notebooks/01_dataset_inspection.ipynb"],
+      "required_sources": ["README.md", "docs/ACTIVSG2000_SCENARIO_PACKAGE.md"],
+      "verification_requirements": ["file shapes", "keys", "provenance"],
+      "privacy_level": "public-or-instructor-approved-fixture"
+    },
+    {
+      "id": "python-visualization",
+      "module": "Python visualization",
+      "prompt_file": "prompts/03_python_visualization.md",
+      "transcript_file": "transcripts/03_python_visualization.json",
+      "notebook_files": ["notebooks/02_network_visualization.ipynb"],
+      "required_sources": ["README.md", "docs/student_manual/README.md"],
+      "verification_requirements": ["plot inputs", "units", "coordinate availability"],
+      "privacy_level": "public-or-instructor-approved-fixture"
+    },
+    {
+      "id": "matlab-visualization",
+      "module": "MATLAB visualization",
+      "prompt_file": "prompts/04_matlab_visualization.md",
+      "transcript_file": "transcripts/04_matlab_visualization.json",
+      "notebook_files": [],
+      "required_sources": ["README.md", "docs/student_manual/README.md"],
+      "verification_requirements": ["optional-tool status", "file fields", "plot interpretation"],
+      "privacy_level": "public-or-instructor-approved-fixture"
+    },
+    {
+      "id": "dcopf-concept",
+      "module": "DCOPF concepts",
+      "prompt_file": "prompts/05_dcopf_concept.md",
+      "transcript_file": "transcripts/05_dcopf_concept.json",
+      "notebook_files": [],
+      "required_sources": ["README.md", "docs/student_manual/README.md"],
+      "verification_requirements": ["balance equation", "sign conventions", "limits"],
+      "privacy_level": "public-or-instructor-approved-fixture"
+    },
+    {
+      "id": "dcopf-formulation",
+      "module": "DCOPF formulation",
+      "prompt_file": "prompts/06_dcopf_formulation.md",
+      "transcript_file": "transcripts/06_dcopf_formulation.json",
+      "notebook_files": [],
+      "required_sources": ["README.md", "docs/student_manual/README.md"],
+      "verification_requirements": ["objective", "constraints", "reference angle"],
+      "privacy_level": "public-or-instructor-approved-fixture"
+    },
+    {
+      "id": "three-bus-implementation",
+      "module": "Three-bus DCOPF implementation",
+      "prompt_file": "prompts/07_three_bus_implementation.md",
+      "transcript_file": "transcripts/07_three_bus_implementation.json",
+      "notebook_files": ["notebooks/03_three_bus_dcopf.ipynb"],
+      "required_sources": ["README.md", "docs/student_manual/README.md"],
+      "verification_requirements": ["solver status", "flow values", "nodal balance"],
+      "privacy_level": "public-or-instructor-approved-fixture"
+    },
+    {
+      "id": "csv-format",
+      "module": "CSV submission format",
+      "prompt_file": "prompts/08_csv_format.md",
+      "transcript_file": "transcripts/08_csv_format.json",
+      "notebook_files": ["notebooks/05_csv_validation.ipynb"],
+      "required_sources": ["README.md", "docs/student_manual/README.md"],
+      "verification_requirements": ["seven columns", "site rows", "units"],
+      "privacy_level": "public-or-instructor-approved-fixture"
+    },
+    {
+      "id": "storage-model",
+      "module": "Storage model",
+      "prompt_file": "prompts/09_storage_model.md",
+      "transcript_file": "transcripts/09_storage_model.json",
+      "notebook_files": ["notebooks/04_storage_soc.ipynb"],
+      "required_sources": ["README.md", "docs/student_manual/README.md"],
+      "verification_requirements": ["power capacity", "energy capacity", "state of charge"],
+      "privacy_level": "public-or-instructor-approved-fixture"
+    },
+    {
+      "id": "colab-preview",
+      "module": "Colab and local preview",
+      "prompt_file": "prompts/10_colab_preview.md",
+      "transcript_file": "transcripts/10_colab_preview.json",
+      "notebook_files": ["notebooks/06_student_preview.ipynb"],
+      "required_sources": ["README.md", "docs/student_manual/README.md"],
+      "verification_requirements": ["environment setup", "validator output", "non-authoritative preview"],
+      "privacy_level": "public-or-instructor-approved-fixture"
+    },
+    {
+      "id": "debugging",
+      "module": "Debugging",
+      "prompt_file": "prompts/11_debugging.md",
+      "transcript_file": "transcripts/11_debugging.json",
+      "notebook_files": [],
+      "required_sources": ["README.md", "docs/student_manual/README.md"],
+      "verification_requirements": ["traceback context", "failing layer", "human verification"],
+      "privacy_level": "public-or-instructor-approved-fixture"
+    },
+    {
+      "id": "strategy-experiments",
+      "module": "Strategy experiments",
+      "prompt_file": "prompts/12_strategy_experiments.md",
+      "transcript_file": "transcripts/12_strategy_experiments.json",
+      "notebook_files": ["notebooks/07_strategy_ablation.ipynb"],
+      "required_sources": ["README.md", "docs/student_manual/README.md"],
+      "verification_requirements": ["controlled factors", "validation status", "privacy"],
+      "privacy_level": "public-or-instructor-approved-fixture"
+    },
+    {
+      "id": "reproducibility",
+      "module": "Debugging and reproducibility",
+      "prompt_file": "prompts/13_reproducibility.md",
+      "transcript_file": "transcripts/13_reproducibility.json",
+      "notebook_files": [],
+      "required_sources": ["README.md", "docs/student_manual/README.md"],
+      "verification_requirements": ["versions", "source paths", "verification record"],
+      "privacy_level": "public-or-instructor-approved-fixture"
+    }
+  ]
+}
