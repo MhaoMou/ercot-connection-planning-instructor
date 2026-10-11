@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
-from pathlib import PurePosixPath
+from pathlib import PurePosixPath, PureWindowsPath
+
+import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -29,10 +31,23 @@ EXPECTED_NOTEBOOK_ROOT = "notebooks/"
 
 def _assert_relative_artifact_path(path, expected_root):
     assert isinstance(path, str) and path
+    assert "\\" not in path
     pure_path = PurePosixPath(path)
+    windows_path = PureWindowsPath(path)
     assert not pure_path.is_absolute()
+    assert not windows_path.is_absolute()
+    assert not windows_path.root
+    assert not windows_path.drive
     assert ".." not in pure_path.parts
     assert path.startswith(expected_root)
+    assert pure_path != PurePosixPath(expected_root.rstrip("/"))
+    assert pure_path.name
+
+
+def _assert_schema_version(value):
+    assert isinstance(value, int)
+    assert not isinstance(value, bool)
+    assert value == 1
 
 
 def test_tutorial_registry_lists_all_required_prompt_ids():
@@ -45,7 +60,7 @@ def test_registry_has_expected_top_level_shape():
     registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
 
     assert isinstance(registry, dict)
-    assert registry["schema_version"] == 1
+    _assert_schema_version(registry["schema_version"])
     assert isinstance(registry["prompts"], list)
     assert registry["prompts"]
 
@@ -97,3 +112,22 @@ def test_registry_artifact_references_are_rooted_relative_and_unique():
     assert len(prompt_paths) == len(set(prompt_paths))
     assert len(transcript_paths) == len(set(transcript_paths))
     assert len(notebook_paths) == len(set(notebook_paths))
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "prompts\\..\\transcripts\\01.json",
+        "C:/tmp/prompt.md",
+        "\\\\server\\share\\prompt.md",
+        "prompts/",
+    ],
+)
+def test_registry_path_helper_rejects_windows_or_directory_paths(path):
+    with pytest.raises(AssertionError):
+        _assert_relative_artifact_path(path, EXPECTED_PROMPT_ROOT)
+
+
+def test_registry_schema_version_rejects_bool():
+    with pytest.raises(AssertionError):
+        _assert_schema_version(True)
