@@ -53,7 +53,7 @@ def test_lmp_builder_writes_deterministic_full_horizon_artifact(tmp_path: Path, 
     results = [
         solve_dcopf(buses=buses, generators=generators, branches=branches),
         solve_dcopf(
-            buses=tuple(Bus(bus.bus_id, bus.demand_mw + (1e-4 if bus.bus_id == "B2" else 0.0), bus.reference) for bus in buses),
+            buses=tuple(Bus(bus.bus_id, bus.demand_mw + (1e-2 if bus.bus_id == "B2" else 0.0), bus.reference) for bus in buses),
             generators=generators,
             branches=branches,
         ),

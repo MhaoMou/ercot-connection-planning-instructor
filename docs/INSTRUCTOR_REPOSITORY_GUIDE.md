@@ -82,6 +82,30 @@ pair, and those IDs are not student inputs.
 historical/catalog context for the checker. The retired hourly schema is kept
 only for explicitly marked compatibility fixtures.
 
+## Fast student preview
+
+Students can use the `ercot-game-preview` command in Colab to iterate on a
+full-half-year plan without waiting for the exact storage-coupled LP:
+
+```bash
+PYTHONPATH=src python -m ercot_game.student_preview \
+  --submissions-dir path/to/submissions \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
+  --rules config/scoring_rules.json \
+  --horizon 4368 \
+  --workers 2 \
+  --output preview.json
+```
+
+The preview keeps the official 4,368/4,416-hour index space but samples one
+representative hour every six hours by default and scales the sampled totals
+to the represented hours. It validates submitted storage and includes storage
+construction cost, but uses an idle-storage dispatch policy for speed.
+Consequently it is a conservative screening estimate and must not be used for
+ranking or final scores. Use `--preview-stride 1` only for a slower diagnostic
+run. The instructor batch evaluator remains authoritative and performs the
+exact joint storage dispatch LP.
+
 Use `data/processed/activsg2000_scenarios_v1/2027/jul_dec` with the
 July--December rules for the second half-year. The scenario package manifest
 records the six blocks and their validation state.

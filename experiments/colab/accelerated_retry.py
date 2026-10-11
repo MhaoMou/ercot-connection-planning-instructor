@@ -31,7 +31,9 @@ from tools.activsg2000.dcopf import (
     Bus,
     Generator,
     ReusableDCOPFModel,
+    ReusableDCOPFHorizonModel,
     StorageDispatchAsset,
+    solve_dcopf_horizon_benders,
     load_prepared_artifact,
 )
 
@@ -149,7 +151,16 @@ def solve_model_reuse(root: Path, horizon: int) -> dict:
     }
 
 
-def solve_storage_lp(root: Path, horizon: int) -> dict:
+def solve_storage_lp(
+    root: Path,
+    horizon: int,
+    *,
+    solver: str = "coupled",
+    parallel_workers: int = 1,
+    solver_threads: int = 1,
+    wall_time_limit_seconds: float | None = None,
+    tighten_feasible_bounds: bool = False,
+) -> dict:
     """Solve a representative one-team plan with the storage LP enabled.
 
     The plan uses one 1 MW / 4 MWh team-owned storage asset at the first
@@ -161,10 +172,21 @@ def solve_storage_lp(root: Path, horizon: int) -> dict:
     injections = []
     owner_load = []
     storage_bus = None
+    shared_generators = None
+    shared_branches = None
     for index in range(horizon):
         buses, generators, branches, fixed = _period_inputs(root, index)
         if storage_bus is None:
             storage_bus = next((bus.bus_id for bus in buses if bus.demand_mw > 0.0), buses[0].bus_id)
+            shared_generators = generators
+            shared_branches = branches
+        else:
+            # The ACTIVSg2000 scenario has fixed topology and generator limits;
+            # only hourly bus demand changes. Reuse these large immutable
+            # tuples rather than retaining a new generator/branch object graph
+            # for every hour of a half-year horizon.
+            generators = shared_generators
+            branches = shared_branches
         periods.append((buses, generators, branches))
         injections.append(fixed)
         owner_load.append({storage_bus: max(next(bus.demand_mw for bus in buses if bus.bus_id == storage_bus), 0.0)})
@@ -176,35 +198,78 @@ def solve_storage_lp(root: Path, horizon: int) -> dict:
         energy_mwh=4.0,
         initial_soc_mwh=2.0,
     )
-    build_started = time.perf_counter()
-    model = ReusableDCOPFHorizonModel(
-        periods=tuple(periods),
-        storage_assets=(storage,),
-        fixed_injection_mw_by_period=tuple(injections),
-        owner_load_mw_by_team={"benchmark-team": tuple(owner_load)},
-        time_step_hours=1.0,
-        base_mva=100.0,
-    )
-    build_time = time.perf_counter() - build_started
-    solve_started = time.perf_counter()
-    result = model.solve(
-        fixed_injection_mw_by_period=tuple(injections),
-        owner_load_mw_by_team={"benchmark-team": tuple(owner_load)},
-    )
-    solve_time = time.perf_counter() - solve_started
+    owner_loads = {"benchmark-team": tuple(owner_load)}
+    if solver == "benders":
+        build_started = time.perf_counter()
+        result = solve_dcopf_horizon_benders(
+            periods=tuple(periods), storage_assets=(storage,),
+            fixed_injection_mw_by_period=tuple(injections),
+            owner_load_mw_by_team=owner_loads,
+            time_step_hours=1.0, base_mva=100.0, return_result=False,
+            parallel_workers=parallel_workers,
+            solver_threads=solver_threads,
+            wall_time_limit_seconds=wall_time_limit_seconds,
+            tighten_feasible_bounds=tighten_feasible_bounds,
+        )
+        total_time = time.perf_counter() - build_started
+        status = result if isinstance(result, str) else result.status
+        build_time = None
+        solve_time = total_time
+        timing = {}
+    else:
+        build_started = time.perf_counter()
+        model = ReusableDCOPFHorizonModel(
+            periods=tuple(periods), storage_assets=(storage,),
+            fixed_injection_mw_by_period=tuple(injections),
+            owner_load_mw_by_team=owner_loads,
+            time_step_hours=1.0, base_mva=100.0,
+        )
+        build_time = time.perf_counter() - build_started
+        solve_started = time.perf_counter()
+        result = model.solve(
+            fixed_injection_mw_by_period=tuple(injections),
+            owner_load_mw_by_team=owner_loads, return_result=False,
+            wall_time_limit_seconds=wall_time_limit_seconds,
+        )
+        solve_time = time.perf_counter() - solve_started
+        status = result if isinstance(result, str) else result.status
+        timing = model.last_solve_timing
     return {
         "hourly_times_s": None,
-        "statuses": [result.status],
+        "statuses": [status],
         "model_build_time_s": build_time,
         "model_reuse_solve_time_s": solve_time,
+        "input_update_time_s": timing.get("input_update_s"),
+        "solver_run_time_s": timing.get("solver_run_s"),
+        "result_extraction_time_s": timing.get("result_extraction_s"),
+        "storage_solver": solver,
     }
 
 
-def run_case(root: Path, horizon: int, *, storage: bool = False) -> dict:
+def run_case(
+    root: Path,
+    horizon: int,
+    *,
+    storage: bool = False,
+    storage_solver: str = "coupled",
+    parallel_workers: int = 1,
+    solver_threads: int = 1,
+    wall_time_limit_seconds: float | None = None,
+    tighten_feasible_bounds: bool = False,
+) -> dict:
     started = time.perf_counter()
     before_mb = _rss_mb()
     try:
-        payload = solve_storage_lp(root, horizon) if storage else solve_model_reuse(root, horizon)
+        payload = (
+            solve_storage_lp(
+                root, horizon, solver=storage_solver,
+                parallel_workers=parallel_workers,
+                solver_threads=solver_threads,
+                wall_time_limit_seconds=wall_time_limit_seconds,
+                tighten_feasible_bounds=tighten_feasible_bounds,
+            )
+            if storage else solve_model_reuse(root, horizon)
+        )
         error = None
     except Exception as exc:  # checkpoint failures for diagnosis and resume
         payload = {"hourly_times_s": [], "statuses": []}
@@ -215,8 +280,14 @@ def run_case(root: Path, horizon: int, *, storage: bool = False) -> dict:
     return {
         "horizon_hours": horizon,
         "artifact_dir": str(root),
-        "variant": "storage_lp_horizon" if storage else "model_reuse_status_only",
-        "run_status": "completed" if error is None else "error",
+        "variant": f"storage_{storage_solver}_horizon" if storage else "model_reuse_status_only",
+        "run_status": (
+            "completed" if error is None else
+            "timeout" if error["type"] == "DCOPFUnresolved" and (
+                "wall-time budget" in error["message"] or "kTimeLimit" in error["message"]
+            )
+            else "error"
+        ),
         "solver_status": status_values[0] if len(status_values) == 1 else "|".join(status_values),
         "wall_time_s": time.perf_counter() - started,
         "median_hourly_solve_time_s": (
@@ -229,6 +300,14 @@ def run_case(root: Path, horizon: int, *, storage: bool = False) -> dict:
         "error_message": error["message"] if error else None,
         "model_build_time_s": payload.get("model_build_time_s"),
         "model_reuse_solve_time_s": payload.get("model_reuse_solve_time_s"),
+        "input_update_time_s": payload.get("input_update_time_s"),
+        "solver_run_time_s": payload.get("solver_run_time_s"),
+        "result_extraction_time_s": payload.get("result_extraction_time_s"),
+        "storage_solver": payload.get("storage_solver"),
+        "parallel_workers": parallel_workers if storage_solver == "benders" else None,
+        "solver_threads": solver_threads if storage else None,
+        "wall_time_limit_seconds": wall_time_limit_seconds if storage else None,
+        "tighten_feasible_bounds": tighten_feasible_bounds if storage else None,
     }
 
 
@@ -241,6 +320,26 @@ def main() -> int:
         choices=(24, 48, 168, 720, 4368, 4416),
     )
     parser.add_argument("--storage", action="store_true", help="also run the storage-coupled LP")
+    parser.add_argument(
+        "--storage-solver", choices=("coupled", "benders"), default="coupled",
+        help="storage solve implementation; benders is the exact one-storage decomposition",
+    )
+    parser.add_argument(
+        "--parallel-workers", type=int, default=1,
+        help="parallel hourly recourse workers for Benders (default: 1)",
+    )
+    parser.add_argument(
+        "--solver-threads", type=int, default=1,
+        help="HiGHS threads per recourse/master model (default: 1; avoid oversubscription)",
+    )
+    parser.add_argument(
+        "--wall-time-limit-seconds", type=float, default=1500.0,
+        help="storage Benders wall-clock budget; default 1500 seconds (25 minutes)",
+    )
+    parser.add_argument(
+        "--tighten-feasible-bounds", action="store_true",
+        help="run the exact two-LP feasible-injection prepass for every hour",
+    )
     args = parser.parse_args()
 
     rows = []
@@ -265,7 +364,14 @@ def main() -> int:
         print(json.dumps(row, indent=2), flush=True)
         if args.storage:
             print(f"running storage LP horizon={horizon} artifact={root}", flush=True)
-            storage_row = run_case(root, horizon, storage=True)
+            storage_row = run_case(
+                root, horizon, storage=True,
+                storage_solver=args.storage_solver,
+                parallel_workers=args.parallel_workers,
+                solver_threads=args.solver_threads,
+                wall_time_limit_seconds=args.wall_time_limit_seconds,
+                tighten_feasible_bounds=args.tighten_feasible_bounds,
+            )
             rows.append(storage_row)
             checkpoint.write_text(json.dumps({
                 "python": sys.version,

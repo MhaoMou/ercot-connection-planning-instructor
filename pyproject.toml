@@ -15,19 +15,21 @@ dependencies = [
 [project.scripts]
 ercot-game-batch = "ercot_game.batch_cli:main"
 ercot-game-check-csv = "ercot_game.csv_validator:main"
+ercot-game-preview = "ercot_game.student_preview:main"
 
 # The package contains the canonical CSV evaluator and Zenodo DCOPF adapter.
 [tool.setuptools]
 packages = [
     "ercot_game",
     "tools",
-    "tools.ercot_loads",
+    "tools.activsg2000",
     "tools.zenodo_texas",
 ]
 
 [tool.setuptools.package-dir]
 ercot_game = "src/ercot_game"
 tools = "tools"
+"tools.activsg2000" = "tools/activsg2000"
 "tools.zenodo_texas" = "tools/zenodo_texas"
 
 [tool.pytest.ini_options]

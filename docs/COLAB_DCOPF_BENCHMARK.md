@@ -37,11 +37,11 @@ Counts are pre-presolve dimensions implied by the model builder, so they remain 
 ```text
 no storage variables       = G + (B - 1)
 no storage constraints     = B + L
-storage variables          = G + (B - 1) + 4S
-storage constraints        = B + L + 4S + K
+storage variables          = G + (B - 1) + 2S
+storage constraints        = B + L + 2S + K
 ```
 
-The four storage variables are charge, discharge, binary mode, and state of charge. The four storage constraints are charge-mode, discharge-mode, SOC transition, and discharge-from-previous-SOC; `K` is the owner-load discharge cap. Horizon counts multiply the per-period counts. These are model-builder counts before HiGHS presolve, not claims about the reduced internal matrix.
+The storage formulation is continuous: each asset has one signed net-power variable and one state-of-charge variable per period. The current horizon builder therefore uses `2S` storage variables and `2S + K` storage-related rows per period: the SOC transition and the owner-load discharge cap, with the terminal SOC lower bound represented in the final SOC variable bound. There is no charge/discharge binary and no storage MIP. Horizon counts multiply the per-period counts. These are model-builder counts before HiGHS presolve, not claims about the reduced internal matrix.
 
 ## Execution variants
 
@@ -51,7 +51,9 @@ The no-storage rows compare three paths already supported by the repository:
 2. `sparse_reuse` warms the prepared artifact and static topology index, then calls the same public hourly solver repeatedly. The label means sparse/static input reuse only; it does not claim matrix-factorization reuse.
 3. `chunked_parallel` uses the existing threaded-worker pattern with deterministic chunks and records the worker count. It is not used for the coupled storage model because that model must remain one horizon solve.
 
-`storage_horizon` uses the existing storage-aware `solve_dcopf_horizon` entry point with one four-hour, team-dedicated asset. All six required storage horizons run by default when `highspy` is available. A user may explicitly set `STORAGE_MAX_HORIZON` as a skip policy; only then are longer cases represented as explicit skipped rows with a reason. There is no default storage cap, and a skipped row is not evidence that the solver failed.
+`storage_horizon` uses the existing storage-aware `solve_dcopf_horizon` entry point with one four-hour, team-dedicated asset. The accelerated retry script additionally exposes the exact one-storage Benders path, which reuses one fixed-topology hourly model per worker, starts from physical storage-power bounds, and tightens only periods that prove infeasible. `--parallel-workers` controls Python recourse workers; `--solver-threads` controls HiGHS threads per worker, so users should increase one dimension at a time to avoid oversubscription. `--wall-time-limit-seconds` defaults to 1,500 seconds for storage Benders and records a safe `timeout` result instead of allowing a notebook to run indefinitely. `--tighten-feasible-bounds` restores the more expensive two-LP-per-hour interval prepass for diagnostic comparisons.
+
+The Benders path is exact when it returns `optimal`; a timeout is unresolved and must not be used as a score. The current decomposition supports one storage asset and is therefore a benchmark/optimization path, not yet a replacement for the multi-asset coupled evaluator. The coupled evaluator remains the correctness reference for official multi-team scoring, and it now accepts the same wall-clock limit so even a multi-asset run terminates with an explicit unresolved status instead of running indefinitely.
 
 ## Repeats and environment
 
@@ -71,6 +73,18 @@ The notebook applies a configurable operational screen only to measured 4,416-ho
 
 This rule is intentionally evidence-based. The official horizon must not be reduced based on intuition, an unrun notebook, a student laptop estimate, or a partial smoke test.
 
-## Student-laptop fallback
+## Student preview and local fallback
 
-A student may use a shorter local screening horizon or fewer repeats to iterate on plans. That is a usability recommendation only. It must not alter the official horizon, scoring semantics, storage model, solver status handling, or instructor-side evaluation.
+A student-facing Colab preview is available through `ercot-game-preview`. It
+retains the complete official horizon index space, samples one representative
+hour every six hours by default, and scales the sampled totals to the
+represented hours. It deliberately leaves storage idle. This is a conservative
+screening estimate: submitted storage is validated and capital-costed, while
+its operational benefit is omitted. The exact storage-coupled evaluator is
+still used for instructor-side official scores. Preview output must not be
+used for final ranking.
+
+A student may also use a shorter local screening horizon or fewer repeats to
+iterate on plans. These are usability recommendations only and must not alter
+the official horizon, scoring semantics, storage model, solver status handling,
+or instructor-side evaluation.
