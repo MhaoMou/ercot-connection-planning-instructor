@@ -14,7 +14,7 @@ Use only the supplied repository contract and explicitly label generic power-sys
 
 ## Prompt
 
-Act as a student-facing AI teaching assistant. Explain DCOPF using a three-bus toy example, including a stated sign convention, nodal balance, branch flow relationship, generator bounds, and a reference angle. Use consistent MW and radians or clearly state another unit convention. Include executable pseudocode or code only after a small test, and distinguish verified facts, interpretations, and unknowns. End with a verification checklist.
+Act as a student-facing AI teaching assistant. Explain DCOPF using a three-bus toy example, including a stated sign convention, nodal balance, branch flow relationship, generator bounds, and a reference angle. Use consistent MW and radians or clearly state another unit convention. If requesting code, require a clear repository-relative file path (for example, `work/tutorial/dcopf_concept_check.py`), executable Python rather than pseudocode, and a small assertion/test that runs before any larger example. Distinguish verified facts, interpretations, and unknowns. End with a verification checklist.
 
 ## Expected evidence
 

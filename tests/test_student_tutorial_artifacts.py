@@ -1,4 +1,5 @@
 import json
+import importlib.util
 from pathlib import Path
 from pathlib import PurePosixPath, PureWindowsPath
 
@@ -47,6 +48,15 @@ TRANSCRIPT_KEYS = {
     "sources",
     "private_information_present",
 }
+
+
+def _load_transcript_validator():
+    path = REPO_ROOT / "docs" / "student_tutorial" / "scripts" / "validate_transcripts.py"
+    spec = importlib.util.spec_from_file_location("validate_transcripts", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
 def _assert_relative_artifact_path(path, expected_root):
@@ -191,3 +201,78 @@ def test_all_registered_transcripts_use_curation_safe_schema():
         assert transcript["verification_checklist"]
         assert transcript["review_status"] == "fact-checked"
         assert transcript["private_information_present"] is False
+
+
+def test_transcript_validator_rejects_unsafe_missing_and_unregistered_sources(tmp_path, monkeypatch):
+    validator = _load_transcript_validator()
+    tutorial_root = tmp_path / "docs" / "student_tutorial"
+    transcript_root = tutorial_root / "transcripts"
+    transcript_root.mkdir(parents=True)
+    (tmp_path / "README.md").write_text("readme\n", encoding="utf-8")
+    transcript = {
+        "prompt_id": "example",
+        "prompt": "prompt",
+        "response": "response",
+        "verification_checklist": ["check"],
+        "agent_label": "agent",
+        "generated_at": "2026-10-11",
+        "review_status": "fact-checked",
+        "review_notes": "review",
+        "sources": ["README.md", "../outside.md"],
+        "private_information_present": False,
+    }
+    (transcript_root / "example.json").write_text(
+        json.dumps(transcript), encoding="utf-8"
+    )
+    registry = {
+        "prompts": [
+            {
+                "id": "example",
+                "transcript_file": "transcripts/example.json",
+                "required_sources": ["README.md", "docs/missing.md"],
+            }
+        ]
+    }
+    registry_path = tutorial_root / "prompt_registry.json"
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+    monkeypatch.setattr(validator, "TUTORIAL_ROOT", tutorial_root)
+
+    assert validator.validate_transcripts(registry_path) == 1
+
+
+def test_transcript_validator_accepts_existing_required_repository_sources(tmp_path, monkeypatch):
+    validator = _load_transcript_validator()
+    tutorial_root = tmp_path / "docs" / "student_tutorial"
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "README.md").write_text("readme\n", encoding="utf-8")
+    (tmp_path / "docs" / "manual.md").write_text("manual\n", encoding="utf-8")
+    (tutorial_root / "transcripts").mkdir(parents=True)
+    transcript = {
+        "prompt_id": "example",
+        "prompt": "prompt",
+        "response": "response",
+        "verification_checklist": ["check"],
+        "agent_label": "agent",
+        "generated_at": "2026-10-11",
+        "review_status": "fact-checked",
+        "review_notes": "review",
+        "sources": ["README.md", "docs/manual.md"],
+        "private_information_present": False,
+    }
+    (tutorial_root / "transcripts" / "example.json").write_text(
+        json.dumps(transcript), encoding="utf-8"
+    )
+    registry = {
+        "prompts": [
+            {
+                "id": "example",
+                "transcript_file": "transcripts/example.json",
+                "required_sources": ["README.md", "docs/manual.md"],
+            }
+        ]
+    }
+    registry_path = tutorial_root / "prompt_registry.json"
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+    monkeypatch.setattr(validator, "TUTORIAL_ROOT", tutorial_root)
+
+    assert validator.validate_transcripts(registry_path) == 0
