@@ -139,7 +139,7 @@ the authoritative handout controls details not repeated here.
 \begin{figure}[htbp]
   \centering
   \resizebox{\linewidth}{!}{\input{figures/pipeline.tex}}
-  \caption{Current tutorial pipeline: the public ACTIVSg2000 source is distinct from the released scenario package, which feeds the seven-column site CSV and then the student preview or official evaluator.}
+  \caption{Current tutorial pipeline: the scenario package supplies public/network/scenario context and validation inputs, while the student creates the seven-column site CSV; both feed separate preview and official-evaluation paths.}
   \label{fig:pipeline}
 \end{figure}
 
@@ -241,7 +241,7 @@ PYTHONPATH=src python scripts/check_submission.py --file team.csv
 \begin{figure}[htbp]
   \centering
   \resizebox{\linewidth}{!}{\input{figures/csv_evaluation_flow.tex}}
-  \caption{CSV-to-evaluation flow. Schema checks precede the planning model; student preview diagnostics and the official evaluator are distinct outputs.}
+  \caption{CSV-to-evaluation flow. Schema checks precede the released planning context and validation inputs; the student preview is a six-hour sampled, idle-storage, non-authoritative screening, whereas the exact instructor evaluator runs the joint storage-aware DCOPF/LP and produces the authoritative result.}
   \label{fig:csv-evaluation-flow}
 \end{figure}
 
@@ -266,8 +266,8 @@ not prove an optimal strategy and must not include another team's private data.
 
 \begin{figure}[htbp]
   \centering
-  \resizebox{\linewidth}{!}{\input{figures/strategy_experiment.tex}}
-  \caption{A reproducible strategy experiment varies one factor at a time, validates the seven-column student CSV, and records preview evidence without claiming an official score.}
+  \resizebox{0.96\linewidth}{!}{\input{figures/strategy_experiment.tex}}
+  \caption{Notebook 07 varies one factor at a time across synthetic candidate plans, validates the seven-column student CSV, and records hand-built preview metrics without claiming an official score.}
   \label{fig:strategy-experiment}
 \end{figure}
 

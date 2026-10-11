@@ -212,12 +212,73 @@ def test_main_integrates_each_tikz_figure_with_caption():
 
 def test_tikz_figures_use_current_architecture_terms_only():
     forbidden = ("teaching bus", "path corridor", "planning region", "six-period")
-    required = ("ACTIVSg2000", "student CSV", "DCOPF", "student preview")
+    required_by_figure = {
+        "pipeline.tex": ("ACTIVSg2000", "student CSV", "DCOPF", "student preview"),
+        "data_relationships.tex": ("ACTIVSg2000", "student CSV", "DCOPF", "student preview"),
+        "student_vs_evaluator.tex": ("ACTIVSg2000", "student CSV", "DCOPF", "student preview"),
+        "three_bus_dcopf.tex": ("ACTIVSg2000", "student CSV", "DCOPF", "student preview"),
+        "csv_evaluation_flow.tex": ("ACTIVSg2000", "student CSV", "DCOPF", "student preview"),
+        "strategy_experiment.tex": ("ACTIVSg2000", "student CSV", "DCOPF", "student preview"),
+    }
     for figure_name in REQUIRED_FIGURES:
         text = (TUTORIAL_ROOT / "figures" / figure_name).read_text(encoding="utf-8")
         lowered = text.lower()
         assert not any(term in lowered for term in forbidden)
+        required = required_by_figure.get(figure_name, ())
         assert all(term.lower() in lowered for term in required)
+
+
+def test_task5_pipeline_assigns_context_to_package_and_csv_to_student():
+    pipeline = (TUTORIAL_ROOT / "figures" / "pipeline.tex").read_text(encoding="utf-8").lower()
+    caption = (TUTORIAL_ROOT / "main.tex").read_text(encoding="utf-8").lower()
+
+    assert "public/network/" in pipeline
+    assert "scenario context" in pipeline
+    assert "validation inputs" in pipeline
+    assert "student creates" in pipeline
+    assert "package -- (csv)" not in pipeline
+    assert "feeds the seven-column site csv" not in caption
+    assert "context and validation inputs" in caption
+
+
+def test_task5_csv_flow_separates_exact_evaluator_from_preview():
+    flow = (TUTORIAL_ROOT / "figures" / "csv_evaluation_flow.tex").read_text(encoding="utf-8").lower()
+    main = (TUTORIAL_ROOT / "main.tex").read_text(encoding="utf-8").lower()
+
+    assert "six-hour sampled" in flow
+    assert "idle-storage" in flow
+    assert "non-authoritative screening" in flow
+    assert "exact instructor evaluator" in flow
+    assert "joint storage-aware" in flow
+    assert "dcopf/lp" in flow
+    assert "six-hour sampled" in main
+    assert "joint storage-aware dcopf/lp" in main
+
+
+def test_task5_strategy_figure_uses_synthetic_not_activsg2000_inputs():
+    strategy = (TUTORIAL_ROOT / "figures" / "strategy_experiment.tex").read_text(encoding="utf-8").lower()
+    main = (TUTORIAL_ROOT / "main.tex").read_text(encoding="utf-8").lower()
+
+    assert "notebook 07" in strategy
+    assert "synthetic candidate plans" in strategy
+    assert "hand-built preview metrics" in strategy
+    assert "activsg2000-derived inputs" not in strategy
+    assert "synthetic candidate plans" in main
+    assert "hand-built preview metrics" in main
+
+
+def test_task5_strategy_figure_has_bounded_layout():
+    strategy = (TUTORIAL_ROOT / "figures" / "strategy_experiment.tex").read_text(encoding="utf-8")
+    main = (TUTORIAL_ROOT / "main.tex").read_text(encoding="utf-8")
+
+    assert "text width=25mm" in strategy
+    assert "text width=98mm" in strategy
+    assert "minimum height=10mm" in strategy
+    assert "right=of fixture" in strategy
+    assert "right=of variant" in strategy
+    assert "right=of validate" in strategy
+    assert "right=of preview" in strategy
+    assert "\\resizebox{0.96\\linewidth}{!}" in main
 
 
 def test_registry_has_expected_top_level_shape():
