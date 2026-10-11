@@ -42,6 +42,7 @@ CANONICAL_COLUMNS = [
     "storage_power_mw",
     "storage_energy_mwh",
 ]
+STRATEGY_COLUMNS = CANONICAL_COLUMNS + ["variant", "validation_status", "preview_metric"]
 
 
 def _finite_numbers(value: object) -> bool:
@@ -54,6 +55,43 @@ def _finite_numbers(value: object) -> bool:
     if isinstance(value, dict):
         return all(_finite_numbers(item) for item in value.values())
     return True
+
+
+def validate_strategy_csv(path: Path) -> list[str]:
+    errors: list[str] = []
+    try:
+        with path.open(newline="", encoding="utf-8") as handle:
+            reader = csv.reader(handle, strict=True)
+            try:
+                header = next(reader)
+            except StopIteration:
+                return ["strategy_ablation.csv is empty"]
+            if header != STRATEGY_COLUMNS:
+                errors.append("strategy_ablation.csv must use the exact canonical CSV header and strategy columns")
+            for row_number, row in enumerate(reader, start=2):
+                if len(row) != len(STRATEGY_COLUMNS):
+                    errors.append(f"strategy_ablation.csv row {row_number} must have exactly {len(STRATEGY_COLUMNS)} fields")
+                    continue
+                for column in CANONICAL_COLUMNS[3:]:
+                    try:
+                        value = float(row[CANONICAL_COLUMNS.index(column)])
+                    except ValueError:
+                        errors.append(f"strategy_ablation.csv row {row_number} {column} must be numeric")
+                        continue
+                    if not math.isfinite(value):
+                        errors.append(f"strategy_ablation.csv row {row_number} {column} must be numeric and finite")
+                    elif value < 0:
+                        errors.append(f"strategy_ablation.csv row {row_number} {column} must be non-negative")
+                try:
+                    preview_metric = float(row[-1])
+                except ValueError:
+                    errors.append(f"strategy_ablation.csv row {row_number} preview_metric must be numeric")
+                else:
+                    if not math.isfinite(preview_metric):
+                        errors.append(f"strategy_ablation.csv row {row_number} preview_metric must be finite")
+    except (OSError, UnicodeDecodeError, csv.Error) as exc:
+        errors.append(f"strategy_ablation.csv is malformed: {exc}")
+    return errors
 
 
 def validate(run_dir: Path) -> int:
@@ -79,13 +117,7 @@ def validate(run_dir: Path) -> int:
 
     csv_path = artifact_root / "strategy_ablation.csv"
     if csv_path.is_file():
-        with csv_path.open(newline="", encoding="utf-8") as handle:
-            rows = list(csv.DictReader(handle))
-        if not rows:
-            errors.append("strategy_ablation.csv has no rows")
-        for row in rows:
-            if set(row) >= set(CANONICAL_COLUMNS) and list(row)[:7] != CANONICAL_COLUMNS:
-                errors.append("canonical CSV columns are not in the required order")
+        errors.extend(validate_strategy_csv(csv_path))
     for name in ("dataset_inspection.json", "three_bus_dcopf.json", "storage_soc.json", "csv_validation.json", "student_preview.json"):
         path = artifact_root / name
         if path.is_file():

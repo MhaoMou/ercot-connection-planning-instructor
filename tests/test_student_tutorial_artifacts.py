@@ -8,6 +8,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = REPO_ROOT / "docs" / "student_tutorial" / "prompt_registry.json"
+TUTORIAL_VALIDATOR = REPO_ROOT / "docs" / "student_tutorial" / "scripts" / "validate_tutorial_examples.py"
 
 REQUIRED_PROMPT_IDS = [
     "assignment-overview",
@@ -66,6 +67,32 @@ def _load_registry_validator():
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+def _load_tutorial_validator():
+    spec = importlib.util.spec_from_file_location("validate_tutorial_examples", TUTORIAL_VALIDATOR)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_tutorial_validator_rejects_malformed_strategy_csv_rows(tmp_path):
+    validator = _load_tutorial_validator()
+    path = tmp_path / "strategy_ablation.csv"
+    path.write_text(
+        "team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh,variant,validation_status,preview_metric\n"
+        "fixture-team,site-1,1001,40,20,-1,not-a-number,baseline,valid,1,extra\n"
+        "fixture-team,site-2,1001,40,20,-1,not-a-number,baseline,valid,1\n"
+        "fixture-team,site-3,1001,40,20,-1,0,baseline,valid,1\n",
+        encoding="utf-8",
+    )
+
+    errors = validator.validate_strategy_csv(path)
+
+    assert any("exactly" in error for error in errors)
+    assert any("numeric" in error for error in errors)
+    assert any("non-negative" in error for error in errors)
 
 
 def _assert_relative_artifact_path(path, expected_root):

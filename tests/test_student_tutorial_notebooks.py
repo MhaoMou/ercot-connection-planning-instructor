@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import nbformat
+import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -40,6 +41,14 @@ def test_all_required_notebooks_have_stable_fixture_first_contract():
         assert "OUTPUT" in notebook.cells[4].source
 
 
+def test_all_notebook_cells_have_unique_explicit_ids():
+    for path in NOTEBOOK_ROOT.glob("*.ipynb"):
+        notebook = nbformat.read(path, as_version=4)
+        ids = [cell.get("id") for cell in notebook.cells]
+        assert all(isinstance(cell_id, str) and cell_id for cell_id in ids), path.name
+        assert len(ids) == len(set(ids)), path.name
+
+
 def test_notebooks_use_no_private_data_or_user_absolute_paths():
     forbidden = ("/Users/", "/home/", "C:\\Users\\", "private_team", "team_secret")
     for path in NOTEBOOK_ROOT.glob("*.ipynb"):
@@ -57,6 +66,19 @@ def test_runner_fails_clearly_for_missing_input_directory(tmp_path):
     )
     assert result.returncode != 0
     assert "input notebook directory" in result.stderr
+
+
+@pytest.mark.parametrize("output_name", ["notebooks", "notebooks/nested"])
+def test_notebook_runner_rejects_input_output_overlap(tmp_path, output_name):
+    output_dir = NOTEBOOK_ROOT if output_name == "notebooks" else NOTEBOOK_ROOT / "nested"
+    result = subprocess.run(
+        [sys.executable, str(RUNNER), "--input-dir", str(NOTEBOOK_ROOT), "--output-dir", str(output_dir)],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode != 0
+    assert "overlap" in result.stderr.lower()
 
 
 def test_notebook_runner_and_example_validator_smoke(tmp_path):
@@ -78,3 +100,25 @@ def test_notebook_runner_and_example_validator_smoke(tmp_path):
     )
     assert validation.returncode == 0, validation.stderr
     assert "validated notebook outputs" in validation.stdout
+
+
+def test_notebook_runner_is_deterministic_across_clean_destinations(tmp_path):
+    outputs = []
+    for index in (1, 2):
+        output_dir = tmp_path / f"run-{index}"
+        result = subprocess.run(
+            [sys.executable, str(RUNNER), "--input-dir", str(NOTEBOOK_ROOT), "--output-dir", str(output_dir)],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+        assert result.returncode == 0, result.stderr
+        outputs.append(
+            {
+                path.relative_to(output_dir).as_posix(): path.read_bytes()
+                for path in output_dir.rglob("*")
+                if path.is_file()
+            }
+        )
+    assert outputs[0] == outputs[1]

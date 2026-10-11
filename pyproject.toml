@@ -17,6 +17,7 @@ tutorial = [
     "nbclient>=0.10,<1",
     "nbformat>=5.10,<6",
     "jupyter>=1,<2",
+    "matplotlib>=3.8,<4",
 ]
 
 [project.scripts]
