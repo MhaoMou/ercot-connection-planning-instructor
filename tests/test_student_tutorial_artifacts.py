@@ -130,6 +130,18 @@ def test_registry_path_helper_rejects_windows_or_directory_paths(path):
         _assert_relative_artifact_path(path, EXPECTED_PROMPT_ROOT)
 
 
+def test_registry_path_helper_rejects_posix_absolute_path():
+    with pytest.raises(AssertionError):
+        _assert_relative_artifact_path("/tmp/prompt.md", EXPECTED_PROMPT_ROOT)
+
+
+def test_registry_path_helper_rejects_posix_traversal_path():
+    with pytest.raises(AssertionError):
+        _assert_relative_artifact_path(
+            "prompts/../transcripts/01.json", EXPECTED_PROMPT_ROOT
+        )
+
+
 def test_registry_schema_version_rejects_bool():
     with pytest.raises(AssertionError):
         _assert_schema_version(True)

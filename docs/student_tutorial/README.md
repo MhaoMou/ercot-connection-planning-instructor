@@ -22,8 +22,21 @@ cells so paths and versioned data resolve consistently. The local tutorial
 dependencies can be installed with:
 
 ```bash
-python -m pip install -e '.[tutorial]'
+python3 -m pip install -e '.[tutorial]'
 ```
+
+After the later tutorial tasks add the notebooks and notebook runner, execute
+the examples locally from the repository root with:
+
+```bash
+PYTHONPATH=src python3 docs/student_tutorial/scripts/execute_notebooks.py \
+  --input-dir docs/student_tutorial/notebooks \
+  --output-dir docs/student_tutorial/outputs/notebook_runs
+```
+
+That runner executes the planned notebooks with the repository package on the
+Python path and writes executed notebooks to the indicated output directory.
+It is not available in the current Task 1 scaffold.
 
 Prompt files and reviewed transcripts will be paired through
 `prompt_registry.json` after the later curation tasks add the deferred files.
