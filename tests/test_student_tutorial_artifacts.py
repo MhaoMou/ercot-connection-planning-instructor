@@ -31,6 +31,7 @@ EXPECTED_NOTEBOOK_ROOT = "notebooks/"
 
 def _assert_relative_artifact_path(path, expected_root):
     assert isinstance(path, str) and path
+    assert not path.endswith(("/", "\\"))
     assert "\\" not in path
     pure_path = PurePosixPath(path)
     windows_path = PureWindowsPath(path)
@@ -121,6 +122,7 @@ def test_registry_artifact_references_are_rooted_relative_and_unique():
         "C:/tmp/prompt.md",
         "\\\\server\\share\\prompt.md",
         "prompts/",
+        "prompts/foo.md/",
     ],
 )
 def test_registry_path_helper_rejects_windows_or_directory_paths(path):
