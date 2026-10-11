@@ -14,9 +14,9 @@ dependencies = [
 
 [project.optional-dependencies]
 tutorial = [
-    "nbclient",
-    "nbformat",
-    "jupyter",
+    "nbclient>=0.10,<1",
+    "nbformat>=5.10,<6",
+    "jupyter>=1,<2",
 ]
 
 [project.scripts]

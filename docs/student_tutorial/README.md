@@ -13,7 +13,10 @@ repository sources, and are not official evaluator results.
 
 ## Using the tutorial
 
-Open the notebooks in `notebooks/` locally or upload them to Google Colab.
+The prompt, transcript, and notebook directories are planned tutorial
+artifacts. They will be added by later tutorial tasks; Task 1 currently
+provides their stable registry paths and metadata only. Once those artifacts
+are available, open the notebooks locally or upload them to Google Colab.
 When using Colab, clone or otherwise provide the repository before running
 cells so paths and versioned data resolve consistently. The local tutorial
 dependencies can be installed with:
@@ -22,9 +25,9 @@ dependencies can be installed with:
 python -m pip install -e '.[tutorial]'
 ```
 
-Prompt files and reviewed transcripts are paired through
-`prompt_registry.json`. A later curation task will add those deferred files;
-the registry establishes their stable paths now.
+Prompt files and reviewed transcripts will be paired through
+`prompt_registry.json` after the later curation tasks add the deferred files.
+The registry establishes their stable paths now.
 
 ## Verification and privacy
 
