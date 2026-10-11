@@ -255,6 +255,13 @@ def test_task5_csv_flow_separates_exact_evaluator_from_preview():
     assert "joint storage-aware dcopf/lp" in main
 
 
+def test_task5_csv_flow_gives_output_boxes_a_clear_vertical_gap():
+    flow = (TUTORIAL_ROOT / "figures" / "csv_evaluation_flow.tex").read_text(encoding="utf-8")
+
+    assert "right=of model, yshift=12mm" in flow
+    assert "right=of model, yshift=-12mm" in flow
+
+
 def test_task5_strategy_figure_uses_synthetic_not_activsg2000_inputs():
     strategy = (TUTORIAL_ROOT / "figures" / "strategy_experiment.tex").read_text(encoding="utf-8").lower()
     main = (TUTORIAL_ROOT / "main.tex").read_text(encoding="utf-8").lower()

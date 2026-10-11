@@ -7,8 +7,8 @@
   \node[input] (csv) {Seven-column\\{\bfseries student CSV}};
   \node[check, right=of csv] (schema) {Schema and\\identifier checks};
   \node[run, right=of schema] (model) {Released planning\\context + validation\\inputs};
-  \node[output, right=of model, yshift=8mm] (preview) {Student preview\\six-hour sampled,\\idle-storage,\\non-authoritative screening};
-  \node[output, right=of model, yshift=-8mm] (eval) {Exact instructor evaluator\\joint storage-aware\\DCOPF/LP\\authoritative result};
+  \node[output, right=of model, yshift=12mm] (preview) {Student preview\\six-hour sampled,\\idle-storage,\\non-authoritative screening};
+  \node[output, right=of model, yshift=-12mm] (eval) {Exact instructor evaluator\\joint storage-aware\\DCOPF/LP\\authoritative result};
   \draw[->, thick] (csv) -- (schema);
   \draw[->, thick] (schema) -- (model);
   \draw[->, thick] (model) -- (preview);
