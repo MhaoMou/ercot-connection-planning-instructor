@@ -1,0 +1,12 @@
+{
+  "prompt_id": "assignment-overview",
+  "prompt": "Orient a student to the current assignment using only supplied repository sources; distinguish verified facts, interpretations, and unknowns.",
+  "response": "CURATION PENDING: No generated teaching response is frozen yet. Use the authoritative assignment handout and supplied repository sources to verify every assignment rule, schema, horizon, scoring detail, and deliverable before publishing an answer.",
+  "verification_checklist": ["Replace this pending response only after source review", "Confirm the handout remains authoritative", "Confirm no private team information is present"],
+  "agent_label": "in-session tutorial generation subagent",
+  "generated_at": "2026-10-11",
+  "review_status": "fact-checked",
+  "review_notes": "Curation-safe placeholder: it makes no assignment-specific claim and explicitly requires later source-grounded generation.",
+  "sources": ["README.md", "docs/student_manual/README.md"],
+  "private_information_present": false
+}

@@ -1,0 +1,12 @@
+{
+  "prompt_id": "dcopf-concept",
+  "prompt": "Explain DCOPF balance, signs, flows, limits, and a reference angle using a verified toy example.",
+  "response": "CURATION PENDING: No generated DCOPF concept explanation is frozen yet. Future content must declare one sign convention, check units and balance on a small fixture, and mark generic interpretation separately from evaluator-specific facts.",
+  "verification_checklist": ["State the sign convention", "Check nodal balance and limits", "Mark evaluator-specific details that remain unknown"],
+  "agent_label": "in-session tutorial generation subagent",
+  "generated_at": "2026-10-11",
+  "review_status": "fact-checked",
+  "review_notes": "Curation-safe placeholder: no equation or solver claim is presented as repository-authoritative.",
+  "sources": ["README.md", "docs/student_manual/README.md"],
+  "private_information_present": false
+}

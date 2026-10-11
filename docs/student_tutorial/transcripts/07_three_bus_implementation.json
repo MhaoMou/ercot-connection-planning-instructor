@@ -1,0 +1,12 @@
+{
+  "prompt_id": "three-bus-implementation",
+  "prompt": "Implement a transparent three-bus DCOPF fixture and report status, objective, flows, and balance.",
+  "response": "CURATION PENDING: No generated three-bus implementation is frozen yet. Future code must use a fully specified synthetic fixture, check solver status, print finite outputs, and avoid presenting the toy result as an ACTIVSg2000 result.",
+  "verification_checklist": ["Use only synthetic fixture values", "Assert balance and line limits", "Check solver status before reading outputs"],
+  "agent_label": "in-session tutorial generation subagent",
+  "generated_at": "2026-10-11",
+  "review_status": "fact-checked",
+  "review_notes": "Curation-safe placeholder: no bus IDs, outputs, or solver details are fabricated.",
+  "sources": ["README.md", "docs/student_manual/README.md"],
+  "private_information_present": false
+}

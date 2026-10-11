@@ -1,0 +1,12 @@
+{
+  "prompt_id": "matlab-visualization",
+  "prompt": "Explain an optional MATLAB visualization path without inventing MATLAB fields, toolboxes, or requirements.",
+  "response": "CURATION PENDING: No generated MATLAB walkthrough is frozen yet. Future content must verify the supplied file format and clearly label MATLAB availability and any illustrative assumptions.",
+  "verification_checklist": ["Confirm the input artifact and fields", "Label optional or environment-dependent steps", "Run the example on a small fixture first"],
+  "agent_label": "in-session tutorial generation subagent",
+  "generated_at": "2026-10-11",
+  "review_status": "fact-checked",
+  "review_notes": "Curation-safe placeholder: no MATLAB-specific repository fact is asserted.",
+  "sources": ["README.md", "docs/student_manual/README.md"],
+  "private_information_present": false
+}

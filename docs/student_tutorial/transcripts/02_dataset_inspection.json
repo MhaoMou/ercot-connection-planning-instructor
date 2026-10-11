@@ -1,0 +1,12 @@
+{
+  "prompt_id": "dataset-inspection",
+  "prompt": "Show how to inspect the ACTIVSg2000 scenario package without fabricating file contents or validation status.",
+  "response": "CURATION PENDING: No generated inspection walkthrough is frozen yet. Any future response must report observed file shapes, keys, provenance, and manifest status from the supplied artifact and must not turn unverified_dependency into passed.",
+  "verification_checklist": ["Use an instructor-approved fixture", "Report observed shapes and keys", "Preserve the manifest validation_status exactly"],
+  "agent_label": "in-session tutorial generation subagent",
+  "generated_at": "2026-10-11",
+  "review_status": "fact-checked",
+  "review_notes": "Curation-safe placeholder: no dataset values or validation claims are fabricated.",
+  "sources": ["README.md", "docs/ACTIVSG2000_SCENARIO_PACKAGE.md"],
+  "private_information_present": false
+}

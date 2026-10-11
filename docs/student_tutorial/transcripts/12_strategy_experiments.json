@@ -1,0 +1,12 @@
+{
+  "prompt_id": "strategy-experiments",
+  "prompt": "Design a privacy-safe one-factor-at-a-time planning ablation with observed validation and preview metrics.",
+  "response": "CURATION PENDING: No generated strategy experiment is frozen yet. Future content must use synthetic or approved candidates, record validation status and preview metrics, and avoid claims of optimality or official scoring.",
+  "verification_checklist": ["Vary one factor at a time", "Record observed validation status", "Keep candidates and results privacy-safe"],
+  "agent_label": "in-session tutorial generation subagent",
+  "generated_at": "2026-10-11",
+  "review_status": "fact-checked",
+  "review_notes": "Curation-safe placeholder: no candidate, metric, bus ID, or score is fabricated.",
+  "sources": ["README.md", "docs/student_manual/README.md"],
+  "private_information_present": false
+}

@@ -1,0 +1,12 @@
+{
+  "prompt_id": "storage-model",
+  "prompt": "Explain submitted storage power and energy capacity versus evaluator dispatch using a tiny SOC example.",
+  "response": "CURATION PENDING: No generated storage walkthrough is frozen yet. Future content must label every illustrative assumption, use MW/MWh consistently, and verify nonnegative state, energy bounds, discharge limits, and terminal state.",
+  "verification_checklist": ["Separate CSV capacities from dispatched state", "Check state transitions and bounds", "Label efficiency and initial-state assumptions"],
+  "agent_label": "in-session tutorial generation subagent",
+  "generated_at": "2026-10-11",
+  "review_status": "fact-checked",
+  "review_notes": "Curation-safe placeholder: no efficiency, initial state, or dispatch result is asserted.",
+  "sources": ["README.md", "docs/student_manual/README.md"],
+  "private_information_present": false
+}

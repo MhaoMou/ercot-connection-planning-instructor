@@ -1,0 +1,12 @@
+{
+  "prompt_id": "reproducibility",
+  "prompt": "Create a reproducibility record with source paths, versions, commands, outputs, and validation status without fabricating values.",
+  "response": "CURATION PENDING: No generated reproducibility walkthrough is frozen yet. Future content must record observed paths, revision, environment, command, output, fixture, and manifest status, using pending or unknown labels when evidence is absent.",
+  "verification_checklist": ["Confirm every recorded artifact exists", "Record observed environment and command", "Mark unknown or pending values explicitly"],
+  "agent_label": "in-session tutorial generation subagent",
+  "generated_at": "2026-10-11",
+  "review_status": "fact-checked",
+  "review_notes": "Curation-safe placeholder: no commit, package version, output, or manifest result is fabricated.",
+  "sources": ["README.md", "docs/student_manual/README.md"],
+  "private_information_present": false
+}

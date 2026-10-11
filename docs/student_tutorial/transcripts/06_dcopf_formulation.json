@@ -1,0 +1,12 @@
+{
+  "prompt_id": "dcopf-formulation",
+  "prompt": "Write and verify a small DCOPF formulation without inventing evaluator coefficients or solver behavior.",
+  "response": "CURATION PENDING: No generated formulation is frozen yet. Future content must verify objective, balance, line limits, generator bounds, dimensions, units, and reference angle on a small fixture before any larger example.",
+  "verification_checklist": ["Check signs and dimensions", "Check feasibility and objective on the toy case", "Separate illustrative assumptions from repository facts"],
+  "agent_label": "in-session tutorial generation subagent",
+  "generated_at": "2026-10-11",
+  "review_status": "fact-checked",
+  "review_notes": "Curation-safe placeholder: it does not fabricate coefficients or solver outputs.",
+  "sources": ["README.md", "docs/student_manual/README.md"],
+  "private_information_present": false
+}

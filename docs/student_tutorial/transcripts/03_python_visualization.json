@@ -1,0 +1,12 @@
+{
+  "prompt_id": "python-visualization",
+  "prompt": "Create a deterministic Python visualization workflow and distinguish structural from geographic evidence.",
+  "response": "CURATION PENDING: No generated visualization walkthrough is frozen yet. Future code must identify real fields and units, use repository-relative paths, and state explicitly when geographic coordinates are unavailable.",
+  "verification_checklist": ["Confirm input fields and units", "Use a deterministic fixture first", "Do not infer geography from bus IDs"],
+  "agent_label": "in-session tutorial generation subagent",
+  "generated_at": "2026-10-11",
+  "review_status": "fact-checked",
+  "review_notes": "Curation-safe placeholder: it does not assert that any coordinate field exists.",
+  "sources": ["README.md", "docs/student_manual/README.md"],
+  "private_information_present": false
+}

@@ -27,6 +27,26 @@ EXPECTED_PRIVACY_LEVEL = "public-or-instructor-approved-fixture"
 EXPECTED_PROMPT_ROOT = "prompts/"
 EXPECTED_TRANSCRIPT_ROOT = "transcripts/"
 EXPECTED_NOTEBOOK_ROOT = "notebooks/"
+REQUIRED_PROMPT_HEADINGS = [
+    "# Prompt metadata",
+    "## Goal",
+    "## Context supplied to the AI",
+    "## Prompt",
+    "## Expected evidence",
+    "## Privacy constraints",
+]
+TRANSCRIPT_KEYS = {
+    "prompt_id",
+    "prompt",
+    "response",
+    "verification_checklist",
+    "agent_label",
+    "generated_at",
+    "review_status",
+    "review_notes",
+    "sources",
+    "private_information_present",
+}
 
 
 def _assert_relative_artifact_path(path, expected_root):
@@ -146,3 +166,28 @@ def test_registry_path_helper_rejects_posix_traversal_path():
 def test_registry_schema_version_rejects_bool():
     with pytest.raises(AssertionError):
         _assert_schema_version(True)
+
+
+def test_all_registered_prompts_have_required_headings():
+    registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+
+    for item in registry["prompts"]:
+        prompt = (REGISTRY.parent / item["prompt_file"]).read_text(encoding="utf-8")
+        assert all(heading in prompt for heading in REQUIRED_PROMPT_HEADINGS)
+        assert "distinguish verified facts, interpretations, and unknowns" in prompt.lower()
+
+
+def test_all_registered_transcripts_use_curation_safe_schema():
+    registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+
+    for item in registry["prompts"]:
+        transcript = json.loads(
+            (REGISTRY.parent / item["transcript_file"]).read_text(encoding="utf-8")
+        )
+        assert set(transcript) == TRANSCRIPT_KEYS
+        assert transcript["prompt_id"] == item["id"]
+        assert transcript["prompt"]
+        assert transcript["response"]
+        assert transcript["verification_checklist"]
+        assert transcript["review_status"] == "fact-checked"
+        assert transcript["private_information_present"] is False

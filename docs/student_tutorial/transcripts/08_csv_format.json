@@ -1,0 +1,12 @@
+{
+  "prompt_id": "csv-format",
+  "prompt": "Explain and validate the current seven-column site-level CSV contract.",
+  "response": "CURATION PENDING: No generated CSV walkthrough is frozen yet. Future content must use the exact current seven-column header, one row per site, MW/MWh units, and the repository checker; it must not fabricate bus IDs or checker output.",
+  "verification_checklist": ["Check the exact seven-column header", "Check one row per site and units", "Reject obsolete hourly submission fields"],
+  "agent_label": "in-session tutorial generation subagent",
+  "generated_at": "2026-10-11",
+  "review_status": "fact-checked",
+  "review_notes": "Curation-safe placeholder: it does not invent an example ID or validation result.",
+  "sources": ["README.md", "docs/student_manual/README.md"],
+  "private_information_present": false
+}

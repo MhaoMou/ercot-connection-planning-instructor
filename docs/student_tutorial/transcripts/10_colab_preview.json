@@ -1,0 +1,12 @@
+{
+  "prompt_id": "colab-preview",
+  "prompt": "Describe a reproducible local or Colab checker and preview workflow without treating preview output as official.",
+  "response": "CURATION PENDING: No generated Colab/local walkthrough is frozen yet. Future commands must be tested against the repository and any environment-dependent step must be labeled; preview output must remain conservative and non-authoritative.",
+  "verification_checklist": ["Test setup on a small fixture", "Run the repository checker", "Label preview output as non-authoritative"],
+  "agent_label": "in-session tutorial generation subagent",
+  "generated_at": "2026-10-11",
+  "review_status": "fact-checked",
+  "review_notes": "Curation-safe placeholder: it does not fabricate versions, outputs, or service behavior.",
+  "sources": ["README.md", "docs/student_manual/README.md"],
+  "private_information_present": false
+}

@@ -1,0 +1,12 @@
+{
+  "prompt_id": "debugging",
+  "prompt": "Teach layered debugging from a small synthetic error while separating evidence from hypotheses.",
+  "response": "CURATION PENDING: No generated debugging walkthrough is frozen yet. Future content must preserve the observed error, identify the failing layer, propose a reproducible check, and require human verification before a fix is trusted.",
+  "verification_checklist": ["Preserve the traceback or assertion", "Name the check that confirms the diagnosis", "Redact private context"],
+  "agent_label": "in-session tutorial generation subagent",
+  "generated_at": "2026-10-11",
+  "review_status": "fact-checked",
+  "review_notes": "Curation-safe placeholder: no diagnosis is made without an observed error.",
+  "sources": ["README.md", "docs/student_manual/README.md"],
+  "private_information_present": false
+}
