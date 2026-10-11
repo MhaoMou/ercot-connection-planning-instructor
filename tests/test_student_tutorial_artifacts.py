@@ -121,6 +121,7 @@ def test_registry_artifact_references_are_rooted_relative_and_unique():
         "prompts\\..\\transcripts\\01.json",
         "C:/tmp/prompt.md",
         "\\\\server\\share\\prompt.md",
+        "prompts\\foo.md\\",
         "prompts/",
         "prompts/foo.md/",
     ],
