@@ -104,11 +104,33 @@ def _read_build_logs(build_dir: Path) -> str:
     return "\n".join(chunks)
 
 
+def _prepare_latex_context(
+    tutorial_root: Path, generated_input: Path, build_dir: Path
+) -> Path:
+    """Stage relative LaTeX inputs inside the temporary build context."""
+    context_dir = build_dir / "context"
+    context_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(tutorial_root / "main.tex", context_dir / "main.tex")
+    references = tutorial_root / "references.bib"
+    if references.is_file():
+        shutil.copy2(references, context_dir / "references.bib")
+    figures = tutorial_root / "figures"
+    if figures.is_dir():
+        shutil.copytree(figures, context_dir / "figures")
+    generated_context = context_dir / "generated"
+    generated_context.mkdir()
+    shutil.copy2(generated_input, generated_context / "transcripts.tex")
+    return context_dir
+
+
 def build(
-    *, tutorial_root: Path = DEFAULT_TUTORIAL_ROOT, build_dir: Path | None = None
+    *,
+    tutorial_root: Path = DEFAULT_TUTORIAL_ROOT,
+    build_dir: Path | None = None,
+    generated_dir: Path | None = None,
 ) -> Path:
     tutorial_root = tutorial_root.resolve()
-    generated_dir = tutorial_root / "generated"
+    generated_dir = (generated_dir or tutorial_root / "generated").resolve()
     build_dir = (build_dir or tutorial_root / "build").resolve()
     run_input_builder(tutorial_root, generated_dir)
     generated_input = generated_dir / "transcripts.tex"
@@ -122,19 +144,26 @@ def build(
             raise RuntimeError(f"build directory is not a regular directory: {build_dir}")
         shutil.rmtree(build_dir)
     build_dir.mkdir(parents=True, exist_ok=True)
+    latex_context = _prepare_latex_context(tutorial_root, generated_input, build_dir)
     tool = _toolchain()
     if not shutil.which(BIBTEX):
         raise RuntimeError(
             "required bibliography toolchain is unavailable: bibtex was not found"
         )
     if tool == LATEXMK:
-        run_command(_latexmk_command(main_tex, build_dir), cwd=tutorial_root)
+        run_command(
+            _latexmk_command(latex_context / "main.tex", build_dir), cwd=latex_context
+        )
     else:
         for _ in range(2):
-            run_command(_pdflatex_command(main_tex, build_dir), cwd=tutorial_root)
-        run_command([BIBTEX, str(build_dir / "main")], cwd=tutorial_root)
+            run_command(
+                _pdflatex_command(latex_context / "main.tex", build_dir), cwd=latex_context
+            )
+        run_command([BIBTEX, str(build_dir / "main")], cwd=latex_context)
         for _ in range(2):
-            run_command(_pdflatex_command(main_tex, build_dir), cwd=tutorial_root)
+            run_command(
+                _pdflatex_command(latex_context / "main.tex", build_dir), cwd=latex_context
+            )
     _check_build_output(_read_build_logs(build_dir))
     return build_dir / "main.pdf"
 
@@ -143,8 +172,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tutorial-root", type=Path, default=DEFAULT_TUTORIAL_ROOT)
     parser.add_argument("--build-dir", type=Path)
+    parser.add_argument("--generated-dir", type=Path)
     args = parser.parse_args()
-    output = build(tutorial_root=args.tutorial_root, build_dir=args.build_dir)
+    output = build(
+        tutorial_root=args.tutorial_root,
+        build_dir=args.build_dir,
+        generated_dir=args.generated_dir,
+    )
     print(f"built {output}")
     return 0
 

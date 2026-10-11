@@ -582,14 +582,26 @@ def test_tutorial_pdf_clean_builds_are_byte_and_metadata_reproducible(tmp_path):
     assert module_spec.loader is not None
     module_spec.loader.exec_module(module)
 
+    source_generated = TUTORIAL_ROOT / "generated" / "transcripts.tex"
+    source_generated_before = (
+        source_generated.read_bytes() if source_generated.is_file() else None
+    )
     pdfs = []
     for index in (1, 2):
+        generated_dir = tmp_path / f"generated-{index}"
         pdfs.append(
             module.build(
                 tutorial_root=TUTORIAL_ROOT,
                 build_dir=tmp_path / f"build-{index}",
+                generated_dir=generated_dir,
             )
         )
+        assert (generated_dir / "transcripts.tex").is_file()
+
+    source_generated_after = (
+        source_generated.read_bytes() if source_generated.is_file() else None
+    )
+    assert source_generated_after == source_generated_before
 
     assert all(pdf.is_file() for pdf in pdfs)
     assert hashlib.sha256(pdfs[0].read_bytes()).hexdigest() == hashlib.sha256(
