@@ -8,7 +8,7 @@ no concrete layout or reference defect.
 
 ## Environment
 
-- Repository: `/Users/minghao/Documents/Year 4/i-am`
+- Repository: `<repository-root>`
 - Python used by `build_pdf.py`: `/opt/homebrew/bin/python3`
 - LaTeX toolchain selected by `build_pdf.py`: `latexmk` with `pdflatex` and
   `bibtex` from `/Library/TeX/texbin`
