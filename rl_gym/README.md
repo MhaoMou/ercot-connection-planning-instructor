@@ -1,8 +1,127 @@
-# RL Environment Wrapping Plan
+# RL Environment
 
-This document describes how to wrap the current competitive data-center
-connection-planning game as a Gymnasium-compatible reinforcement-learning
-environment. It is an implementation roadmap, not the RL environment itself.
+## Implemented release
+
+Current status: Phase 1 adapter, the Phase 2 single-agent sequential planning
+environment, the Phase 3 single-agent baselines/replay/benchmark utilities,
+the Phase 4 competitive parallel wrapper, and the Phase 5 research-release
+surface are implemented. The Phase 5 research release is implemented as a
+versioned, reproducible documentation and replay surface.
+
+The [Phase 5 release contract](RELEASE.md) is the authoritative, standalone
+reference for version metadata, supported 2027--2029 `jan_jun` and `jul_dec`
+blocks, manifest/hash semantics, replay compatibility, example commands,
+privacy, evaluator/solver boundaries, and known limitations. This README is a
+concise API entry point; the full release contract lives in `RELEASE.md`.
+
+Hourly operation and full training scripts/checkpoints remain future work.
+
+Construction validates `scenario_year` as a non-bool integer through
+`half_year_calendar`; supported years are 2027--2029. Empty-plan finish is a
+deterministic invalid terminal outcome and never invokes the evaluator. A
+non-empty plan reaching `max_planning_steps` follows the same terminal adapter
+evaluation path as an explicit finish action.
+
+`ConnectionPlanningEnv` is the released single-agent planning environment. Its
+declared `action_space` is a standard structured `Dict` with discrete
+`bus_index`, `finish`, and `revise` fields and bounded scalar capacity fields.
+Each non-finish action adds one public bus or revises the existing site at that
+bus. Storage energy must equal four times storage power, and generator capacity
+cannot exceed requested connection capacity. `action_space.sample()` produces a
+structurally valid non-finish action for standard tooling. The legacy seven-value
+vector
+`[bus_index, requested_capacity_mw, generator_capacity_mw, storage_power_mw,
+storage_energy_mwh, finish, revise]` remains accepted by `step` for compatibility.
+
+Observations are fixed-shape dictionaries containing numeric public metadata,
+an indexed public bus catalog, and padded summaries of the agent's own plan.
+They contain no other-team or dispatch state. Invalid actions are deterministic
+penalized no-ops by default; `invalid_action_policy="raise"` is available for
+strict callers. A finish action terminates the episode. The planning-step
+limit terminates, while an optional `max_episode_steps` limit truncates.
+
+The default terminal result is score `0` with
+`dispatch_status="not_evaluated"`. When `evaluator_callback` is supplied,
+the environment serializes the plan and delegates through the Phase 1
+`evaluate_plan_state` adapter; it does not duplicate evaluator or scoring
+mathematics. `reward_mode="terminal_score"` charges the terminal score once,
+while `reward_mode="dense_surrogate"` emits a documented local planning signal
+and does not add the terminal score again.
+
+Gymnasium is an optional dependency: install `ercot-game[rl]` for the standard
+spaces and environment base class. A small documented compatibility fallback
+keeps the API and tests usable when Gymnasium is absent.
+
+## Phase 3 public APIs
+
+`RandomPolicy(seed=...)`, `GreedyPolicy()`, and `RuleBasedPolicy()` are
+callables with the common `policy(observation, info)` interface. They emit the
+structured action mapping accepted by `ConnectionPlanningEnv`; all generated
+actions satisfy the configured capacity, generator, and storage-duration
+constraints. Random policy choices are seeded and avoid duplicate add-site
+actions while another public bus is available. Greedy and rule-based policies
+use deterministic catalog order.
+
+Episodes can be recorded and verified without serializing private evaluator or
+multi-agent state. The manifest records environment/scenario identity,
+`evaluator_version`, optional rule/hash metadata, and the seed; replay validates
+that identity against the target environment before consuming the action trace.
+
+```python
+from rl_gym import GreedyPolicy, load_replay, replay_episode, run_episode, save_replay
+
+trace = run_episode(env, GreedyPolicy(), seed=7)
+save_replay("episode.json", trace)
+replay_episode(env_factory(), load_replay("episode.json"))
+```
+
+`benchmark_environment(env_factory, policy, episodes=..., seed=...)` returns a
+JSON-serializable report with reset, step, episode, optional evaluator-step
+latencies, and action count. It measures the environment only; it does not
+benchmark solvers.
+
+## Phase 1 adapter contract
+
+Phase 1 provides only the plan-state boundary needed before an environment is
+introduced. `rl_gym.RLPlanState` stores a team ID, canonical
+`ercot_game.models.SitePlan` entries, and exact released half-year metadata
+from `ercot_game.calendars`. `RLPlanState.to_team_plan()` materializes the
+existing evaluator-facing `TeamPlan`: one constant connection profile per
+hour, plus deterministic team-owned IDs of the form
+`generator:{team_id}:{site_id}` and `storage:{team_id}:{site_id}`.
+
+`RLPlanState.write_csv(path)` writes a canonical seven-column CSV at a
+caller-controlled persistent path. `evaluate_plan_state(submission_path=...)`
+then delegates to `ercot_game.batch_evaluation.evaluate_csv_batch`. This is
+the real evaluator path: artifact loading, dispatch, projection, and score/cost
+calculation remain in the production evaluator, and returned
+`SubmissionRecord.path` values remain usable after evaluation. The helper's
+optional evaluator argument exists only as a test seam for lightweight
+monkeypatched fixtures.
+
+Solver-backed parity still requires the repository's optional `highspy`
+dependency and prepared scenario artifacts. When `highspy` is unavailable,
+Phase 1 can verify CSV/plan structure and evaluator delegation with a
+monkeypatched evaluator, but it cannot claim a real DCOPF score comparison.
+
+The adapter delegates expansion to `tools.activsg2000.plan_adapter`, parsing to
+`ercot_game.csv_submission`, dispatch to the prepared DCOPF path, and scoring
+to `ercot_game.batch_evaluation`. It does not duplicate any dispatch or score
+math. The compatibility scalar stored on generated `GeneratorPlan` records is
+`TEAM_GENERATOR_COMPATIBILITY_COST_PER_MWH`; prepared dispatch and scoring
+continue to expand each generator with the production
+`TEAM_GENERATOR_COST_CURVE` three-segment curve. `compare_csv_parity()`
+compares the actual adapter-produced plan with a CSV-derived plan and can also
+compare evaluator-provided score/cost fields when both `TeamScore` records are
+passed.
+
+The Phase 1 adapter itself intentionally does not implement Gymnasium `reset`,
+`step`, action spaces, observation spaces, rewards, or environment timing; those
+responsibilities now belong to the Phase 2 environment described above.
+
+This document summarizes the implemented Phase 1--5 wrapper around the current
+competitive data-center connection-planning game. See `RELEASE.md` for the
+research-release contract and its explicit future-work boundary.
 
 The central rule is to reuse the validated instructor-side evaluator rather than
 create a second set of network, storage, projection, or scoring mathematics.
@@ -57,13 +176,11 @@ operating cost.
 ### In scope
 
 1. A deterministic single-agent environment for developing one team's plan.
-2. A multi-agent or batched interface for studying strategic interaction among
-   several teams.
-3. Gymnasium-compatible `reset`, `step`, `action_space`, and `observation_space`
+2. Gymnasium-compatible `reset`, `step`, `action_space`, and `observation_space`
    behavior.
-4. Scenario-versioned experiments using the same half-year artifacts supplied to
+3. Scenario-versioned experiments using the same half-year artifacts supplied to
    students.
-5. Evaluation reports that can be compared directly with instructor-side CSV
+4. Evaluation reports that can be compared directly with instructor-side CSV
    evaluation.
 
 ### Explicitly out of scope for the first release
@@ -83,19 +200,13 @@ Use three layers with clear boundaries.
 
 ```text
 rl_gym/
-  README.md                    # this roadmap
-  src/ercot_game_rl/
-    env.py                     # public Gymnasium environment
-    spaces.py                  # action/observation schemas
-    state.py                   # episode state and serialization
-    adapter.py                 # bridge to existing evaluator
-    rewards.py                 # reward views derived from evaluator outputs
-    scenarios.py               # scenario manifests and deterministic seeds
-  tests/
-    test_env_api.py
-    test_action_validation.py
-    test_observation_privacy.py
-    test_evaluator_parity.py
+  README.md                    # environment contract and roadmap
+  __init__.py                  # public exports
+  adapter.py                   # Phase 1 plan/evaluator bridge
+  env.py                       # Phase 2 single-agent environment
+tests/
+  test_rl_gym_adapter.py
+  test_rl_gym_env.py
 ```
 
 ### Domain layer
@@ -111,7 +222,7 @@ second copy of the evaluator.
 
 ### Experiment layer
 
-Training scripts, baselines, checkpoints, and research outputs should live
+Training scripts, checkpoints, and research outputs should live
 outside the core environment package. Every experiment must record the scenario
 block, rule-file hash, environment version, seed, and agent configuration.
 
@@ -131,14 +242,14 @@ This variant is useful for:
 
 - action-space debugging;
 - policy learning for site and resource selection;
-- training load-profile heuristics;
+- deterministic planning-policy experiments;
 - comparing learned policies with hand-designed baselines.
 
 ### 4.2 Competitive multi-team environment
 
-The second variant represents several independent teams. Each agent observes the
-public scenario and its own plan, but never another team's private asset IDs,
-loads, storage schedule, or resource-level decisions.
+`ParallelConnectionPlanningEnv` represents several independent teams. Each
+agent observes the public scenario and its own plan, but never another team's
+private asset IDs, loads, storage schedule, or resource-level decisions.
 
 At a joint-evaluation boundary, the environment submits all valid plans to the
 existing joint DCOPF evaluator. If the joint request is infeasible, the existing
@@ -146,8 +257,7 @@ fair continuous projection is applied. The environment returns each team its own
 score and only the aggregate information explicitly permitted by the experiment
 configuration.
 
-This variant should be implemented only after single-team evaluator parity is
-established.
+This variant is implemented with single-team evaluator parity established.
 
 ## 5. Episode and time design
 
@@ -159,14 +269,10 @@ An episode is one complete half-year block, not six abstract periods.
 | January--June 2028 | 4,368 | 1--4,368 |
 | July--December 2027/2028/2029 | 4,416 | 1--4,416 |
 
-The first implementation should support two modes:
-
-1. **Planning-step mode:** several decisions are grouped into one environment
-   step, while the underlying scenario clock advances according to an explicit
-   configuration.
-2. **Hourly-operation mode:** the agent acts every hour and receives dispatch
-   feedback. This is more expensive and should be introduced only after the
-   planning-step mode is validated.
+Phase 2 supports planning-step mode only. Each step adds or revises one site;
+the underlying hourly scenario is evaluated only at terminal completion.
+Hourly-operation mode, in which an agent acts every hour, is deferred to a
+later phase.
 
 The environment must never silently compress a half-year into six periods. Any
 aggregation used for training must be named in the observation and recorded in
@@ -182,25 +288,20 @@ IDs must not be added to the seven-column student CSV.
 The recommended initial action is a structured, bounded action rather than a
 raw 2,000-bus by 4,000-hour dense tensor.
 
-### Planning action components
+### Phase 2 action fields and legacy vector order
 
 ```text
-site_selection       public bus index or no-op
-load_capacity_mw     bounded continuous value
-load_profile         bounded hourly/profile parameterization
-generator_present    binary or categorical decision
-generator_capacity   bounded continuous value
-generator_id         deterministic label generated by the wrapper
-storage_present      binary or categorical decision
-storage_power_mw     bounded continuous value
-storage_energy_mwh   bounded continuous value
-storage_id           deterministic label generated by the wrapper
-commit/revise         discrete action controlling when a site is finalized
+[bus_index, requested_capacity_mw, generator_capacity_mw,
+ storage_power_mw, storage_energy_mwh, finish, revise]
 ```
 
-The wrapper may generate IDs such as `agent0-gen-01` and `agent0-storage-01`.
-Agents do not need to discover IDs in a public generator catalog. The IDs must
-remain stable when a plan is serialized or compared with a CSV submission.
+The public `Dict` action space uses these same names as mapping keys. The
+seven-value ordering above is retained only for callers using the legacy vector
+input accepted by `step`.
+
+There are no hourly load-profile tensors, generator-ID fields, storage-ID
+fields, or separate asset-discovery actions. The wrapper generates stable
+internal site IDs, and the Phase 1 adapter generates evaluator-side asset IDs.
 
 ### Action validation
 
@@ -320,9 +421,18 @@ With the same scenario, rules, seed, action sequence, and evaluator version, the
 environment should produce the same observations, dispatch results, and reward.
 If parallel DCOPF workers are used, output ordering must remain deterministic.
 
-Scenario files must be loaded from validated manifests. The environment should
-fail before an episode begins if the scenario, economic-profile, or rule-file
-hash does not match the requested configuration.
+Scenario-year and half-year-block validity are checked before an episode
+begins. Manifest, rules, and evaluator hashes are optional metadata in the
+current Phase 2 environment; future scenario-management work may add strict
+artifact hash validation.
+
+`ConnectionPlanningEnv` accepts optional `scenario_manifest_hash`,
+`rules_version`, `rules_hash`, and `evaluator_version` constructor fields and
+copies the supplied values into `info` on reset and step. Omitted values remain
+`None`; the environment never invents replay hashes. Evaluator submissions use
+unique persistent filenames under `submission_dir`, so concurrent environment
+instances do not overwrite one another and evaluator-returned path provenance is
+preserved.
 
 ## 11. API sketch
 
@@ -330,25 +440,31 @@ The first public API should follow Gymnasium conventions without forcing the
 student CSV workflow into a step-by-step API:
 
 ```python
+from rl_gym import ConnectionPlanningEnv
+
 env = ConnectionPlanningEnv(
-    scenario_dir=".../2027/jan_jun",
-    rules_file=".../rules.json",
-    mode="planning",
-    seed=7,
+    team_id="team-a",
+    bus_catalog=("bus-a", "bus-b"),
+    scenario_year=2029,
+    scenario_block="jan_jun",
+    max_sites=4,
+    max_planning_steps=4,
 )
 
 observation, info = env.reset(seed=7)
 observation, reward, terminated, truncated, info = env.step(action)
 ```
 
-The `info` dictionary should include structured diagnostics such as:
+The current `info` dictionary includes:
 
-- `period_index`;
+- `environment_version`;
+- `scenario_year` and `scenario_block`;
+- optional replay identity metadata;
+- `step` and the current serialized `plan`;
 - `valid_action`;
-- `plan_hash`;
 - `dispatch_status`;
-- `service_fraction`;
-- `score_components`;
+- `score` when terminal evaluation is performed;
+- `invalid_action_code` and `diagnostic` for rejected actions;
 - `terminated_reason`.
 
 Human-readable error messages belong in diagnostics and instructor reports, not
@@ -368,7 +484,7 @@ in the numeric observation itself.
 **Exit condition:** an adapter-generated plan and an equivalent CSV produce the
 same dispatch status and score components.
 
-### Phase 2 -- Single-agent Gymnasium environment
+### Phase 2 -- Single-agent Gymnasium environment (implemented)
 
 - implement `reset` and `step`;
 - implement structured action and observation spaces;
@@ -379,37 +495,49 @@ same dispatch status and score components.
 **Exit condition:** `check_env`-style API tests pass and deterministic replay is
 bitwise or tolerance-equivalent for numerical outputs.
 
-### Phase 3 -- Baselines and training harness
+### Phase 3 -- Baselines, replay, and performance reporting (implemented)
 
 - implement random, greedy, and rule-based policies;
-- record episode manifests and score breakdowns;
-- benchmark environment construction and step latency;
-- add checkpoint and replay serialization.
+- record JSON-serializable episode manifests, observations, actions, rewards,
+  termination flags, and terminal score metadata;
+- replay traces with numeric tolerance and tamper detection;
+- benchmark environment reset, step, episode, and optional evaluation latency.
 
 **Exit condition:** baseline policies run on every released half-year block and
 produce auditable reports.
 
-### Phase 4 -- Competitive multi-agent wrapper
+### Phase 4 -- Competitive multi-agent wrapper (implemented)
 
-- define per-agent private observations;
-- define public aggregate observations;
-- synchronize joint evaluation boundaries;
-- expose fair-projection metadata without plan leakage;
-- test team-order invariance and invalid-team isolation.
+- `ParallelConnectionPlanningEnv` provides a dependency-light parallel API with
+  deterministic sorted team IDs and private per-team child environments;
+- missing and invalid actions are isolated to their team; unknown action keys
+  are ignored but counted in aggregate metadata;
+- valid nonempty plans are written to unique persistent submission paths and
+  evaluated once as a joint set at the terminal boundary;
+- aggregate metadata exposes only counts and booleans, including sanitized
+  projection status/counts rather than team-keyed diagnostics;
+- tests cover API behavior, privacy, deterministic reset/step, evaluator call
+  count, valid/empty teams, order invariance, and invalid-team isolation.
 
 **Exit condition:** reordering teams does not change the joint result, and privacy
 tests detect no cross-team plan leakage.
 
-### Phase 5 -- Research release
+The existing single-agent replay helpers intentionally do not replay parallel
+team mappings; Phase 4 callers should record the per-team action/observation
+maps with an experiment-specific wrapper until a multi-agent replay format is
+added.
 
-- document environment versioning and limitations;
-- publish reproducible scenario/rule references;
-- add example training scripts;
-- report performance and solver-time measurements;
-- provide a paper-ready experiment manifest format.
+### Phase 5 -- Research release (implemented)
 
-**Exit condition:** an independent user can install the package, run a baseline,
-replay an episode, and reproduce its score breakdown.
+- version the environment, plan schema, scenario blocks, and release metadata;
+- provide deterministic canonical JSON manifests and SHA-256 identity hashes;
+- document replay compatibility, privacy, evaluator/solver boundaries, and
+  known limitations;
+- provide runnable baseline/replay examples and focused release checks.
+
+**Release boundary:** an independent user can install the package, run a
+baseline, replay a compatible single-agent episode, and inspect the release
+identity. Hourly operation and full training remain future work.
 
 ## 13. Required test matrix
 
@@ -444,8 +572,6 @@ At minimum, tests should cover:
 
 ## 15. Recommended next implementation step
 
-Implement Phase 1 only: the plan-state adapter and parity harness. Do not begin
-RL training or multi-agent environment work until the adapter can reproduce
-known CSV results on short test horizons and at least one full half-year test
-case. This keeps solver correctness, scoring correctness, and environment
-correctness independently auditable.
+The next extensions are hourly operation, full training scripts/checkpoints,
+and a built-in multi-agent replay format. They are deliberately outside the
+implemented Phase 5 release surface documented in `RELEASE.md`.

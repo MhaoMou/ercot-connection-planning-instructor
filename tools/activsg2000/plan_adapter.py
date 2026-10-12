@@ -89,7 +89,7 @@ def _student_generator_segment_id(*parts: str, segment: int) -> str:
     return _student_generator_id(*parts, f"segment-{segment}")
 
 
-def _normalize_plan_for_adapter(
+def normalize_plan_for_adapter(
     plan: TeamPlan,
     *,
     horizon: int | None = None,
@@ -188,6 +188,11 @@ def _normalize_plan_for_adapter(
     )
 
 
+# Private compatibility alias retained for existing callers during the public
+# helper migration.
+_normalize_plan_for_adapter = normalize_plan_for_adapter
+
+
 def _validate_plan(
     plan: TeamPlan,
     *,
@@ -268,7 +273,7 @@ def evaluate_plan_with_prepared_dcopf(
     semantics.
     """
     _validate_period_indices(period_indices)
-    plan = _normalize_plan_for_adapter(plan, horizon=max(period_indices) + 1)
+    plan = normalize_plan_for_adapter(plan, horizon=max(period_indices) + 1)
     if not math.isfinite(time_step_hours) or time_step_hours <= 0:
         raise ValueError("time_step_hours must be finite and positive")
     connection_by_id = _validate_plan(plan)
@@ -390,7 +395,7 @@ def evaluate_plans_with_prepared_dcopf(
     ordered_plans = tuple(
         sorted(
             (
-                _normalize_plan_for_adapter(plan, horizon=max(period_indices) + 1)
+                normalize_plan_for_adapter(plan, horizon=max(period_indices) + 1)
                 for plan in plans
             ),
             key=lambda plan: plan.team_id,
