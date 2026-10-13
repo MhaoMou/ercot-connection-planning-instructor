@@ -4,9 +4,11 @@
 single-agent hourly environment.
 
 **Status:** The hourly contract and public-record behavior are evidenced by
-tests. Computational-budget acceptance remains open because this report does
-not define an approved machine-specific budget threshold. Solver-backed
-evaluator parity is **DEPENDENCY-LIMITED**; this report makes no score claim.
+tests. Native Gymnasium compatibility and a small solver-backed production
+evaluator parity fixture are now verified remotely. Full half-year evaluator
+latency, complete scenario-package validation, and computational-budget
+acceptance remain open; this report does not claim that a 4,368/4,416-hour
+storage-enabled run meets a release-time threshold.
 
 ## Machine profile and invocation
 
@@ -22,6 +24,17 @@ The profile contains no hostnames, credentials, or other secrets.
 | pytest | 8.4.2 |
 | Gymnasium | unavailable; fallback spaces were exercised |
 | HiGHS Python bindings (`highspy`) | unavailable; no solver-backed path was run |
+
+The local profile above is retained for reproducibility of the solver-free
+benchmark. Additional remote evidence was captured on Electrify on
+**2026-10-13** using CPython 3.10.12, Gymnasium 1.2.3, HiGHS Python bindings,
+and the repository's copied ACTIVSg2000 artifacts. The remote run used an
+isolated validation directory and did not modify the working repository.
+
+The local-only solver status remains **DEPENDENCY-LIMITED**: Gymnasium and
+`highspy` are unavailable in that profile, so the local benchmark makes **no score claim**.
+The remote evidence below closes that limitation only for the
+scoped smoke fixture, not for the complete release package.
 
 Exact benchmark invocation:
 
@@ -126,14 +139,47 @@ this benchmark report.
 
 ## Evaluator latency and parity status
 
-Evaluator latency is **OPEN/NOT MEASURED**. The benchmark mode intentionally
-uses zero evaluator callbacks (`evaluator_call_count=0`), so its reset, step,
-and episode timings measure only the local solver-free environment and public
-record serialization. They are not evaluator-latency measurements.
+The native Gymnasium checks pass on Electrify:
 
-This is distinct from solver-backed evaluator parity, which is
-**DEPENDENCY-LIMITED** because `highspy` is unavailable in the documented
-profile. No solver-backed score or parity claim is made.
+```text
+77 passed, 7 warnings in 8.85s
+gymnasium.utils.env_checker.check_env: CHECK_ENV_PASS
+```
+
+The warnings are Gymnasium's non-fatal Box-casting warnings. The focused
+tests exclude the documentation fixture suite, which requires repository
+artifacts not copied into the isolated validation directory.
+
+The default deterministic benchmark still intentionally uses zero evaluator callbacks,
+so its evaluator-latency field remains **OPEN/NOT MEASURED**; its
+reset, step, and episode measurements are solver-free measurements only.
+
+A two-hour storage-enabled production smoke fixture also passed. It used one
+canonical CSV submission, the prepared 2028 January--June ACTIVSg2000 block,
+remote HiGHS, and the actual `evaluate_csv_batch` path. The batch evaluator
+returned a feasible score. Direct prepared-DCOPF output and the batch result
+matched exactly for both hourly objective values and final storage state of
+charge:
+
+```text
+direct objectives: [826127.0262006355, 823687.6599435874]
+batch objectives:  [826127.0262006355, 823687.6599435874]
+direct final SOC:   2.0 MWh
+batch final SOC:    2.0 MWh
+```
+
+This is a **small-fixture parity PASS**, not a full half-year parity claim.
+The remaining **Solver-backed evaluator parity** gate is still open for the
+complete released package.
+The copied block was validated for the first two hours with HiGHS for this
+smoke test; the release package itself remains blocked until all released
+hours have passed validation.
+
+Measured remote production-evaluator latency for the same storage-enabled
+fixture was approximately **0.67 s for 2 hours** and **73.55 s for 24 hours**.
+These measurements are useful scaling evidence, but they do not establish a
+4,368/4,416-hour runtime or a student-facing time limit. Full-half-year
+evaluator latency is therefore **OPEN**.
 
 ## Acceptance status
 
@@ -143,9 +189,13 @@ profile. No solver-backed score or parity claim is made.
       evaluator call count, latency, and output size without private fields.
 - [x] Default no-callback benchmark has deterministic `evaluator_call_count=0`
       and no official score claim.
-- [ ] Evaluator latency: **OPEN/NOT MEASURED** because the benchmark
-      intentionally uses zero evaluator callbacks.
+- [x] Native Gymnasium availability and `check_env` are verified remotely.
+- [x] Small storage-enabled production evaluator smoke test and direct/batch
+      objective/SOC parity are verified remotely.
+- [ ] Evaluator latency for a complete 4,368/4,416-hour run: **OPEN**; only
+      2-hour and 24-hour storage-enabled measurements are available.
 - [ ] Computational budget: measurements are captured, but no approved
       machine/profile threshold or budget pass is claimed here.
-- [ ] Solver-backed evaluator parity: **DEPENDENCY-LIMITED**; no available
-      solver-backed fixture was used and no score claim is made.
+- [ ] Solver-backed evaluator parity: **OPEN** pending complete released
+      scenario-package validation and a half-year production fixture; the
+      small two-hour fixture above is only a scoped smoke result.
