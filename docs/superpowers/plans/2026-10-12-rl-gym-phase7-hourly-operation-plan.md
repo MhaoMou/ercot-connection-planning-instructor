@@ -85,7 +85,7 @@ Expected: PASS.
 - Modify: `rl_gym/hourly_env.py`
 
 - [ ] **Step 1: Add tests proving public metadata excludes private action/state keys.** Test that public episode records retain release identity, hour/status/reward fields, but exclude action values, storage schedule, asset IDs, evaluator objects, solver fields, and raw diagnostics.
-- [ ] **Step 2: Add explicit private opt-in export.** Implement a small `episode_record(include_private_actions=False)` method. Public output must be sanitized and marked `public_sanitized`; private output requires `include_private_actions=True` and is marked `private_replayable`.
+- [ ] **Step 2: Add explicit private opt-in export.** Implement a small `episode_record(include_private_actions=False)` method. Public output must be sanitized and marked `public_sanitized`; private output requires `include_private_actions=True` and is marked `private_record`. The hourly record is intentionally not replayable until a compatible hourly loader exists.
 - [ ] **Step 3: Reject unknown/private fields in public serialization.** Reuse existing release JSON validation patterns and ensure all output is finite and JSON serializable.
 - [ ] **Step 4: Run privacy tests.**
 
