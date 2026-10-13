@@ -57,6 +57,32 @@ _PUBLIC_INFO_KEYS = {
 }
 
 
+def _mapping(value: Any, name: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"replay {name} must be a mapping")
+    if any(not isinstance(key, str) for key in value):
+        raise ValueError(f"replay {name} keys must be strings")
+    return value
+
+
+def _required(value: Mapping[str, Any], fields: tuple[str, ...], name: str) -> None:
+    missing = [field for field in fields if field not in value]
+    if missing:
+        raise ValueError(f"replay {name} missing required field(s): {', '.join(missing)}")
+
+
+def _finite_number(value: Any, name: str) -> float | int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        raise ValueError(f"replay {name} must be a finite number")
+    return value
+
+
+def _boolean(value: Any, name: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"replay {name} must be a bool")
+    return value
+
+
 def _public_info(info: Mapping[str, Any]) -> dict[str, Any]:
     return _json_value({key: info[key] for key in _PUBLIC_INFO_KEYS if key in info})
 
@@ -81,7 +107,22 @@ class EpisodeManifest:
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "EpisodeManifest":
+        value = _mapping(value, "manifest")
+        _required(value, ("environment_version", "scenario_year", "scenario_block", "seed"), "manifest")
         release_manifest = value.get("release_manifest")
+        if release_manifest is not None and not isinstance(release_manifest, Mapping):
+            raise ValueError("replay release_manifest must be a mapping or null")
+        if not isinstance(value["environment_version"], str):
+            raise ValueError("replay environment_version must be a string")
+        if value["scenario_year"] is not None and (isinstance(value["scenario_year"], bool) or not isinstance(value["scenario_year"], int)):
+            raise ValueError("replay scenario_year must be an integer or null")
+        if value["scenario_block"] is not None and not isinstance(value["scenario_block"], str):
+            raise ValueError("replay scenario_block must be a string or null")
+        if value["seed"] is not None and (isinstance(value["seed"], bool) or not isinstance(value["seed"], int)):
+            raise ValueError("replay seed must be an integer or null")
+        for field in ("scenario_manifest_hash", "rules_version", "rules_hash", "evaluator_version"):
+            if value.get(field) is not None and not isinstance(value[field], str):
+                raise ValueError(f"replay {field} must be a string or null")
         return cls(
             **{
                 field: value.get(field)
@@ -113,13 +154,16 @@ class EpisodeStep:
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "EpisodeStep":
+        value = _mapping(value, "step")
+        _required(value, ("action", "observation", "reward", "terminated", "truncated"), "step")
+        info = _mapping(value.get("info", {}), "info")
         return cls(
             action=value["action"],
             observation=value["observation"],
-            reward=float(value["reward"]),
-            terminated=bool(value["terminated"]),
-            truncated=bool(value["truncated"]),
-            info=dict(value.get("info", {})),
+            reward=float(_finite_number(value["reward"], "reward")),
+            terminated=_boolean(value["terminated"], "terminated"),
+            truncated=_boolean(value["truncated"], "truncated"),
+            info=dict(info),
         )
 
 
@@ -154,13 +198,23 @@ class EpisodeTrace:
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "EpisodeTrace":
+        value = _mapping(value, "trace")
+        _required(value, ("manifest", "initial_observation"), "trace")
+        initial_info = _mapping(value.get("initial_info", {}), "initial_info")
+        terminal_info = _mapping(value.get("terminal_info", {}), "terminal_info")
+        steps = value.get("steps", [])
+        if not isinstance(steps, list):
+            raise ValueError("replay steps must be a list")
+        terminal_score = value.get("terminal_score")
+        if terminal_score is not None:
+            _finite_number(terminal_score, "terminal_score")
         return cls(
             manifest=EpisodeManifest.from_dict(value["manifest"]),
             initial_observation=value["initial_observation"],
-            initial_info=dict(value.get("initial_info", {})),
-            steps=tuple(EpisodeStep.from_dict(item) for item in value.get("steps", [])),
-            terminal_info=dict(value.get("terminal_info", {})),
-            terminal_score=value.get("terminal_score"),
+            initial_info=dict(initial_info),
+            steps=tuple(EpisodeStep.from_dict(item) for item in steps),
+            terminal_info=dict(terminal_info),
+            terminal_score=terminal_score,
         )
 
 
@@ -181,7 +235,7 @@ def _is_legacy_vector_action(action: Any) -> bool:
         values = np.asarray(action)
     except (TypeError, ValueError):
         return False
-    return values.shape == (7,) and np.issubdtype(values.dtype, np.number)
+    return values.shape == (7,) and np.issubdtype(values.dtype, np.number) and np.all(np.isfinite(values))
 
 
 def run_episode(env: Any, policy: Policy, *, seed: int | None = None, max_steps: int = 10000) -> EpisodeTrace:

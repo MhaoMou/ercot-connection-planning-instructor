@@ -212,6 +212,7 @@ def test_release_document_describes_the_implemented_research_release_contract():
     document = RELEASE_DOC.read_text(encoding="utf-8")
 
     required_terms = (
+        "Phase 6",
         "Phase 5",
         "phase5-release-v1",
         "phase5-environment-v1",
@@ -253,8 +254,9 @@ def test_release_document_includes_replay_and_manifest_examples():
 def test_readme_points_to_authoritative_release_contract_and_future_work():
     document = README_DOC.read_text(encoding="utf-8")
 
-    assert "[Phase 5 release contract](RELEASE.md)" in document
-    assert "Phase 5 research release is implemented" in document
+    assert "[Phase 6 research-readiness contract](RELEASE.md)" in document
+    assert "Phase 6 as the current" in document
+    assert "Phase 5 remains the historical" in document
     assert "hourly operation" in document.lower()
     assert "full training" in document.lower()
     assert "deferred to later phases" not in document.lower()

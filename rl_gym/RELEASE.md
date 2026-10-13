@@ -1,9 +1,10 @@
-# RL Gym Phase 5 research release
+# RL Gym Phase 6 research-readiness release
 
-This document is the authoritative contract for the implemented RL research-
-release surface. It describes what can be reproduced with the checked-in
-`rl_gym` package; it does not promise a hosted training service or a new
-evaluator.
+This document is the authoritative contract for the implemented Phase 6
+research-readiness surface. It describes what can be reproduced with the
+checked-in `rl_gym` package; it does not promise a hosted training service or a
+new evaluator. The Phase 5 release remains historical release-foundation
+context, including the version identifiers and compatibility guarantees below.
 
 ## Release identity
 
@@ -51,9 +52,9 @@ The supported environment blocks are:
 - `ParallelConnectionPlanningEnv`: competitive parallel planning with one
   public scenario view and one private plan per team.
 
-The release also includes the Phase 3 policies, JSON episode recording, and
-benchmark helpers. The parallel wrapper intentionally does not claim a
-parallel replay format.
+The Phase 6 surface includes the Phase 3 policies, JSON episode recording,
+parallel replay helpers, benchmark helpers, dependency-light deterministic
+policy-loop training, and privacy-safe aggregate reporting.
 
 ## Manifest and hash semantics
 
@@ -84,8 +85,10 @@ are preserved when supplied by the environment or experiment.
 
 ## Replay compatibility
 
-Single-agent traces can be recorded, saved, loaded, and replayed. The
-checked-in examples exercise the released APIs with runnable commands:
+Single-agent traces and in-memory parallel traces can be recorded and replayed.
+Parallel traces can be saved as public artifacts by default or as explicitly
+private replay artifacts for instructor experiments. The checked-in examples
+exercise the released APIs with runnable commands:
 
 ```bash
 PYTHONPATH=src:. python examples/rl_gym/single_agent_baseline.py \
@@ -94,6 +97,10 @@ PYTHONPATH=src:. python examples/rl_gym/single_agent_baseline.py \
 
 PYTHONPATH=src:. python examples/rl_gym/competitive_parallel.py \
   --year 2028 --block jul_dec --seed 23
+
+PYTHONPATH=src:. python examples/rl_gym/train_policy.py \
+  --episodes 3 --year 2029 --block jan_jun --seed 17 \
+  --output work/rl-training.json
 ```
 
 Replay checks the release manifest digest when present, plus the environment
@@ -103,10 +110,17 @@ configured numeric tolerance. A changed release manifest, stale identity
 metadata, tampered action, or changed environment fails with a replay
 mismatch rather than silently producing a new result.
 
-Replay files contain public episode data and release metadata only. They are
-not a permission mechanism for recovering private evaluator state. The
-current helpers replay single-agent episodes; replaying a parallel mapping
-requires an experiment-specific wrapper.
+Public parallel replay files contain manifest identity, sorted team IDs,
+sanitized observations and infos, rewards, terminal flags, aggregate metadata,
+and a `public_sanitized` privacy marker. They do not contain per-team bus or
+capacity actions, private plans, or other plan-bearing fields, and therefore
+cannot reconstruct private strategies or be replayed. The explicit
+`save_parallel_replay(path, trace, include_private_actions=True)` opt-in writes
+a `private_replayable` artifact with actions for instructor/private
+experiments. Both modes store release/environment/plan schema identity,
+scenario year/block, and the release manifest digest without arbitrary `rules`
+or `config` payloads. The digest is checked against the target manifest before
+reset actions are consumed.
 
 ## Example commands
 
@@ -134,10 +148,49 @@ Run the release/documentation checks:
 python -m pytest tests/test_rl_gym_release.py -q
 ```
 
+The experiment CLI is solver-free and accepts only
+`--evaluator-mode none`. Terminal evaluation is Python API-only because it
+requires an application-level callback:
+
+```python
+from rl_gym import ExperimentConfig, run_experiments
+
+config = ExperimentConfig(
+    policy_name="greedy",
+    scenario_years=(2029,),
+    blocks=("jan_jun",),
+    team_count=1,
+    episode_count=1,
+    seed=17,
+    evaluator_mode="terminal",
+)
+records = run_experiments(config, evaluator_callback=your_evaluator_callback)
+```
+
+The API requires the callback for `"terminal"` and rejects one for `"none"`.
+Passing `--evaluator-mode terminal` to the CLI is rejected by argparse rather
+than producing a traceback.
+
 Use `benchmark_environment(env_factory, policy, episodes=..., seed=...)` for
 JSON-serializable environment timing and action-count reports. It measures
 environment and optional evaluator-step latencies; it does not benchmark a
 solver.
+
+## Policy-loop training
+
+`train_policy(...)` runs deterministic `ConnectionPlanningEnv` episodes using
+`GreedyPolicy` by default. `TrainingConfig` validates positive episode and
+step counts, integer seeds, and released year/block combinations. Episode
+seeds are derived as `seed + episode_index`, making repeated runs with the
+same configuration equivalent after canonical JSON encoding.
+
+The optional `learner_callback(observation, info)` replaces the built-in
+policy for in-memory experiments. It receives only public environment values
+and returns an action accepted by the public environment API. The callback
+object, callback-local state, private multi-team state, and raw environment
+objects are never serialized. Results contain only validated JSON
+configuration, reward/step/termination summaries, aggregate totals, and the
+release manifest.
 
 ## Privacy boundary
 
@@ -170,16 +223,21 @@ environment/evaluator timing and does not measure solver performance.
 ## Known limitations and future work
 
 - The release is planning-step based; **hourly operation** is future work.
-- It provides reusable policies and replay/benchmark utilities, but **full
-  training** scripts, checkpoints, and a hosted training service are future
-  work; full training is not part of this release.
-- Parallel episodes do not yet have a built-in multi-agent replay format.
+- It provides a deterministic policy-loop training script and API, but does
+  not provide a third-party RL algorithm, checkpoints, or a hosted training
+  service; full training with an algorithmic learner remains future work.
+- Built-in multi-agent replay is implemented for parallel episodes. Public
+  replay JSON is sanitized and non-replayable; private `own_plan` and
+  `own_plan_mask` fields plus per-team actions are excluded unless an instructor
+  explicitly opts into `include_private_actions=True`.
 - Solver-backed parity depends on optional `highspy` and prepared artifacts.
 - Hashes identify supplied metadata; they do not package or verify missing
   external artifacts by themselves.
 - The compatibility fallback for missing Gymnasium is intentionally small and
   is not a replacement for the full Gymnasium distribution.
 
-These limitations do not defer the implemented Phase 5 release surface: the
-versioned manifest, supported scenario blocks, replay identity checks, privacy
-boundary, and evaluator/solver boundary described above are available now.
+These limitations do not defer the implemented Phase 6 research-readiness
+surface. The versioned manifest, supported scenario blocks, replay identity
+checks, privacy boundary, aggregate reporting, and evaluator/solver boundary
+described above are available now. The Phase 5 release-foundation details are
+retained as historical context rather than the current phase label.

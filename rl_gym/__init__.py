@@ -2,8 +2,8 @@
 
 Phase 2 exposes :class:`ConnectionPlanningEnv`, Phase 4 exposes
 :class:`ParallelConnectionPlanningEnv`, and Phase 1 plan-state/evaluator
-delegation helpers remain available for parity and integration. Hourly
-operation and research-training utilities remain deferred.
+delegation helpers remain available for parity and integration. Phase 6
+training utilities are implemented; hourly operation remains future work.
 """
 
 from .adapter import (
@@ -26,6 +26,15 @@ from .replay import (
     run_episode,
     save_replay,
 )
+from .parallel_replay import (
+    ParallelEpisodeManifest,
+    ParallelEpisodeStep,
+    ParallelEpisodeTrace,
+    load_parallel_replay,
+    replay_parallel_episode,
+    run_parallel_episode,
+    save_parallel_replay,
+)
 from .benchmarks import benchmark_environment
 from .release import (
     ENVIRONMENT_VERSION,
@@ -36,6 +45,9 @@ from .release import (
     make_release_manifest,
     stable_hash,
 )
+from .experiments import ExperimentConfig, run_experiments
+from .reporting import aggregate_records, render_json, render_markdown
+from .training import LearnerCallback, TrainingConfig, train_policy
 
 __all__ = [
     "HalfYearHorizon",
@@ -57,6 +69,13 @@ __all__ = [
     "save_replay",
     "load_replay",
     "replay_episode",
+    "ParallelEpisodeManifest",
+    "ParallelEpisodeStep",
+    "ParallelEpisodeTrace",
+    "run_parallel_episode",
+    "save_parallel_replay",
+    "load_parallel_replay",
+    "replay_parallel_episode",
     "benchmark_environment",
     "RELEASE_VERSION",
     "ENVIRONMENT_VERSION",
@@ -65,4 +84,12 @@ __all__ = [
     "stable_hash",
     "ReleaseManifest",
     "make_release_manifest",
+    "ExperimentConfig",
+    "run_experiments",
+    "aggregate_records",
+    "render_json",
+    "render_markdown",
+    "LearnerCallback",
+    "TrainingConfig",
+    "train_policy",
 ]

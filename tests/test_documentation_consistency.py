@@ -48,6 +48,55 @@ def test_rl_roadmap_matches_current_student_csv_contract():
     assert "legacy" in text and "student CSV contract" in text
 
 
+def test_rl_phase6_docs_describe_public_surfaces_and_boundaries():
+    readme = (REPOSITORY_ROOT / "rl_gym" / "README.md").read_text(encoding="utf-8")
+
+    for term in (
+        "run_parallel_episode",
+        "include_private_actions=True",
+        "run_experiments",
+        "aggregate_records",
+        "train_policy",
+        "public_sanitized",
+        "private_replayable",
+        "evaluator-mode none",
+        "solver-free",
+        "does not duplicate",
+    ):
+        assert term in readme
+
+
+def test_rl_readme_labels_phase_one_through_six_and_current_phase_seven_gate():
+    readme = (REPOSITORY_ROOT / "rl_gym" / "README.md").read_text(encoding="utf-8")
+
+    assert "Phase 1–6" in readme
+    assert "current Phase 7 gate" in readme
+
+
+def test_rl_phase7_hourly_gate_has_required_contract_sections():
+    gate = (REPOSITORY_ROOT / "rl_gym" / "PHASE7_HOURLY_GATE.md").read_text(encoding="utf-8")
+
+    for heading in (
+        "## 1. Action contract",
+        "## 2. Observation contract",
+        "## 3. Reward accounting",
+        "## 4. Computational budget",
+        "## 5. Evaluator parity",
+        "## 6. Acceptance criteria",
+        "## 7. Non-goals",
+    ):
+        assert heading in gate
+    for term in (
+        "exactly once",
+        "one transition per released operating hour",
+        "cross-team private",
+        "production evaluator",
+        "git diff --check",
+        "network, or scoring modifications",
+    ):
+        assert term in gate
+
+
 def test_activsg2000_manifest_distinguishes_missing_highspy_from_validation_failure():
     manifest_path = REPOSITORY_ROOT / "data" / "processed" / "activsg2000_scenarios_v1" / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

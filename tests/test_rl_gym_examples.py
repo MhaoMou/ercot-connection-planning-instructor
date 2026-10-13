@@ -32,6 +32,7 @@ def run_example(script: str, *args: str) -> dict:
 def test_readme_commands_include_repository_root_pythonpath():
     readme = README_PATH.read_text(encoding="utf-8")
 
+    assert "released Phase 6 RL APIs" in readme
     assert "PYTHONPATH=src:. python examples/rl_gym/single_agent_baseline.py" in readme
     assert "PYTHONPATH=src:. python examples/rl_gym/competitive_parallel.py" in readme
 

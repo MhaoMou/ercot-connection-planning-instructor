@@ -2,19 +2,66 @@
 
 ## Implemented release
 
-Current status: Phase 1 adapter, the Phase 2 single-agent sequential planning
-environment, the Phase 3 single-agent baselines/replay/benchmark utilities,
-the Phase 4 competitive parallel wrapper, and the Phase 5 research-release
-surface are implemented. The Phase 5 research release is implemented as a
-versioned, reproducible documentation and replay surface.
+Current status: Phase 1–6 APIs are implemented, with Phase 6 as the current
+research-readiness phase. This includes the Phase 1 adapter,
+the Phase 2 single-agent sequential planning environment, the Phase 3
+single-agent baselines/replay/benchmark utilities, the Phase 4 competitive
+parallel wrapper, the Phase 5 research-release surface, and the Phase 6
+planning/replay/experiment/reporting/training APIs. The current Phase 7 gate
+controls any future hourly-operation work. Phase 5 remains the historical,
+versioned release-foundation context for the current Phase 6 surface.
 
-The [Phase 5 release contract](RELEASE.md) is the authoritative, standalone
-reference for version metadata, supported 2027--2029 `jan_jun` and `jul_dec`
-blocks, manifest/hash semantics, replay compatibility, example commands,
+The [Phase 6 research-readiness contract](RELEASE.md) is the authoritative,
+standalone reference for the current research surface. It preserves the Phase 5
+release-foundation history, including version metadata, supported 2027--2029
+`jan_jun` and `jul_dec` blocks, manifest/hash semantics, replay compatibility,
+example commands,
 privacy, evaluator/solver boundaries, and known limitations. This README is a
 concise API entry point; the full release contract lives in `RELEASE.md`.
 
-Hourly operation and full training scripts/checkpoints remain future work.
+Phase 6 planning/replay/experiment/reporting/training APIs are implemented.
+Hourly operation remains gated future work; the exact gate is documented in
+[`PHASE7_HOURLY_GATE.md`](PHASE7_HOURLY_GATE.md).
+
+## Phase 6 implemented APIs and commands
+
+Phase 6 adds reproducible research plumbing around the planning environments.
+These surfaces are public JSON/API contracts, not a second evaluator:
+
+| Surface | Public API | Command/example | Boundary |
+|---|---|---|---|
+| Parallel replay | `run_parallel_episode`, `save_parallel_replay`, `load_parallel_replay`, `replay_parallel_episode` | `examples/rl_gym/competitive_parallel.py` | Default files are `public_sanitized`: observations/infos are filtered, plan-bearing fields and per-team actions are redacted, and the artifact is intentionally not replayable. `include_private_actions=True` is an explicit instructor/private opt-in and produces `private_replayable` output. |
+| Experiment runner | `ExperimentConfig`, `run_experiments` | `PYTHONPATH=src:. python examples/rl_gym/run_experiments.py --policy greedy --years 2029 --blocks jan_jun --episodes 1 --seed 17` | Records contain public timing, reward, status, counts, and release identity only. The CLI exposes `--evaluator-mode none`; terminal evaluation is Python API-only because a callback must be injected. |
+| Reporting CLI | `aggregate_records`, `render_json`, `render_markdown` | `PYTHONPATH=src:. python examples/rl_gym/compare_baselines.py --format markdown --input work/rl-experiments.json` | Accepts public experiment records, rejects private/evaluator-bearing fields, and computes summaries without scoring or solver logic. |
+| Training scaffold | `TrainingConfig`, `train_policy` | `PYTHONPATH=src:. python examples/rl_gym/train_policy.py --episodes 3 --seed 17 --year 2029 --block jan_jun --output work/rl-training.json` | Dependency-light deterministic policy loop. A learner callback receives only public observation/info and is never serialized; this is not a third-party RL algorithm or checkpoint format. |
+
+Parallel replay has two deliberately different uses. Public artifacts support
+sharing aggregate outcomes and release identity without revealing strategy;
+private artifacts support a trusted instructor's deterministic replay audit.
+Neither mode grants an agent another team's plan, asset IDs, dispatch, storage
+schedule, or resource-level decisions.
+
+The evaluator boundary is equally explicit. `run_experiments` may receive an
+application-owned terminal evaluator callback through Python, but the callback
+is not stored in configuration or output. The command-line runner is solver-free
+and only permits `--evaluator-mode none`. `train_policy` and reporting remain
+environment/reporting scaffolds: official scores, network dispatch, projection,
+and scoring continue to come from the existing production evaluator through the
+Phase 1 adapter. No Phase 6 command changes evaluator, dispatch, network, or
+scoring mathematics.
+
+The Phase 7 gate must be satisfied before adding one action/transition per
+operating hour; planning-step traces and policy-loop training do not satisfy
+that gate by themselves.
+
+### Experiment evaluator boundary
+
+`ExperimentConfig.evaluator_mode` supports `"none"` and `"terminal"`.
+`run_experiments(..., evaluator_callback=...)` keeps the callback at the
+application boundary: terminal mode requires that callback, while none mode
+rejects one. The experiment CLI is intentionally solver-free and exposes only
+`--evaluator-mode none`; terminal evaluation is Python API-only because the CLI
+has no callback-injection mechanism.
 
 Construction validates `scenario_year` as a non-bool integer through
 `half_year_calendar`; supported years are 2027--2029. Empty-plan finish is a
@@ -119,9 +166,11 @@ The Phase 1 adapter itself intentionally does not implement Gymnasium `reset`,
 `step`, action spaces, observation spaces, rewards, or environment timing; those
 responsibilities now belong to the Phase 2 environment described above.
 
-This document summarizes the implemented Phase 1--5 wrapper around the current
-competitive data-center connection-planning game. See `RELEASE.md` for the
-research-release contract and its explicit future-work boundary.
+This document summarizes the implemented Phase 1--6 wrapper around the current
+competitive data-center connection-planning game. Phase 6 is the current
+research-readiness surface; see `RELEASE.md` for its contract and explicit
+future-work boundary. Phase 5 is retained below as historical release-
+foundation context.
 
 The central rule is to reuse the validated instructor-side evaluator rather than
 create a second set of network, storage, projection, or scoring mathematics.
@@ -522,12 +571,17 @@ produce auditable reports.
 **Exit condition:** reordering teams does not change the joint result, and privacy
 tests detect no cross-team plan leakage.
 
-The existing single-agent replay helpers intentionally do not replay parallel
-team mappings; Phase 4 callers should record the per-team action/observation
-maps with an experiment-specific wrapper until a multi-agent replay format is
-added.
+`run_parallel_episode`, `save_parallel_replay`, `load_parallel_replay`, and
+`replay_parallel_episode` support deterministic parallel episode traces. The
+default `save_parallel_replay(path, trace)` output is a public, sanitized
+artifact: it retains manifest identity, team IDs, sanitized observations and
+infos, rewards, terminal flags, aggregate metadata, and a privacy marker, but
+redacts per-team actions and plan-bearing fields. Public artifacts cannot
+reconstruct or replay private team strategies. Instructor/private experiments
+may opt in explicitly with `include_private_actions=True`; those artifacts are
+marked `private_replayable` and can be loaded and replayed.
 
-### Phase 5 -- Research release (implemented)
+### Phase 5 -- Release foundation (historical context)
 
 - version the environment, plan schema, scenario blocks, and release metadata;
 - provide deterministic canonical JSON manifests and SHA-256 identity hashes;
@@ -535,9 +589,10 @@ added.
   known limitations;
 - provide runnable baseline/replay examples and focused release checks.
 
-**Release boundary:** an independent user can install the package, run a
-baseline, replay a compatible single-agent episode, and inspect the release
-identity. Hourly operation and full training remain future work.
+**Historical release boundary:** an independent user could install the package,
+run a baseline, replay a compatible single-agent episode, and inspect the
+release identity. Phase 6 now carries the active research-readiness surface;
+hourly operation remains future work under the Phase 7 gate.
 
 ## 13. Required test matrix
 
@@ -572,6 +627,6 @@ At minimum, tests should cover:
 
 ## 15. Recommended next implementation step
 
-The next extensions are hourly operation, full training scripts/checkpoints,
-and a built-in multi-agent replay format. They are deliberately outside the
-implemented Phase 5 release surface documented in `RELEASE.md`.
+The next extensions are hourly operation and full training scripts/checkpoints.
+Parallel replay is implemented with separate public-sanitized and explicitly
+private-replayable artifact modes documented in `RELEASE.md`.
