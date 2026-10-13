@@ -48,12 +48,18 @@ The observation is a fixed JSON-safe mapping containing:
 
 - release identity and scenario year/block;
 - zero-based hour index and total horizon length;
-- released public exogenous data required by the environment;
+- released public exogenous metadata required by the solver-free environment;
 - the team’s own connection, generator, and storage capacity summary;
 - the team’s own storage state of charge and current operating limits;
 - terminal/truncation metadata at the final transition.
 
-Observation schemas, dtypes, bounds, and missing-value behavior are fixed and tested for every supported year/block combination. Other teams’ private plans and operating decisions are never included.
+In the initial solver-free release, the exogenous mapping contains the released
+scenario year and block; it is deliberately a stable injection point rather
+than an implicit copy of the full bus/load dataset. Future data-backed hourly
+operation must version any additional exogenous fields before exposing them.
+Observation schemas, dtypes, bounds, and missing-value behavior are fixed and
+tested for every supported year/block combination. Other teams’ private plans
+and operating decisions are never included.
 
 ### State transitions
 
