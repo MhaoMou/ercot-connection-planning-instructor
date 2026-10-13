@@ -5,6 +5,7 @@ from collections.abc import Mapping
 import math
 from typing import Any
 
+import numpy as np
 import pytest
 
 from ercot_game.calendars import half_year_calendar
@@ -183,6 +184,24 @@ def test_hourly_env_declares_fixed_action_and_observation_contract():
     assert "curtailment_mw" not in env.action_space.spaces
     assert set(env.observation_space.spaces) == OBSERVATION_KEYS
 
+    expected_bounds = {
+        "generator_output_mw": (0.0, 6.0),
+        "storage_charge_mw": (0.0, 2.0),
+        "storage_discharge_mw": (0.0, 2.0),
+    }
+    for field, (expected_low, expected_high) in expected_bounds.items():
+        field_space = env.action_space.spaces[field]
+        assert field_space.shape == ()
+        assert np.dtype(field_space.dtype) == np.dtype(np.float32)
+        assert np.asarray(field_space.low).shape == ()
+        assert np.asarray(field_space.high).shape == ()
+        assert float(field_space.low) == pytest.approx(expected_low)
+        assert float(field_space.high) == pytest.approx(expected_high)
+
+        upper_bound_action = idle_action()
+        upper_bound_action[field] = np.float32(expected_high)
+        assert env.action_space.contains(upper_bound_action)
+
     observation, info = env.reset(seed=11)
     assert_public_output(observation, info)
     assert env.action_space.contains(idle_action())
@@ -202,6 +221,8 @@ def test_hourly_observation_nested_contract_is_public_and_json_safe():
         "scenario_year": 2028,
         "scenario_block": "jan_jun",
     }
+    assert observation["exogenous"]["scenario_year"] == observation["metadata"]["scenario_year"]
+    assert observation["exogenous"]["scenario_block"] == observation["metadata"]["scenario_block"]
     assert observation["asset_state"]["connection_capacity_mw"] == pytest.approx(40.0)
     assert observation["asset_state"]["generator_capacity_mw"] == pytest.approx(6.0)
     assert observation["asset_state"]["storage_power_mw"] == pytest.approx(2.0)
@@ -248,7 +269,9 @@ def test_hourly_env_supports_every_released_year_and_block(year, block):
     assert_public_output(next_observation, next_info)
     assert not terminated
     assert not truncated
-    assert next_observation["metadata"]["hour_index"] == 1
+    assert next_observation["metadata"]["hour_index"] == 0
+    assert next_observation["metadata"]["terminated"] is False
+    assert next_observation["metadata"]["truncated"] is False
     assert env.plan_state.horizon.year == year
     assert env.plan_state.horizon.round_name == block
 
