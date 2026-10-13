@@ -51,6 +51,11 @@ PRIVATE_OBSERVATION_KEYS = {
     "raw_score",
     "solver",
     "storage_schedule",
+    "evaluator_output",
+    "projection_diagnostics",
+    "plan",
+    "team_scores",
+    "resource_level",
 }
 
 
@@ -176,18 +181,12 @@ def assert_public_output(observation: Mapping[str, Any], info: Mapping[str, Any]
     assert isinstance(exogenous["scenario_block"], str)
 
 
-def test_hourly_env_declares_fixed_action_and_observation_contract():
-    env = make_hourly_env()
-
-    assert set(env.action_space.spaces) == ACTION_KEYS
-    assert "storage_energy_mwh" not in env.action_space.spaces
-    assert "curtailment_mw" not in env.action_space.spaces
-    assert set(env.observation_space.spaces) == OBSERVATION_KEYS
-
+def assert_action_space_contract(env: HourlyOperationEnv) -> None:
+    site = env.plan_state.sites[0]
     expected_bounds = {
-        "generator_output_mw": (0.0, 6.0),
-        "storage_charge_mw": (0.0, 2.0),
-        "storage_discharge_mw": (0.0, 2.0),
+        "generator_output_mw": (0.0, site.generator_capacity_mw),
+        "storage_charge_mw": (0.0, site.storage_power_mw),
+        "storage_discharge_mw": (0.0, site.storage_power_mw),
     }
     for field, (expected_low, expected_high) in expected_bounds.items():
         field_space = env.action_space.spaces[field]
@@ -202,16 +201,28 @@ def test_hourly_env_declares_fixed_action_and_observation_contract():
         upper_bound_action[field] = np.float32(expected_high)
         assert env.action_space.contains(upper_bound_action)
 
+
+def test_hourly_env_declares_fixed_action_and_observation_contract():
+    env = make_hourly_env()
+
+    assert set(env.action_space.spaces) == ACTION_KEYS
+    assert "storage_energy_mwh" not in env.action_space.spaces
+    assert "curtailment_mw" not in env.action_space.spaces
+    assert set(env.observation_space.spaces) == OBSERVATION_KEYS
+
+    assert_action_space_contract(env)
+
     observation, info = env.reset(seed=11)
     assert_public_output(observation, info)
-    assert env.action_space.contains(idle_action())
     assert env.observation_space.contains(observation)
+    assert env.action_space.contains(idle_action())
     step_observation, _, _, _, step_info = env.step(idle_action())
     assert_public_output(step_observation, step_info)
 
 
 def test_hourly_observation_nested_contract_is_public_and_json_safe():
     env = make_hourly_env()
+    site = env.plan_state.sites[0]
     observation, info = env.reset(seed=12)
 
     assert_public_output(observation, info)
@@ -223,13 +234,13 @@ def test_hourly_observation_nested_contract_is_public_and_json_safe():
     }
     assert observation["exogenous"]["scenario_year"] == observation["metadata"]["scenario_year"]
     assert observation["exogenous"]["scenario_block"] == observation["metadata"]["scenario_block"]
-    assert observation["asset_state"]["connection_capacity_mw"] == pytest.approx(40.0)
-    assert observation["asset_state"]["generator_capacity_mw"] == pytest.approx(6.0)
-    assert observation["asset_state"]["storage_power_mw"] == pytest.approx(2.0)
-    assert observation["asset_state"]["storage_energy_mwh"] == pytest.approx(8.0)
-    assert observation["asset_state"]["storage_soc_mwh"] == pytest.approx(4.0)
-    assert observation["asset_state"]["storage_charge_limit_mw"] == pytest.approx(2.0)
-    assert observation["asset_state"]["storage_discharge_limit_mw"] == pytest.approx(2.0)
+    assert observation["asset_state"]["connection_capacity_mw"] == pytest.approx(site.connection_capacity_mw)
+    assert observation["asset_state"]["generator_capacity_mw"] == pytest.approx(site.generator_capacity_mw)
+    assert observation["asset_state"]["storage_power_mw"] == pytest.approx(site.storage_power_mw)
+    assert observation["asset_state"]["storage_energy_mwh"] == pytest.approx(site.storage_energy_mwh)
+    assert observation["asset_state"]["storage_soc_mwh"] == pytest.approx(site.storage_energy_mwh / 2.0)
+    assert observation["asset_state"]["storage_charge_limit_mw"] == pytest.approx(site.storage_power_mw)
+    assert observation["asset_state"]["storage_discharge_limit_mw"] == pytest.approx(site.storage_power_mw)
     assert "team-b" not in repr(observation)
     assert "evaluator_callback" not in repr(observation)
     step_observation, _, _, _, step_info = env.step(idle_action())
@@ -251,8 +262,10 @@ def test_hourly_env_uses_exact_released_half_year_horizon(block, expected_horizo
 @pytest.mark.parametrize("block", ["jan_jun", "jul_dec"])
 def test_hourly_env_supports_every_released_year_and_block(year, block):
     env = make_hourly_env(year=year, block=block)
+    assert_action_space_contract(env)
     observation, info = env.reset(seed=32)
     assert_public_output(observation, info)
+    assert env.observation_space.contains(observation)
 
     expected_horizon = {
         (2027, "jan_jun"): 4344,
@@ -264,9 +277,17 @@ def test_hourly_env_supports_every_released_year_and_block(year, block):
     }[(year, block)]
     assert env.horizon_hours == expected_horizon
     assert env.horizon_hours == half_year_calendar(year, block).horizon
+    assert observation["metadata"]["hour_index"] == 0
+    assert observation["metadata"]["scenario_year"] == year
+    assert observation["metadata"]["scenario_block"] == block
     assert observation["metadata"]["horizon_hours"] == expected_horizon
+    assert observation["exogenous"] == {
+        "scenario_year": year,
+        "scenario_block": block,
+    }
     next_observation, _, terminated, truncated, next_info = env.step(idle_action())
     assert_public_output(next_observation, next_info)
+    assert env.observation_space.contains(next_observation)
     assert not terminated
     assert not truncated
     assert next_observation["metadata"]["hour_index"] == 0
@@ -449,12 +470,25 @@ def test_hourly_env_rejects_unknown_actions():
     with pytest.raises(ValueError):
         env.step(
             {
-                "generator_output_mw": 0.0,
-                "storage_charge_mw": 0.0,
-                "storage_discharge_mw": 0.0,
-                "curtailment_mw": 0.0,
+                **idle_action(),
+                "arbitrary_unknown_key": 0.0,
             }
         )
+
+
+@pytest.mark.parametrize("field", sorted(ACTION_KEYS))
+@pytest.mark.parametrize(
+    "bad_value",
+    [True, [0.0], [0.0, 0.0], np.asarray([0.0]), np.asarray([0.0, 0.0])],
+)
+def test_hourly_env_rejects_bool_list_and_vector_values_for_scalar_actions(field, bad_value):
+    env = make_hourly_env(invalid_action_policy="raise")
+    env.reset(seed=19)
+    action = idle_action()
+    action[field] = bad_value
+
+    with pytest.raises(ValueError):
+        env.step(action)
 
 
 @pytest.mark.parametrize(
