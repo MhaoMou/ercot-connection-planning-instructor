@@ -60,21 +60,21 @@ The evaluator separates storage capital cost into power capacity and energy
 capacity:
 
 ```text
-storage capital cost = $350,000/MW × power capacity
-                     + $200,000/MWh × energy capacity
+storage capital cost = $400,000/MW × power capacity
+                     + $250,000/MWh × energy capacity
 storage operating cost = not charged
 ```
 
-This gives approximately `$1,150/kW` for a four-hour system. It is close to
-EIA's 2024 capacity-weighted battery construction benchmark of `$1,469/kW`
-and NREL's 2021 utility-scale four-hour total-system benchmark of about
-`$1,365/kW`. Storage operating cost is intentionally omitted from the score.
+This gives approximately `$1,400/kW` for a four-hour system. It is a rounded
+2028 moderate projection based on NREL's 2023 utility-scale battery update,
+which reports `$351/kWh` for a complete four-hour system in 2022 dollars.
+Storage operating cost is intentionally omitted from the score.
 
 Sources:
 
 - [EIA construction cost data](https://www.eia.gov/electricity/generatorcosts/)
-- [EIA battery-storage cost assumptions](https://www.eia.gov/analysis/studies/powerplants/capitalcost/pdf/capcost_assumption.pdf)
-- [NREL 2021 utility-scale battery storage ATB](https://atb.nrel.gov/electricity/2021/utility-scale_battery_storage)
+- [NREL 2023 utility-scale battery storage ATB](https://atb.nrel.gov/electricity/2023/residential_battery_storage/utility-scale_battery_storage)
+- [NREL 2023 storage cost projection report](https://www.nrel.gov/docs/fy23osti/85332.pdf)
 - [NREL 2024 utility-scale battery storage ATB](https://atb.nrel.gov/electricity/2024/2023/utility-scale_battery_storage)
 
 These are rounded instructional coefficients, not a project-specific bid or
@@ -98,8 +98,11 @@ The missing calibration choices are:
 NREL gives the relevant fixed-charge-rate and LCOE equations in its ATB
 methodology.
 
-The approved teaching rule is `$1,300,000/MW`, charged once for generator
-capacity newly built in a weekly match.
+The approved teaching rule is `$1,500,000/MW`, charged once for generator
+capacity newly built in a weekly match. This is rounded near EIA's 2024
+internal-combustion-engine installed cost of `$1,522/kW`, which is a more
+appropriate anchor for modular colocated generation than a utility-scale
+combined-cycle plant.
 
 ### Site/interconnection cost
 
@@ -112,16 +115,20 @@ Source:
 
 - [LBNL generator interconnection cost report](https://emp.lbl.gov/publications/generator-interconnection-costs-0)
 
-**Approved rule:** use `$20,000,000/MW` of newly built connection capacity.
-This is a capacity-dependent AI-heavy connection-site cost and is charged once
-within a weekly match.
+**Approved rule:** use `$25,000,000/MW` of newly built connection capacity.
+This is a capacity-dependent AI-data-center facility-cost proxy and is charged
+once within a weekly match. It is not a universal electrical interconnection
+tariff: actual substation and network-upgrade costs are site-specific. JLL
+reports shell/core construction near `$10.7m/MW` and AI fit-out up to
+`$25m/MW`; Morgan Stanley reports roughly `$21m–$31m/MW` for AI construction
+including GPUs and servers.
 
 ## IT-service value profile
 
 The released IT-service value is a complete, deterministic vector:
 
 ```text
-IT_value[t] = 1,500 USD/MWh, for every hour t in the selected block
+IT_value[t] = 6,500 USD/MWh, for every hour t in the selected block
 ```
 
 January--June contains 4,344 hours/values in non-leap years and 4,368 hours/values in the leap year; July--December contains 4,416 hours/values in
@@ -138,7 +145,7 @@ The following cannot be responsibly inferred as a single market number:
 
 | Parameter | Current decision needed |
 |---|---|
-| IT value of served load | Released as the AI-intensive full-horizon constant `$1,500/MWh`. |
+| IT value of served load | Released as the AI-intensive full-horizon constant `$6,500/MWh`. |
 | Infeasible score | Confirm `0`; no partial-service score is used. |
 | Maximum load per site/team | Choose from DCOPF feasibility sweeps so both feasible and infeasible plans exist. |
 | Maximum candidate-generator capacity | Set relative to site peak load. |
@@ -169,7 +176,7 @@ Before publishing the student rules:
    multi-day historical RTM/DAM aggregate;
 2. select and document candidate generator technologies;
 3. review the annualized combustion-turbine anchor and horizon weighting;
-4. review the `$20,000,000/MW` connection-capacity rule and storage coefficients;
+4. review the `$25,000,000/MW` AI-facility-capacity rule and storage coefficients;
 5. generate and validate the complete baseline ACTIVSg2000 LMP artifact;
 6. run a parameter sweep over IT value, price, generator cost, CAPEX, storage
    cost, site cost,

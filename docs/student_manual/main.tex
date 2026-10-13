@@ -423,7 +423,7 @@ S_i={}V_i^{\mathrm{IT}}-C_i^{\mathrm{energy}}
 The components are:
 \begin{itemize}[leftmargin=*]
   \item $V_i^{\mathrm{IT}}$: cleared load multiplied by the explicit full-horizon
-  \code{IT value} vector. The active AI-intensive profile uses \USD1500/MWh at
+  \code{IT value} vector. The active AI-intensive profile uses \USD6500/MWh at
   every hour;
   \item $C_i^{\mathrm{energy}}$: for Submission 2, grid purchase multiplied by
   the nonnegative LMP from the selected joint dispatch at the selected bus and
@@ -431,11 +431,11 @@ The components are:
   \item $C_i^{\mathrm{gen,op}}$: team-generator dispatch charged at the common
   25\%/50\%/25\% curve of \USD60/100/160 per MWh;
   \item $C_i^{\mathrm{gen,cap}}$: newly built generator MW multiplied by
-  \USD1.3m/MW, charged once per weekly match;
+  \USD1.5m/MW, charged once per weekly match;
   \item $C_i^{\mathrm{storage,cap}}$: newly built storage charged at
-  \USD350,000/MW plus \USD200,000/MWh, with no storage operating cost;
+  \USD400,000/MW plus \USD250,000/MWh, with no storage operating cost;
   \item $C_i^{\mathrm{site}}$: newly built connection capacity multiplied by
-  \USD20m/MW, charged once per weekly match;
+  \USD25m/MW, charged once per weekly match;
 \end{itemize}
 
 The active instructional coefficients are listed below. The selected rule file
@@ -447,13 +447,13 @@ and economic-profile artifacts remain authoritative for a released round.
 \toprule
 Parameter & Active value & Basis\\
 \midrule
-Generator capital & \USD1.3m/MW & One-time weekly-match capital coefficient; informed by EIA/NREL technology-cost methods.\\
-Site cost & \USD20m/MW & Capacity-dependent instructional connection coefficient, informed by JLL shell/core and AI fit-out costs~\cite{jll2026dc}.\\
-Generator operating cost & Piecewise \$60/100/160 per MWh at 25/50/25\% & Common team-built curve; EIA heat-rate and generator-cost references inform the mapping~\cite{eia2024generatorcosts,eia2025heatrate}.\\
+Generator capital & \USD1.5m/MW & One-time weekly-match coefficient, rounded near EIA's 2024 internal-combustion-engine cost~\cite{eia2024generatorcosts}.\\
+Site cost & \USD25m/MW & AI-data-center facility-capital proxy, not a universal interconnection tariff; informed by JLL and Morgan Stanley~\cite{jll2026dc,morganstanley2024dc}.\\
+Generator operating cost & Piecewise \$80/150/250 per MWh at 25/50/25\% & Source-informed colocated natural-gas/diesel-standby curve; exact mapping is instructional~\cite{eia2026lcoe,eia2025heatrate}.\\
 Energy price & Submission 2 joint-dispatch LMP & Locational price at the selected bus and hour; Submission 1 has no energy-purchase cost.\\
-IT value & \USD1500/MWh hourly & Full-horizon AI-intensive opportunity value; cloud pricing pages are contextual references, not a direct tariff conversion~\cite{aws2026ec2,azure2026vm,gcp2026compute}.\\
-Storage power capital & \USD350,000/MW & Current power-capacity coefficient.\\
-Storage energy capital & \USD200,000/MWh & Current energy-capacity coefficient; together with power capital gives \USD1.15m/MW for a four-hour system.\\
+IT value & \USD6500/MWh hourly & Full-horizon AI-intensive opportunity value, rounded from recent compute-value evidence; not a direct cloud tariff conversion~\cite{computeheat2026,iea2026ai}.\\
+Storage power capital & \USD400,000/MW & Rounded 2028 moderate projection component~\cite{nrel2023bess}.\\
+Storage energy capital & \USD250,000/MWh & Rounded 2028 moderate projection component; together with power capital gives \USD1.4m/MW for a four-hour system~\cite{nrel2023bess}.\\
 Storage operation & Not charged & The active evaluator has no storage operating-cost term.\\
 Invalid file score & 0 & Deterministic grading policy, not a market quantity.\\
 \bottomrule

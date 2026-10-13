@@ -159,13 +159,13 @@ The active coefficients are:
 
 | Parameter | Active value | Units | Origin and reference |
 |---|---:|---|---|
-| IT-service value | 1,500 | USD/MWh | Instructor-chosen AI-intensive opportunity value; cloud pricing pages from AWS, Azure, and Google Cloud are contextual references. |
-| Team-generator curve | 60 / 100 / 160 over 25% / 50% / 25% | USD/MWh | Instructor-chosen convex curve informed by EIA heat-rate and generator-cost references. |
-| Generator capital | 1,300,000 | USD/MW | Instructor-chosen weekly-match coefficient informed by EIA/NREL methods. |
-| Connection-site cost | 20,000,000 | USD/MW | Instructor-chosen capacity coefficient; JLL reports 2025 shell/core construction near 10.7 million USD/MW and AI fit-out up to 25 million USD/MW. |
-| Storage power capital | 350,000 | USD/MW | EIA/NREL-informed instructional component. |
-| Storage energy capital | 200,000 | USD/MWh | EIA/NREL-informed instructional component. |
-| Four-hour storage equivalent | 1,150,000 | USD/MW | Derived from `350,000 * P + 200,000 * (4P)`. |
+| IT-service value | 6,500 | USD/MWh | Source-informed AI-compute opportunity value, rounded from a recent blended compute-value estimate; not a cloud tariff. |
+| Team-generator curve | 80 / 150 / 250 over 25% / 50% / 25% | USD/MWh | Source-informed convex curve for colocated natural-gas engines/turbines with standby/scarcity premium. |
+| Generator capital | 1,500,000 | USD/MW | Rounded near EIA's 2024 internal-combustion-engine installed cost of $1,522/kW. |
+| Connection-site cost | 25,000,000 | USD/MW | AI-data-center facility-capital proxy, not a universal grid-interconnection tariff; informed by JLL and Morgan Stanley. |
+| Storage power capital | 400,000 | USD/MW | Rounded component of NREL's 2028 moderate four-hour projection. |
+| Storage energy capital | 250,000 | USD/MWh | Rounded component of the same NREL projection. |
+| Four-hour storage equivalent | 1,400,000 | USD/MW | Derived from `400,000 * P + 250,000 * (4P)`. |
 | Storage operating cost | 0 | USD/MWh | Explicit instructor-chosen zero-cost rule. |
 | Invalid/infeasible fallback score | 0 | USD | Deterministic instructor policy. |
 

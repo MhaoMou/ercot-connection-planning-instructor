@@ -1,16 +1,16 @@
 # Data-center computational-service value calibration
 
-**Status:** Historical research note for instructor review; no production scoring
-values are changed by this document. The research values below are not the
-current scoring configuration.
+**Status:** Active calibration note for instructor review. The versioned
+half-year rules files remain authoritative for production scoring.
 
 **Current approved release economics:** The active half-year rules and hourly
-artifacts use `$1500/MWh` for IT service value, `$1.3m/MW` for team-generator
-capital, `$20m/MW` for site capacity, a `$60/$100/$160` per MWh team-generator
-curve at 25/50/25%, `$350,000/MW` plus `$200,000/MWh` for storage capital, and
-no storage operating-cost charge. The versioned files under
+artifacts use `$6500/MWh` for AI-intensive IT service value, `$1.5m/MW` for
+team-generator capital, `$25m/MW` for the AI-data-center facility/site proxy,
+an `$80/$150/$250` per MWh team-generator curve at 25/50/25%, `$400,000/MW`
+plus `$250,000/MWh` for storage capital, and no storage operating-cost charge.
+The versioned files under
 `data/teaching/dispatch_scoring_rules_*_v1.json` and the processed hourly
-artifacts are authoritative when they differ from this historical note.
+artifacts are authoritative when they differ from this calibration note.
 
 ## 1. Modeling interpretation
 
@@ -70,7 +70,7 @@ Sources:
 ## 3. Historical instructional IT-value bands (superseded)
 
 The bands in this section are historical research alternatives. They are
-superseded for the active release; use the approved `$1500/MWh` IT value stated
+superseded for the active release; use the approved `$6500/MWh` IT value stated
 above and in the versioned half-year rules.
 
 Use the following as scenario bands, not claims about the financial performance
@@ -84,7 +84,7 @@ of a specific company:
 
 The historical first-classroom recommendation was a single common base value
 of `$1,000/MWh` for all teams. That recommendation is superseded by the
-approved `$1500/MWh` release value. If the course later wants heterogeneous
+approved `$6500/MWh` release value. If the course later wants heterogeneous
 business strategies, expose workload class as an explicit scenario choice
 rather than implicitly assigning teams to Google, Amazon, or OpenAI.
 
@@ -107,47 +107,51 @@ between hours. A simpler constant profile of
 `[1000, 1000, 1000, 1000, 1000, 1000]` is preferable for the first student
 pilot because it isolates network-location and generator decisions.
 
-## 4. Historical candidate-generator calibration (superseded)
+## 4. Candidate-generator technology and calibration
 
-The marginal-cost and capital anchors in this section are historical research
-inputs, not current release economics. The active release uses the approved
-`$1.3m/MW` generator-capital coefficient and the `$60/$100/$160` per MWh
-team-generator curve at 25/50/25%.
+The marginal-cost and capital anchors in this section are source-informed
+instructional inputs. The active release uses the approved `$1.5m/MW` generator-capital
+coefficient and the `$80/$150/$250` per MWh team-generator curve at 25/50/25%.
 
-The historical `$100/MWh` placeholder is not a good base case for a natural-gas
-candidate generator. It caused the pilot generators to receive zero dispatch
-because the grid could supply the load more cheaply.
+Colocated data centers use a mixture of conventional diesel standby generation,
+natural-gas reciprocating engines, and simple-cycle gas turbines. Large AI
+campuses increasingly announce gas-fired prime or bridge power, while diesel
+remains common for emergency backup. The game therefore represents a generic
+dispatchable colocated fleet rather than a single named manufacturer.
 
-For a simple-cycle natural-gas turbine, EIA reports an average heat rate close
-to `9,920 Btu/kWh` in its technology assumptions. Combining this with a
-Henry-Hub natural-gas price of `$3.52/MMBtu` in 2025 gives:
+For reference, EIA's recent technology reports identify simple-cycle turbine
+and internal-combustion configurations, and EIA's AEO2026 framework continues
+to treat combustion turbines as a capacity-resource technology. The exact
+student curve additionally includes onsite fuel logistics, standby/bridge
+operation, emissions controls, maintenance, and scarcity premiums.
 
 ```text
-fuel cost = 9.920 MMBtu/MWh × $3.52/MMBtu = $34.9/MWh
+fuel cost + variable O&M = technology-dependent short-run cost
 ```
 
-Adding approximately `$3.5–$7/MWh` of variable O&M produces a reasonable
-short-run marginal-cost band of about `$38–$45/MWh` before startup, emissions,
-transport, and scarcity premiums. For an instructional candidate generator,
-use:
+For the instructional candidate generator, use:
 
 | Parameter | Recommended pilot value |
 |---|---:|
-| Candidate-generator marginal cost | `$45/MWh` |
-| Sensitivity band | `$35`, `$45`, `$60/MWh` |
-| Candidate technology | Simple-cycle natural-gas turbine |
+| Candidate-generator marginal-cost curve | `$80`, `$150`, `$250/MWh` at 25/50/25% capacity segments |
+| Candidate technology context | Natural-gas reciprocating engine/simple-cycle turbine with diesel-standby or scarcity premium |
+| Curve status | Source-informed instructional abstraction, not a quoted tariff |
 
-The historical `$85,000/MW-year` capital coefficient is retained only for
-provenance and is superseded; it must not be used for current half-year
-evaluation. The approved current coefficient is `$1.3m/MW`, kept separate
+The approved current coefficient is `$1.5m/MW`, kept separate
 from marginal dispatch cost.
+
+For historical reproducibility, the retired pilot note used a `$1.3m/MW`
+generator-capital placeholder and a `$85,000/MW-year` annualized research
+coefficient. Those values are retained here only as superseded historical
+context; neither is used by the active half-year rules.
 
 Sources:
 
-- [EIA natural-gas price for electric power](https://www.eia.gov/todayinenergy/detail.php?id=67106)
-- [EIA natural-gas electric-power price FAQ](https://www.eia.gov/tools/FAQs/faq.php?id=51&t=8)
-- [EIA natural-gas plant heat-rate comparison](https://www.eia.gov/todayinenergy/detail.php?id=52158)
-- [EIA distributed-generation cost assumptions](https://www.eia.gov/analysis/studies/buildings/distrigen/pdf/dg_chp.pdf)
+- [EIA AEO2026 electricity-generation costs](https://www.eia.gov/outlooks/aeo/electricity_generation/)
+- [EIA AEO2025 technology-cost report](https://www.eia.gov/analysis/studies/powerplants/capitalcost/pdf/capital_cost_AEO2025.pdf)
+- [EIA 2024 generator construction costs](https://www.eia.gov/electricity/generatorcosts/)
+- [California Energy Commission data-center overview](https://www.energy.ca.gov/programs-and-topics/topics/data-centers)
+- [Burns Engineering colocated-power comparison](https://www.burns-group.com/taking-the-reins-are-on-site-power-solutions-a-cost-effective-choice-for-todays-data-centers/)
 
 ## 5. Why the scoring value should exceed wholesale electricity price
 
@@ -159,9 +163,12 @@ generation based on congestion and operating costs.
 
 The production evaluator uses the hourly, bus-specific ACTIVSg2000 baseline
 DCOPF LMP artifact rather than a six-value ERCOT price vector. The historical
-base IT-service value of `$125/MWh` is superseded and must not be presented as
-current; the approved release value is `$1500/MWh`, and the artifact records
+base IT-service values are superseded; the approved release value is
+`$6500/MWh`, and the artifact records
 the exact hourly values and provenance.
+
+The former `$125/MWh` pilot value is retained only as historical context and
+is superseded by the active AI-intensive value.
 
 If the instructor wants a future, separately approved exercise to represent
 low-margin commodity cloud services, a `$500/MWh` sensitivity case could be
@@ -188,8 +195,8 @@ The superseded research candidate was therefore:
 
 ```json
 {
-  "it_value_per_mwh": [1000, 1000, 1000, 1000, 1000, 1000],
-  "default_generator_cost_per_mwh": 45
+    "it_value_per_mwh": [6500, 6500, 6500, "... full horizon ..."],
+    "default_generator_cost_per_mwh": 150
 }
 ```
 

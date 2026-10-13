@@ -2015,17 +2015,22 @@
     "sign": "positive",
     "tolerance": 0.00017624000000000003
   },
-  "economic_profile_json_sha256": "27872f52e983d2f0e85703d2fca2a8e7b230146683a6bf383dbc9f32f84ed90f",
+  "economic_profile_json_sha256": "59e914b0502762f2f941a8dc4cf51aa90a0d427369666f0b5334617511d2b26e",
   "horizon_hours": 4344,
   "it_value_provenance": {
-    "base_value_per_mwh": 1500.0,
+    "base_value_per_mwh": 6500.0,
     "horizon_hours": 4344,
     "interpretation": "opportunity value of served IT load, not an electricity-market price",
     "method": "explicit constant full-horizon instructor profile",
     "profile_name": "AI-intensive",
     "profile_version": "it-service-value-v3-ai-intensive",
     "representation": "explicit full-horizon profile",
-    "source_category": "INSTRUCTOR-CHOSEN",
+    "source_category": "SOURCE-CALIBRATED",
+    "source_note": "Rounded AI-compute opportunity value informed by a recent compute-value estimate; not a cloud tariff.",
+    "sources": [
+      "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=6322318",
+      "https://www.iea.org/reports/energy-and-ai/executive-summary"
+    ],
     "units": "USD/MWh of served computational load"
   },
   "normalization": "raw balance duals clipped at zero for scoring; raw values retained in artifact",

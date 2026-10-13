@@ -10,11 +10,11 @@ from pathlib import Path
 from ercot_game.calendars import half_year_calendar
 
 
-AI_INTENSIVE_VALUE_PER_MWH = 1500.0
+AI_INTENSIVE_VALUE_PER_MWH = 6500.0
 TEAM_GENERATOR_COST_CURVE = (
-    (0.25, 60.0),
-    (0.50, 100.0),
-    (0.25, 160.0),
+    (0.25, 80.0),
+    (0.50, 150.0),
+    (0.25, 250.0),
 )
 DEFAULT_RULE_STATUS = "blocked_pending_highspy_validation"
 
@@ -37,10 +37,10 @@ def build_rules(
         ),
         "it_value_per_mwh": [AI_INTENSIVE_VALUE_PER_MWH] * horizon,
         "time_step_hours": 1.0,
-        "generator_capital_cost_per_mw": 1_300_000.0,
-        "site_cost_per_mw": 20_000_000.0,
+        "generator_capital_cost_per_mw": 1_500_000.0,
+        "site_cost_per_mw": 25_000_000.0,
         "infeasible_score": 0.0,
-        "default_generator_cost_per_mwh": 100.0,
+        "default_generator_cost_per_mwh": 150.0,
         "team_generator_cost_curve": [
             {
                 "capacity_fraction": fraction,
@@ -48,8 +48,8 @@ def build_rules(
             }
             for fraction, marginal_cost in TEAM_GENERATOR_COST_CURVE
         ],
-        "storage_capital_cost_per_mw": 350_000.0,
-        "storage_capital_cost_per_mwh": 200_000.0,
+        "storage_capital_cost_per_mw": 400_000.0,
+        "storage_capital_cost_per_mwh": 250_000.0,
         "time_step_hours_provenance": {
             "interpretation": "literal hourly interval",
             "horizon_hours": horizon,
@@ -57,15 +57,14 @@ def build_rules(
         },
         "storage_cost_provenance": {
             "currency_year": "2022 USD for capital benchmarks; nominal instructional coefficients",
-            "power_capital_cost_per_kw": 350.0,
-            "energy_capital_cost_per_kwh": 200.0,
-            "four_hour_total_cost_per_kw": 1150.0,
-            "basis": "approved four-hour storage split calibrated to EIA and NREL utility-scale battery benchmarks",
+            "power_capital_cost_per_kw": 400.0,
+            "energy_capital_cost_per_kwh": 250.0,
+            "four_hour_total_cost_per_kw": 1400.0,
+            "basis": "rounded 2028 moderate four-hour projection from NREL's 2023 utility-scale battery cost update",
             "sources": [
                 "https://www.eia.gov/electricity/generatorcosts/",
-                "https://www.eia.gov/analysis/studies/powerplants/capitalcost/pdf/capcost_assumption.pdf",
-                "https://atb.nrel.gov/electricity/2021/utility-scale_battery_storage",
-                "https://atb.nrel.gov/electricity/2024/2023/utility-scale_battery_storage",
+                "https://atb.nrel.gov/electricity/2023/residential_battery_storage/utility-scale_battery_storage",
+                "https://www.nrel.gov/docs/fy23osti/85332.pdf",
             ],
             "evaluator_mapping": "Storage operating cost is not charged.",
         },
@@ -77,7 +76,12 @@ def build_rules(
             "representation": "explicit full-horizon profile",
             "horizon_hours": horizon,
             "units": "USD/MWh of served computational load",
-            "source_category": "INSTRUCTOR-CHOSEN",
+            "source_category": "SOURCE-CALIBRATED",
+            "source_note": "Rounded from a recent AI-compute willingness-to-pay estimate with a blended value near $6,350/MWh; cloud VM prices remain contextual rather than a direct tariff conversion.",
+            "sources": [
+                "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=6322318",
+                "https://www.iea.org/reports/energy-and-ai/executive-summary",
+            ],
         },
         "economic_profile_artifact": {
             "status": "required",

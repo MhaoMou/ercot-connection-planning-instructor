@@ -235,7 +235,7 @@ def test_calibration_note_labels_superseded_values_and_points_to_active_economic
     paragraphs = text.split("\n\n")
 
     assert "$1.3m/MW" in text
-    assert "$1500/MWh" in text
+    assert "$6500/MWh" in text
     assert "$85,000/MW-year" in text
     assert "$125/MWh" in text
     for value in ("$85,000/MW-year", "$125/MWh"):
@@ -253,16 +253,16 @@ def test_active_dispatch_rules_are_pending_highspy_validation_without_economic_d
         assert rules["status"] == "blocked_pending_highspy_validation"
         assert rules["status"] != "instructor_review_required"
         assert len(rules["it_value_per_mwh"]) in expected_horizons
-        assert set(rules["it_value_per_mwh"]) == {1500.0}
-        assert rules["generator_capital_cost_per_mw"] == 1_300_000.0
-        assert rules["site_cost_per_mw"] == 20_000_000.0
-        assert rules["default_generator_cost_per_mwh"] == 100.0
-        assert rules["storage_capital_cost_per_mw"] == 350_000.0
-        assert rules["storage_capital_cost_per_mwh"] == 200_000.0
+        assert set(rules["it_value_per_mwh"]) == {6500.0}
+        assert rules["generator_capital_cost_per_mw"] == 1_500_000.0
+        assert rules["site_cost_per_mw"] == 25_000_000.0
+        assert rules["default_generator_cost_per_mwh"] == 150.0
+        assert rules["storage_capital_cost_per_mw"] == 400_000.0
+        assert rules["storage_capital_cost_per_mwh"] == 250_000.0
         assert [
             (item["capacity_fraction"], item["marginal_cost_per_mwh"])
             for item in rules["team_generator_cost_curve"]
-        ] == [(0.25, 60.0), (0.5, 100.0), (0.25, 160.0)]
+        ] == [(0.25, 80.0), (0.5, 150.0), (0.25, 250.0)]
 
 
 def test_release_docs_distinguish_canonical_source_control_from_validation():

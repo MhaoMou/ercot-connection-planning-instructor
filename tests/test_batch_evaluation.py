@@ -1417,7 +1417,7 @@ def test_nonleap_jan_jun_artifacts_load_and_score_at_final_hour(tmp_path, year):
 
     score = _score_team(plan, dispatch, rules)
 
-    assert score.it_value == pytest.approx(2.0 * 1500.0)
+    assert score.it_value == pytest.approx(2.0 * 6500.0)
     assert score.energy_cost == pytest.approx(
         2.0 * rules.economic_profiles.price_for_bus("1001", final_period)
     )

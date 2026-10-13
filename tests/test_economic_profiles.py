@@ -23,7 +23,7 @@ def test_it_value_profile_has_exact_half_year_horizon_and_no_six_hour_cycle():
         assert len(profile) == horizon
         assert profile == [DEFAULT_IT_VALUE_PER_MWH] * horizon
         assert len(profile) != 6
-        assert DEFAULT_IT_VALUE_PER_MWH == 1500.0
+        assert DEFAULT_IT_VALUE_PER_MWH == 6500.0
 
 
 def test_it_value_profile_is_deterministic_and_metadata_is_explicit():
@@ -31,7 +31,7 @@ def test_it_value_profile_is_deterministic_and_metadata_is_explicit():
     metadata = it_value_metadata(4368)
     assert metadata["profile_version"] == IT_VALUE_PROFILE_VERSION
     assert metadata["method"] == "explicit constant full-horizon instructor profile"
-    assert metadata["source_category"] == "INSTRUCTOR-CHOSEN"
+    assert metadata["source_category"] == "SOURCE-CALIBRATED"
     assert metadata["units"] == "USD/MWh of served computational load"
     assert metadata["profile_name"] == "AI-intensive"
     assert metadata["representation"] == "explicit full-horizon profile"

@@ -20,7 +20,7 @@ from .dcopf import (
 
 
 IT_VALUE_PROFILE_VERSION = "it-service-value-v3-ai-intensive"
-DEFAULT_IT_VALUE_PER_MWH = 1500.0
+DEFAULT_IT_VALUE_PER_MWH = 6500.0
 LMP_PROFILE_VERSION = "activsg2000-baseline-dcopf-lmp-v1"
 
 
@@ -59,7 +59,12 @@ def it_value_metadata(horizon_hours: int, *, base_value_per_mwh: float = DEFAULT
         "representation": "explicit full-horizon profile",
         "units": "USD/MWh of served computational load",
         "interpretation": "opportunity value of served IT load, not an electricity-market price",
-        "source_category": "INSTRUCTOR-CHOSEN",
+        "source_category": "SOURCE-CALIBRATED",
+        "source_note": "Rounded AI-compute opportunity value informed by a recent compute-value estimate; not a cloud tariff.",
+        "sources": [
+            "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=6322318",
+            "https://www.iea.org/reports/energy-and-ai/executive-summary",
+        ],
     }
 
 
