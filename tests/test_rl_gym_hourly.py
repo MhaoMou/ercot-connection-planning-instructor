@@ -4,6 +4,7 @@ import json
 from collections.abc import Mapping
 import math
 from pathlib import Path
+import re
 import time
 from typing import Any
 
@@ -69,6 +70,79 @@ RELEASED_HORIZONS = {
     (2029, "jul_dec"): 4416,
 }
 PHASE7_VERIFICATION_PATH = Path(__file__).parents[1] / "rl_gym" / "PHASE7_VERIFICATION.md"
+PUBLIC_BENCHMARK_FIELDS = {
+    "privacy",
+    "environment_version",
+    "release_identity",
+    "scenario_year",
+    "scenario_block",
+    "horizon_hours",
+    "transition_count",
+    "evaluator_call_count",
+    "seed",
+    "seed_derivation",
+    "reset_latency_seconds",
+    "step_latency_seconds",
+    "episode_latency_seconds",
+    "output_size_bytes",
+    "output_size_limit_bytes",
+}
+PUBLIC_RELEASE_IDENTITY_FIELDS = {
+    "release_version",
+    "release_environment_version",
+    "release_plan_schema_version",
+    "release_scenario_year",
+    "release_scenario_block",
+    "release_manifest_digest",
+}
+PUBLIC_EPISODE_FIELDS = {
+    "privacy",
+    "environment_version",
+    "release_identity",
+    "scenario_year",
+    "scenario_block",
+    "horizon_hours",
+    "seed",
+    "hour_index",
+    "transition_count",
+    "initial_observation",
+    "initial_info",
+    "steps",
+    "terminal",
+}
+PUBLIC_STEP_FIELDS = {"observation", "reward", "terminated", "truncated", "info"}
+PUBLIC_INFO_FIELDS = {
+    "environment_version",
+    "scenario_year",
+    "scenario_block",
+    "horizon_hours",
+    "seed",
+    "transition_count",
+    "evaluator_call_count",
+    "valid_action",
+    "local_reward",
+    "local_return",
+    "terminal_score",
+    "episode_return",
+    "terminal_evaluation_status",
+    "release_manifest_digest",
+    "terminal_storage_requirement_mwh",
+    "terminal_storage_constraint",
+    "invalid_action_code",
+    "diagnostic",
+}
+PUBLIC_TERMINAL_FIELDS = {
+    "terminated",
+    "truncated",
+    "terminal_evaluation_status",
+    "terminal_score",
+    "local_return",
+    "episode_return",
+    "terminal_storage_constraint",
+    "terminal_storage_requirement_mwh",
+}
+PUBLIC_RECORD_BASE_BYTES = 64_000
+PUBLIC_RECORD_BYTES_PER_HOUR = 2_048
 
 
 def make_hourly_env(
@@ -123,6 +197,44 @@ def benchmark_seed(year: int, block: str) -> int:
     return BENCHMARK_BASE_SEED + (year - 2027) * 2 + block_offset
 
 
+def parse_verification_evidence_rows() -> dict[tuple[int, str], dict[str, Any]]:
+    rows: dict[tuple[int, str], dict[str, Any]] = {}
+    for line in PHASE7_VERIFICATION_PATH.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("| 20"):
+            continue
+        cells = [cell.strip().strip("`") for cell in line.strip().strip("|").split("|")]
+        if len(cells) != 13 or not re.fullmatch(r"20\d{2}", cells[0]):
+            continue
+        year = int(cells[0])
+        block = cells[1]
+        rows[(year, block)] = {
+            "horizon_hours": int(cells[2]),
+            "transition_count": int(cells[3]),
+            "evaluator_call_count": int(cells[4]),
+            "seed": int(cells[5]),
+            "output_size_bytes": int(cells[9].replace(",", "")),
+            "output_size_limit_bytes": int(cells[10].replace(",", "")),
+            "environment_version": cells[11],
+            "release_manifest_digest": cells[12],
+        }
+    return rows
+
+
+def assert_public_episode_record_contract(public_record: Mapping[str, Any], horizon: int) -> None:
+    assert set(public_record) == PUBLIC_EPISODE_FIELDS
+    assert set(public_record["release_identity"]) == PUBLIC_RELEASE_IDENTITY_FIELDS
+    assert set(public_record["initial_info"]) == PUBLIC_INFO_FIELDS
+    assert public_record["initial_info"]["diagnostic"] is None
+    assert len(public_record["steps"]) == horizon
+    for step in public_record["steps"]:
+        assert set(step) == PUBLIC_STEP_FIELDS
+        assert set(step["info"]) == PUBLIC_INFO_FIELDS
+        assert step["info"]["diagnostic"] is None
+    assert set(public_record["terminal"]) == PUBLIC_TERMINAL_FIELDS
+    forbidden_public_keys = PRIVATE_OBSERVATION_KEYS | {"raw_diagnostic", "raw_diagnostics"}
+    assert not nested_keys(public_record) & forbidden_public_keys
+
+
 def run_hourly_benchmark_case(year: int, block: str) -> dict[str, Any]:
     env = make_hourly_env(year=year, block=block)
     seed = benchmark_seed(year, block)
@@ -146,6 +258,10 @@ def run_hourly_benchmark_case(year: int, block: str) -> dict[str, Any]:
 
     public_record = env.episode_record()
     public_payload = json.dumps(public_record, sort_keys=True, allow_nan=False)
+    assert_public_episode_record_contract(public_record, env.horizon_hours)
+    output_size_limit = PUBLIC_RECORD_BASE_BYTES + PUBLIC_RECORD_BYTES_PER_HOUR * env.horizon_hours
+    output_size = len(public_payload.encode("utf-8"))
+    assert output_size <= output_size_limit
     episode_latency = time.perf_counter() - episode_start
     report = {
         "privacy": public_record["privacy"],
@@ -161,7 +277,8 @@ def run_hourly_benchmark_case(year: int, block: str) -> dict[str, Any]:
         "reset_latency_seconds": reset_latency,
         "step_latency_seconds": step_latency_total / env.horizon_hours,
         "episode_latency_seconds": episode_latency,
-        "output_size_bytes": len(public_payload.encode("utf-8")),
+        "output_size_bytes": output_size,
+        "output_size_limit_bytes": output_size_limit,
     }
     return report
 
@@ -844,6 +961,7 @@ def test_phase7_deterministic_benchmark_evidence_covers_all_released_combination
     ]
     for report in reports:
         key = (report["scenario_year"], report["scenario_block"])
+        assert set(report) == PUBLIC_BENCHMARK_FIELDS
         assert report["privacy"] == "public_sanitized"
         assert report["environment_version"] == HOURLY_ENVIRONMENT_VERSION
         assert report["release_identity"]["release_scenario_year"] == key[0]
@@ -863,6 +981,7 @@ def test_phase7_deterministic_benchmark_evidence_covers_all_released_combination
             assert math.isfinite(report[field])
             assert report[field] >= 0.0
         assert report["output_size_bytes"] > 0
+        assert report["output_size_bytes"] <= report["output_size_limit_bytes"]
 
     payload = json.dumps(reports, sort_keys=True, allow_nan=False)
     private_report_keys = {
@@ -881,6 +1000,26 @@ def test_phase7_deterministic_benchmark_evidence_covers_all_released_combination
     assert not nested_keys(json.loads(payload)) & private_report_keys
 
 
+def test_phase7_checked_in_evidence_matches_fresh_stable_benchmark_fields():
+    evidence = parse_verification_evidence_rows()
+    assert set(evidence) == set(RELEASED_HORIZONS)
+
+    for year, block in RELEASED_HORIZONS:
+        fresh = run_hourly_benchmark_case(year, block)
+        checked_in = evidence[(year, block)]
+        for field in (
+            "horizon_hours",
+            "transition_count",
+            "evaluator_call_count",
+            "seed",
+            "output_size_bytes",
+            "output_size_limit_bytes",
+        ):
+            assert checked_in[field] == fresh[field]
+        assert checked_in["environment_version"] == fresh["environment_version"]
+        assert checked_in["release_manifest_digest"] == fresh["release_identity"]["release_manifest_digest"]
+
+
 def test_phase7_verification_report_states_scope_and_open_acceptance_items():
     report = PHASE7_VERIFICATION_PATH.read_text(encoding="utf-8")
 
@@ -895,7 +1034,17 @@ def test_phase7_verification_report_states_scope_and_open_acceptance_items():
         "no score claim",
         "public_sanitized",
         "output_size_bytes",
+        "output_size_limit_bytes",
         "seed derivation",
+        "Machine profile and invocation",
+        "macOS 27.0",
+        "CPython 3.13.9",
+        "NumPy",
+        "Gymnasium",
+        "highspy",
+        "Exact benchmark invocation",
+        "2026-10-13T02:14:37Z",
+        "64,000 + 2,048 * horizon_hours",
     ):
         assert term in report
     assert "- [ ] Computational budget" in report
