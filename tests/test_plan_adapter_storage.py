@@ -466,7 +466,7 @@ def test_batch_adapter_dispatches_storage_centrally_and_exposes_final_soc(monkey
             final_soc_mwh_by_storage={"store-a": 8.0, "store-b": 7.5},
         )
 
-    monkeypatch.setattr(plan_adapter, "solve_prepared_horizon", solve_horizon)
+    monkeypatch.setattr(plan_adapter, "solve_prepared_horizon_benders", solve_horizon)
 
     result = evaluate_plans_with_prepared_dcopf(
         "unused-artifact",

@@ -14,10 +14,12 @@ from ercot_game.csv_submission import TEAM_GENERATOR_COST_CURVE
 
 from .dcopf import (
     DCOPFInfeasible,
+    DCOPFUnresolved,
     DCOPFResult,
     Generator,
     StorageDispatchAsset,
     solve_prepared_horizon,
+    solve_prepared_horizon_benders,
     solve_prepared_period,
 )
 
@@ -381,6 +383,9 @@ def evaluate_plans_with_prepared_dcopf(
     period_indices: tuple[int, ...],
     workers: int = 1,
     stop_on_infeasible: bool = False,
+    storage_solver: str = "benders",
+    storage_wall_time_limit_seconds: float | None = 1500.0,
+    storage_max_iterations: int = 200,
 ) -> BatchDispatchResult:
     """Evaluate all teams jointly on the shared prepared network.
 
@@ -407,6 +412,15 @@ def evaluate_plans_with_prepared_dcopf(
     _validate_period_indices(period_indices)
     if not isinstance(workers, int) or isinstance(workers, bool) or workers <= 0:
         raise ValueError("workers must be a positive integer")
+    if storage_solver not in {"benders", "monolithic"}:
+        raise ValueError("storage_solver must be 'benders' or 'monolithic'")
+    if not isinstance(storage_max_iterations, int) or storage_max_iterations <= 0:
+        raise ValueError("storage_max_iterations must be a positive integer")
+    if storage_wall_time_limit_seconds is not None and (
+        not _is_finite_number(storage_wall_time_limit_seconds)
+        or storage_wall_time_limit_seconds < 0
+    ):
+        raise ValueError("storage_wall_time_limit_seconds must be finite and non-negative")
     connection_by_team: dict[str, dict[str, ConnectionPlan]] = {}
     ordered_connections_by_team: dict[str, tuple[ConnectionPlan, ...]] = {}
     for plan in ordered_plans:
@@ -426,6 +440,10 @@ def evaluate_plans_with_prepared_dcopf(
             ordered_connections_by_team=ordered_connections_by_team,
             period_indices=period_indices,
             time_step_hours=1.0,
+            workers=workers,
+            storage_solver=storage_solver,
+            storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
+            storage_max_iterations=storage_max_iterations,
         )
 
     storage_schedules = {
@@ -566,8 +584,16 @@ def _evaluate_batch_with_central_storage(
     ordered_connections_by_team: dict[str, tuple[ConnectionPlan, ...]],
     period_indices: tuple[int, ...],
     time_step_hours: float,
+    workers: int = 1,
+    storage_solver: str = "benders",
+    storage_wall_time_limit_seconds: float | None = 1500.0,
+    storage_max_iterations: int = 200,
 ) -> BatchDispatchResult:
-    """Build one joint horizon solve and attribute storage only to its owner."""
+    """Build one joint horizon solve and attribute storage only to its owner.
+
+    Storage-bearing batches use exact Benders by default; ``monolithic`` is
+    retained only as an explicit small-fixture reference route.
+    """
     base_demand_by_team: dict[str, tuple[dict[str, float], ...]] = {
         plan.team_id: tuple(
             _connection_load_by_bus(ordered_connections_by_team[plan.team_id], period_index)
@@ -641,7 +667,8 @@ def _evaluate_batch_with_central_storage(
         team_id: base_demand_by_team[team_id]
         for team_id in team_ids
     }
-    horizon_result = solve_prepared_horizon(
+    solve_horizon = solve_prepared_horizon if storage_solver == "monolithic" else solve_prepared_horizon_benders
+    horizon_kwargs = dict(
         artifact_dir=artifact_dir,
         period_indices=period_indices,
         additional_demand_mw_by_period=aggregate_demand_by_period,
@@ -650,6 +677,18 @@ def _evaluate_batch_with_central_storage(
         owner_load_mw_by_team=owner_load_mw_by_team,
         time_step_hours=time_step_hours,
     )
+    if storage_solver == "benders":
+        horizon_kwargs.update(
+            max_iterations=storage_max_iterations,
+            parallel_workers=workers,
+            wall_time_limit_seconds=storage_wall_time_limit_seconds,
+        )
+    horizon_result = solve_horizon(**horizon_kwargs)
+    if isinstance(horizon_result, str) or horizon_result.status != "optimal":
+        raise DCOPFUnresolved(
+            "storage horizon solver did not return an optimal dispatch: "
+            f"{getattr(horizon_result, 'status', horizon_result)}"
+        )
     if len(horizon_result.periods) != len(period_indices):
         raise ValueError("horizon DCOPF returned a different number of periods")
 

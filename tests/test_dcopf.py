@@ -9,12 +9,14 @@ from tools.activsg2000.dcopf import (
     Bus,
     DCOPFRecourseSummary,
     DCOPFHorizonResult,
+    DCOPFUnresolved,
     Generator,
     ReusableDCOPFModel,
     ReusableDCOPFHorizonModel,
     StorageDispatchAsset,
     solve_dcopf,
     solve_dcopf_horizon,
+    solve_dcopf_horizon_benders,
 )
 import tools.activsg2000.dcopf as dcopf_module
 
@@ -25,6 +27,77 @@ def _single_bus_period(cost: float, demand: float = 5.0):
         (Generator("grid", "B1", 0.0, 100.0, cost),),
         (),
     )
+
+
+def _two_storage_periods():
+    return tuple(_single_bus_period(cost=10.0, demand=demand) for demand in (3.0, 4.0, 5.0, 6.0))
+
+
+def _two_storage_assets():
+    return (
+        StorageDispatchAsset("storage-a", "team-a", "B1", 1.0, 2.0, 2.0),
+        StorageDispatchAsset("storage-b", "team-b", "B1", 1.0, 2.0, 2.0),
+    )
+
+
+def _two_storage_owner_loads():
+    return {
+        "team-a": tuple({"B1": 3.0} for _ in range(4)),
+        "team-b": tuple({"B1": 3.0} for _ in range(4)),
+    }
+
+
+def test_multi_storage_benders_matches_coupled_horizon_lp() -> None:
+    periods = _two_storage_periods()
+    assets = _two_storage_assets()
+    owners = _two_storage_owner_loads()
+
+    reference = solve_dcopf_horizon(
+        periods=periods,
+        storage_assets=assets,
+        owner_load_mw_by_team=owners,
+    )
+    result = solve_dcopf_horizon_benders(
+        periods=periods,
+        storage_assets=assets,
+        owner_load_mw_by_team=owners,
+    )
+
+    assert result.status == reference.status == "optimal"
+    assert result.objective_cost == pytest.approx(reference.objective_cost)
+    assert result.final_soc_mwh_by_storage == pytest.approx(reference.final_soc_mwh_by_storage)
+    assert all(
+        period.storage_soc_mwh[storage.storage_id] >= storage.energy_mwh * 0.5 - 1e-7
+        for period in result.periods
+        for storage in assets
+        if period is result.periods[-1]
+    )
+
+
+def test_multi_storage_benders_preserves_owner_load_limits() -> None:
+    periods = _two_storage_periods()
+    assets = _two_storage_assets()
+    owners = _two_storage_owner_loads()
+    owners["team-a"] = tuple({"B1": 0.25} for _ in range(4))
+
+    result = solve_dcopf_horizon_benders(
+        periods=periods,
+        storage_assets=assets,
+        owner_load_mw_by_team=owners,
+    )
+
+    assert result.status == "optimal"
+    assert all(period.storage_discharge_mw["storage-a"] <= 0.25 + 1e-7 for period in result.periods)
+
+
+def test_multi_storage_benders_returns_unresolved_on_iteration_limit() -> None:
+    with pytest.raises(DCOPFUnresolved, match="did not converge|unresolved|wall-time"):
+        solve_dcopf_horizon_benders(
+            periods=_two_storage_periods(),
+            storage_assets=_two_storage_assets(),
+            owner_load_mw_by_team=_two_storage_owner_loads(),
+            wall_time_limit_seconds=0.0,
+        )
 
 
 def test_storage_free_horizon_matches_single_period_dcopf() -> None:
