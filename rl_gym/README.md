@@ -61,9 +61,15 @@ gate by themselves.
 `HourlyOperationEnv` is the solver-free hourly interface around a frozen
 `RLPlanState`. It performs deterministic local transitions and does not alter
 the evaluator, dispatch, projection, or scoring implementations. The released
-half-year horizons are exactly 4,368 hours for January--June and 4,416 hours
-for July--December. The default local reward is zero; it is not an official
-classroom score.
+half-year horizons are:
+
+| Year | January--June | July--December |
+|---|---:|---:|
+| 2027 | 4,344 | 4,416 |
+| 2028 | 4,368 | 4,416 |
+| 2029 | 4,344 | 4,416 |
+
+The default local reward is zero; it is not an official classroom score.
 
 The public package exports the environment and its version marker:
 
@@ -74,16 +80,20 @@ from ercot_game.models import SitePlan
 plan = RLPlanState.for_half_year(
     team_id="team-a",
     sites=(SitePlan("site-a", "bus-1", 100.0, 50.0, 10.0, 40.0),),
-    year=2027,
+    year=2028,
     round_name="jan_jun",  # 4,368 hours; jul_dec is exactly 4,416 hours
 )
 env = HourlyOperationEnv(plan_state=plan)
 observation, info = env.reset(seed=17)
-observation, reward, terminated, truncated, info = env.step({
+idle_action = {
     "generator_output_mw": 0.0,
     "storage_charge_mw": 0.0,
     "storage_discharge_mw": 0.0,
-})
+}
+for step_index in range(10):
+    observation, reward, terminated, truncated, info = env.step(idle_action)
+    assert not terminated and not truncated
+    assert info["transition_count"] == step_index + 1
 assert HOURLY_ENVIRONMENT_VERSION == "phase7-hourly-v1"
 ```
 
