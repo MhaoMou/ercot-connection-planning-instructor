@@ -19,6 +19,7 @@ ACTION_KEYS = {
     "storage_discharge_mw",
 }
 OBSERVATION_KEYS = {"metadata", "asset_state", "exogenous"}
+EXOGENOUS_KEYS = {"scenario_year", "scenario_block"}
 METADATA_KEYS = {
     "scenario_year",
     "scenario_block",
@@ -113,6 +114,9 @@ def terminal_transition(
         next_observation, reward, terminated, truncated, next_info = result
         assert_public_output(next_observation, next_info)
         assert next_info["transition_count"] == hour + 1
+        assert next_observation["metadata"]["hour_index"] == hour
+        assert next_observation["metadata"]["terminated"] is terminated
+        assert next_observation["metadata"]["truncated"] is truncated
         if hour < env.horizon_hours - 1:
             assert not terminated
             assert not truncated
@@ -140,11 +144,35 @@ def assert_public_output(observation: Mapping[str, Any], info: Mapping[str, Any]
     assert set(observation) == OBSERVATION_KEYS
     assert set(observation["metadata"]) == METADATA_KEYS
     assert set(observation["asset_state"]) == ASSET_STATE_KEYS
-    assert isinstance(observation["exogenous"], Mapping)
+    assert set(observation["exogenous"]) == EXOGENOUS_KEYS
     assert not nested_keys(observation) & PRIVATE_OBSERVATION_KEYS
     assert not nested_keys(info) & PRIVATE_OBSERVATION_KEYS
     json.dumps(observation, allow_nan=False)
     json.dumps(info, allow_nan=False)
+
+    metadata = observation["metadata"]
+    assert type(metadata["scenario_year"]) is int
+    assert isinstance(metadata["scenario_block"], str)
+    assert type(metadata["hour_index"]) is int
+    assert type(metadata["horizon_hours"]) is int
+    assert type(metadata["terminated"]) is bool
+    assert type(metadata["truncated"]) is bool
+    assert 0 <= metadata["hour_index"] < metadata["horizon_hours"]
+    assert metadata["horizon_hours"] in {4344, 4368, 4416}
+
+    asset_state = observation["asset_state"]
+    for field in ASSET_STATE_KEYS:
+        assert type(asset_state[field]) in {int, float}
+        assert not isinstance(asset_state[field], bool)
+        assert math.isfinite(float(asset_state[field]))
+        assert asset_state[field] >= 0.0
+    assert asset_state["storage_soc_mwh"] <= asset_state["storage_energy_mwh"]
+    assert asset_state["storage_charge_limit_mw"] <= asset_state["storage_power_mw"]
+    assert asset_state["storage_discharge_limit_mw"] <= asset_state["storage_power_mw"]
+
+    exogenous = observation["exogenous"]
+    assert type(exogenous["scenario_year"]) is int
+    assert isinstance(exogenous["scenario_block"], str)
 
 
 def test_hourly_env_declares_fixed_action_and_observation_contract():
@@ -168,6 +196,16 @@ def test_hourly_observation_nested_contract_is_public_and_json_safe():
     observation, info = env.reset(seed=12)
 
     assert_public_output(observation, info)
+    assert observation["metadata"]["scenario_year"] == 2028
+    assert observation["metadata"]["scenario_block"] == "jan_jun"
+    assert observation["exogenous"] == {
+        "scenario_year": 2028,
+        "scenario_block": "jan_jun",
+    }
+    assert observation["asset_state"]["connection_capacity_mw"] == pytest.approx(40.0)
+    assert observation["asset_state"]["generator_capacity_mw"] == pytest.approx(6.0)
+    assert observation["asset_state"]["storage_power_mw"] == pytest.approx(2.0)
+    assert observation["asset_state"]["storage_energy_mwh"] == pytest.approx(8.0)
     assert observation["asset_state"]["storage_soc_mwh"] == pytest.approx(4.0)
     assert observation["asset_state"]["storage_charge_limit_mw"] == pytest.approx(2.0)
     assert observation["asset_state"]["storage_discharge_limit_mw"] == pytest.approx(2.0)
@@ -354,8 +392,10 @@ def test_storage_can_reach_soc_zero_but_cannot_discharge_below_zero():
     "action",
     [
         {"generator_output_mw": 7.0, "storage_charge_mw": 0.0, "storage_discharge_mw": 0.0},
+        {"generator_output_mw": -0.1, "storage_charge_mw": 0.0, "storage_discharge_mw": 0.0},
         {"generator_output_mw": 0.0, "storage_charge_mw": 3.0, "storage_discharge_mw": 0.0},
         {"generator_output_mw": 0.0, "storage_charge_mw": 0.0, "storage_discharge_mw": 3.0},
+        {"generator_output_mw": 0.0, "storage_charge_mw": 0.0, "storage_discharge_mw": -0.1},
         {"generator_output_mw": 0.0, "storage_charge_mw": 1.0, "storage_discharge_mw": 1.0},
     ],
 )
@@ -466,6 +506,22 @@ def test_hourly_lifecycle_has_one_transition_per_hour_and_terminal_metadata():
 
     with pytest.raises(RuntimeError, match="reset"):
         env.step(idle_action())
+
+
+def test_supplied_plan_state_remains_unchanged_after_terminal_episode():
+    env = make_hourly_env()
+    supplied_state = env.plan_state
+    original_team_id = supplied_state.team_id
+    original_sites = supplied_state.sites
+    original_horizon = supplied_state.horizon
+
+    terminal_transition(env, seed=30)
+
+    assert env.plan_state is supplied_state
+    assert supplied_state.team_id == original_team_id
+    assert supplied_state.sites == original_sites
+    assert supplied_state.horizon == original_horizon
+    assert supplied_state.horizon_hours == 4368
 
 
 def test_terminal_transition_fails_when_storage_soc_is_below_half_full():
