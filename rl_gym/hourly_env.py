@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+import copy
+import json
 import math
 from numbers import Real
 from typing import Any
@@ -10,7 +12,7 @@ from typing import Any
 import numpy as np
 
 from .adapter import RLPlanState
-from .release import ReleaseManifest
+from .release import ReleaseManifest, canonical_json
 
 try:  # Gymnasium is optional, matching the existing planning environment.
     import gymnasium as gym
@@ -89,6 +91,32 @@ ASSET_STATE_FIELDS = (
     "storage_discharge_limit_mw",
 )
 EXOGENOUS_FIELDS = ("scenario_year", "scenario_block")
+_PUBLIC_INFO_FIELDS = (
+    "environment_version",
+    "scenario_year",
+    "scenario_block",
+    "horizon_hours",
+    "seed",
+    "transition_count",
+    "evaluator_call_count",
+    "valid_action",
+    "local_reward",
+    "local_return",
+    "terminal_score",
+    "episode_return",
+    "terminal_evaluation_status",
+    "release_manifest_digest",
+    "terminal_storage_requirement_mwh",
+    "terminal_storage_constraint",
+)
+_TERMINAL_RECORD_FIELDS = (
+    "terminal_evaluation_status",
+    "terminal_score",
+    "local_return",
+    "episode_return",
+    "terminal_storage_constraint",
+    "terminal_storage_requirement_mwh",
+)
 
 
 _SpaceBase = spaces.Space if gym is not None else object
@@ -176,6 +204,31 @@ def _asset_state_contains(value: Mapping[str, Any]) -> bool:
 
 def _exogenous_contains(value: Mapping[str, Any]) -> bool:
     return type(value["scenario_year"]) is int and isinstance(value["scenario_block"], str)
+
+
+def _record_json_value(value: Any) -> Any:
+    """Normalize values for strict record serialization."""
+    if isinstance(value, np.ndarray):
+        return _record_json_value(value.tolist())
+    if isinstance(value, np.generic):
+        return _record_json_value(value.item())
+    if isinstance(value, Mapping):
+        if any(not isinstance(key, str) for key in value):
+            raise TypeError("episode record mapping keys must be strings")
+        return {key: _record_json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_record_json_value(item) for item in value]
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("episode record values must contain finite numbers")
+        return value
+    raise TypeError(f"episode record value is not JSON serializable: {type(value).__name__}")
+
+
+def _record_json(value: Any) -> Any:
+    return json.loads(canonical_json(_record_json_value(value)))
 
 
 class HourlyOperationEnv(gym.Env if gym is not None else object):
@@ -304,6 +357,9 @@ class HourlyOperationEnv(gym.Env if gym is not None else object):
         self._terminal_score: float | None = None
         self._terminal_evaluation_status = "not_evaluated"
         self._evaluator_call_count = 0
+        self._episode_initial_observation = self._observation()
+        self._episode_initial_info = self._info()
+        self._episode_steps: list[dict[str, Any]] = []
 
     def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None):
         del options
@@ -319,7 +375,12 @@ class HourlyOperationEnv(gym.Env if gym is not None else object):
         self._terminal_score = None
         self._terminal_evaluation_status = "not_evaluated"
         self._evaluator_call_count = 0
-        return self._observation(), self._info()
+        observation = self._observation()
+        info = self._info()
+        self._episode_initial_observation = copy.deepcopy(observation)
+        self._episode_initial_info = copy.deepcopy(info)
+        self._episode_steps = []
+        return observation, info
 
     def step(self, action: Mapping[str, Any]):
         if self._terminated or self._truncated:
@@ -327,17 +388,29 @@ class HourlyOperationEnv(gym.Env if gym is not None else object):
 
         values, diagnostic = self._validate_action(action)
         if diagnostic is not None:
-            return self._invalid_action(diagnostic[0], diagnostic[1])
+            return self._record_step(action, self._invalid_action(diagnostic[0], diagnostic[1]))
 
         charge = values["storage_charge_mw"]
         discharge = values["storage_discharge_mw"]
         next_soc = self._storage_soc_mwh + charge - discharge
         if discharge > self._storage_soc_mwh + 1e-9:
-            return self._invalid_action("storage_discharge_exceeds_soc", "storage discharge exceeds current state of charge")
+            return self._record_step(
+                action,
+                self._invalid_action(
+                    "storage_discharge_exceeds_soc",
+                    "storage discharge exceeds current state of charge",
+                ),
+            )
         if next_soc < -1e-9:
-            return self._invalid_action("storage_soc_below_zero", "storage state of charge cannot be negative")
+            return self._record_step(
+                action,
+                self._invalid_action("storage_soc_below_zero", "storage state of charge cannot be negative"),
+            )
         if next_soc > self._storage_energy_mwh + 1e-9:
-            return self._invalid_action("storage_energy_exceeded", "storage charge exceeds remaining energy capacity")
+            return self._record_step(
+                action,
+                self._invalid_action("storage_energy_exceeded", "storage charge exceeds remaining energy capacity"),
+            )
         if (
             self._transition_count + 1 >= self.horizon_hours
             and next_soc + 1e-9 < self._terminal_storage_requirement_mwh
@@ -361,12 +434,107 @@ class HourlyOperationEnv(gym.Env if gym is not None else object):
                     terminal_storage_requirement_mwh=self._terminal_storage_requirement_mwh,
                     terminal_storage_constraint="violated",
                 )
-                return self._observation(), reward, True, False, info
+                return self._record_step(
+                    action,
+                    (self._observation(), reward, True, False, info),
+                )
             reward, terminal_info = self._terminal_result()
             info = self._info(valid_action=True) | terminal_info
-            return self._observation(), reward, True, False, info
+            return self._record_step(
+                action,
+                (self._observation(), reward, True, False, info),
+            )
 
-        return self._observation(), reward, False, False, self._info(valid_action=True)
+        return self._record_step(
+            action,
+            (self._observation(), reward, False, False, self._info(valid_action=True)),
+        )
+
+    def _record_step(self, action: Any, result: tuple[Any, float, bool, bool, Mapping[str, Any]]):
+        if len(self._episode_steps) >= self.horizon_hours:
+            raise RuntimeError("episode record cannot contain steps beyond the released horizon")
+        observation, reward, terminated, truncated, info = result
+        self._episode_steps.append({
+            "action": copy.deepcopy(action),
+            "observation": copy.deepcopy(observation),
+            "reward": float(reward),
+            "terminated": bool(terminated),
+            "truncated": bool(truncated),
+            "info": copy.deepcopy(dict(info)),
+        })
+        return result
+
+    def episode_record(self, *, include_private_actions: bool = False) -> dict[str, Any]:
+        """Return a bounded, JSON-safe public or explicitly private episode record."""
+        if not isinstance(include_private_actions, bool):
+            raise TypeError("include_private_actions must be a bool")
+
+        steps = []
+        for recorded in self._episode_steps:
+            step = {
+                "observation": copy.deepcopy(recorded["observation"]),
+                "reward": recorded["reward"],
+                "terminated": recorded["terminated"],
+                "truncated": recorded["truncated"],
+                "info": self._public_info(recorded["info"]),
+            }
+            if include_private_actions:
+                step["action"] = copy.deepcopy(recorded["action"])
+            steps.append(step)
+
+        current_info = self._info(valid_action=None)
+        terminal_source = self._episode_steps[-1]["info"] if self._episode_steps else current_info
+        terminal = {
+            "terminated": bool(self._terminated),
+            "truncated": bool(self._truncated),
+            **{
+                field: terminal_source.get(field)
+                for field in _TERMINAL_RECORD_FIELDS
+            },
+        }
+        record = {
+            "privacy": "private_replayable" if include_private_actions else "public_sanitized",
+            "environment_version": HOURLY_ENVIRONMENT_VERSION,
+            "release_identity": self._release_identity(),
+            "scenario_year": self.scenario_year,
+            "scenario_block": self.scenario_block,
+            "horizon_hours": self.horizon_hours,
+            "seed": self._seed,
+            "hour_index": self._hour_index,
+            "transition_count": self._transition_count,
+            "initial_observation": copy.deepcopy(self._episode_initial_observation),
+            "initial_info": self._public_info(self._episode_initial_info),
+            "steps": steps,
+            "terminal": terminal,
+        }
+        return _record_json(record)
+
+    @staticmethod
+    def _public_info(info: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            field: copy.deepcopy(info.get(field))
+            for field in _PUBLIC_INFO_FIELDS
+        }
+
+    def _release_identity(self) -> dict[str, Any]:
+        manifest = self.release_manifest
+        if manifest is None:
+            return {
+                "release_version": None,
+                "release_environment_version": None,
+                "release_plan_schema_version": None,
+                "release_scenario_year": None,
+                "release_scenario_block": None,
+                "release_manifest_digest": None,
+            }
+        return {
+            "release_version": manifest.release_version,
+            "release_environment_version": manifest.environment_version,
+            "release_plan_schema_version": manifest.plan_schema_version,
+            "release_scenario_year": manifest.scenario_year,
+            "release_scenario_block": manifest.scenario_block,
+            "release_manifest_digest": manifest.digest(),
+        }
 
     def _validate_action(self, action: Any):
         if not isinstance(action, Mapping):
