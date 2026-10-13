@@ -73,6 +73,62 @@ def test_rl_readme_labels_phase_one_through_six_and_current_phase_seven_gate():
     assert "current Phase 7 gate" in readme
 
 
+def test_hourly_environment_has_stable_public_exports():
+    import rl_gym
+    from rl_gym.hourly_env import HOURLY_ENVIRONMENT_VERSION, HourlyOperationEnv
+
+    assert rl_gym.HourlyOperationEnv is HourlyOperationEnv
+    assert rl_gym.HOURLY_ENVIRONMENT_VERSION == HOURLY_ENVIRONMENT_VERSION
+    assert "HourlyOperationEnv" in rl_gym.__all__
+    assert "HOURLY_ENVIRONMENT_VERSION" in rl_gym.__all__
+    assert not any(name.startswith("_") for name in rl_gym.__all__)
+
+
+def test_rl_hourly_readme_documents_frozen_plan_usage_and_boundaries():
+    readme = (REPOSITORY_ROOT / "rl_gym" / "README.md").read_text(encoding="utf-8")
+
+    for term in (
+        "from rl_gym import HourlyOperationEnv, HOURLY_ENVIRONMENT_VERSION",
+        "frozen",
+        "`RLPlanState`",
+        "generator_output_mw",
+        "storage_charge_mw",
+        "storage_discharge_mw",
+        "4,368 hours",
+        "4,416 hours",
+        "default local reward is zero",
+        "no curtailment action",
+        "one-time evaluator callback",
+        "public_sanitized",
+        "private_record",
+        "not replayable",
+    ):
+        assert term in readme
+
+
+def test_rl_phase7_gate_records_only_evidenced_hourly_criteria():
+    gate = (REPOSITORY_ROOT / "rl_gym" / "PHASE7_HOURLY_GATE.md").read_text(encoding="utf-8")
+    gate_lower = gate.lower()
+
+    for term in (
+        '"generator_output_mw"',
+        '"storage_charge_mw"',
+        '"storage_discharge_mw"',
+        "solver-free exogenous schema",
+        "scenario_year/scenario_block",
+        "does not provide benchmark evidence",
+        "solver parity remains dependency-limited",
+        "private_record",
+    ):
+        assert term.lower() in gate_lower
+    assert "- [x] Action and observation spaces are fixed" in gate
+    assert "- [x] Public observations and public replay/report artifacts contain no" in gate
+    assert "- [x] Same release manifest, seed, and action trace reproduce" in gate
+    assert "- [x] Reward accounting demonstrates one-time terminal score handling" in gate
+    assert "- [ ] Computational budgets report exact horizon" in gate
+    assert "- [ ] Production evaluator parity passes" in gate
+
+
 def test_rl_phase7_hourly_gate_has_required_contract_sections():
     gate = (REPOSITORY_ROOT / "rl_gym" / "PHASE7_HOURLY_GATE.md").read_text(encoding="utf-8")
 

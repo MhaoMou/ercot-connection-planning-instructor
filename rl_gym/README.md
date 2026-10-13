@@ -2,8 +2,10 @@
 
 ## Implemented release
 
-Current status: Phase 1–6 APIs are implemented, with Phase 6 as the current
-research-readiness phase. This includes the Phase 1 adapter,
+Current status: Phase 1–6 APIs are implemented, with the solver-free Phase 7
+hourly surface available while its remaining gate evidence is still open.
+Phase 6 as the current research-readiness phase remains the active release
+context. This includes the Phase 1 adapter,
 the Phase 2 single-agent sequential planning environment, the Phase 3
 single-agent baselines/replay/benchmark utilities, the Phase 4 competitive
 parallel wrapper, the Phase 5 research-release surface, and the Phase 6
@@ -20,7 +22,7 @@ privacy, evaluator/solver boundaries, and known limitations. This README is a
 concise API entry point; the full release contract lives in `RELEASE.md`.
 
 Phase 6 planning/replay/experiment/reporting/training APIs are implemented.
-Hourly operation remains gated future work; the exact gate is documented in
+The solver-free hourly operation surface is available while its exact gate is documented in
 [`PHASE7_HOURLY_GATE.md`](PHASE7_HOURLY_GATE.md).
 
 ## Phase 6 implemented APIs and commands
@@ -50,9 +52,60 @@ and scoring continue to come from the existing production evaluator through the
 Phase 1 adapter. No Phase 6 command changes evaluator, dispatch, network, or
 scoring mathematics.
 
-The Phase 7 gate must be satisfied before adding one action/transition per
-operating hour; planning-step traces and policy-loop training do not satisfy
-that gate by themselves.
+The Phase 7 gate must be satisfied before claiming full hourly release
+readiness; planning-step traces and policy-loop training do not satisfy that
+gate by themselves.
+
+## Phase 7 hourly operation
+
+`HourlyOperationEnv` is the solver-free hourly interface around a frozen
+`RLPlanState`. It performs deterministic local transitions and does not alter
+the evaluator, dispatch, projection, or scoring implementations. The released
+half-year horizons are exactly 4,368 hours for January--June and 4,416 hours
+for July--December. The default local reward is zero; it is not an official
+classroom score.
+
+The public package exports the environment and its version marker:
+
+```python
+from rl_gym import HourlyOperationEnv, HOURLY_ENVIRONMENT_VERSION, RLPlanState
+from ercot_game.models import SitePlan
+
+plan = RLPlanState.for_half_year(
+    team_id="team-a",
+    sites=(SitePlan("site-a", "bus-1", 100.0, 50.0, 10.0, 40.0),),
+    year=2027,
+    round_name="jan_jun",  # 4,368 hours; jul_dec is exactly 4,416 hours
+)
+env = HourlyOperationEnv(plan_state=plan)
+observation, info = env.reset(seed=17)
+observation, reward, terminated, truncated, info = env.step({
+    "generator_output_mw": 0.0,
+    "storage_charge_mw": 0.0,
+    "storage_discharge_mw": 0.0,
+})
+assert HOURLY_ENVIRONMENT_VERSION == "phase7-hourly-v1"
+```
+
+The action has exactly three fields: `generator_output_mw`,
+`storage_charge_mw`, and `storage_discharge_mw`. Values are finite bounded
+requests for the current hour. There is no `storage_energy_mwh` or curtailment
+action; the hourly contract has no curtailment action, and storage energy
+capacity comes from the frozen plan. An optional
+application-owned `evaluator_callback(plan_state, release_manifest)` may be
+provided as a one-time evaluator callback at the terminal boundary; it is
+called at most once per episode. Without it, the
+terminal status is `not_evaluated` and the local reward remains zero.
+
+`env.episode_record()` returns a bounded JSON-safe `public_sanitized` record
+with actions and private evaluator details removed. Explicitly passing
+`include_private_actions=True` returns a `private_record` containing the
+normalized action trace for trusted local inspection. The hourly
+`private_record` is not replayable by an hourly loader; it is intentionally
+distinct from the Phase 6 `private_replayable` parallel-replay artifact.
+The public/private boundary excludes plan-bearing fields, asset IDs,
+storage schedules, evaluator objects/output, solver objects, raw diagnostics,
+and team scores from public records.
 
 ### Experiment evaluator boundary
 

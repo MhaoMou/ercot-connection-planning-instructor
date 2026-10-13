@@ -3,7 +3,9 @@
 Phase 2 exposes :class:`ConnectionPlanningEnv`, Phase 4 exposes
 :class:`ParallelConnectionPlanningEnv`, and Phase 1 plan-state/evaluator
 delegation helpers remain available for parity and integration. Phase 6
-training utilities are implemented; hourly operation remains future work.
+training utilities and the solver-free Phase 7 hourly operation surface are
+implemented; remaining Phase 7 gate evidence is documented in
+``PHASE7_HOURLY_GATE.md``.
 """
 
 from .adapter import (
@@ -15,6 +17,7 @@ from .adapter import (
     evaluate_plan_state,
 )
 from .env import ConnectionPlanningEnv
+from .hourly_env import HOURLY_ENVIRONMENT_VERSION, HourlyOperationEnv
 from .parallel_env import ParallelConnectionPlanningEnv
 from .baselines import GreedyPolicy, Policy, RandomPolicy, RuleBasedPolicy
 from .replay import (
@@ -57,6 +60,8 @@ __all__ = [
     "compare_plan_parity",
     "evaluate_plan_state",
     "ConnectionPlanningEnv",
+    "HourlyOperationEnv",
+    "HOURLY_ENVIRONMENT_VERSION",
     "ParallelConnectionPlanningEnv",
     "Policy",
     "RandomPolicy",

@@ -8,9 +8,9 @@ hourly operation. Phase 7 may begin only after this gate is accepted. The gate
 protects the existing public/private boundary and requires hourly behavior to
 remain comparable with the instructor-side evaluator.
 
-This document is a readiness contract, not an implementation of hourly
-operation. It does not authorize changes to evaluator, dispatch, network, or
-scoring code.
+This document is a readiness contract for the solver-free hourly surface and
+its remaining evidence. It does not authorize changes to evaluator, dispatch,
+network, or scoring code.
 
 ## 1. Action contract
 
@@ -22,35 +22,52 @@ space. The minimum contract is:
 {
   "generator_output_mw": finite scalar,
   "storage_charge_mw": finite non-negative scalar,
-  "storage_discharge_mw": finite non-negative scalar,
-  "storage_energy_mwh": finite scalar,
-  "curtailment_mw": finite non-negative scalar
+  "storage_discharge_mw": finite non-negative scalar
 }
 ```
 
 The environment must reject or deterministically penalize out-of-range values,
 simultaneous charge/discharge when disallowed, and state transitions that
-violate the declared storage limits. The contract must state whether a value is
-an instruction or a bounded request; it must not silently reinterpret a
-planning action as an hourly action. The action applies only to the current
-hour and cannot directly edit another team's plan or asset state.
+violate the declared storage limits. Curtailment is not an hourly action in the
+current game contract. Storage energy capacity is a plan-derived limit, not an
+agent-submitted hourly field. The contract must state whether a value is an
+instruction or a bounded request; it must not silently reinterpret a planning
+action as an hourly action. The action applies only to the current hour and
+cannot directly edit another team's plan or asset state.
 
 ## 2. Observation contract
 
 The observation at hour `t` must include, at minimum:
 
 - public scenario identity and hour index;
-- public bus/load and other released exogenous information;
+- released exogenous information required by the environment; the initial
+  solver-free release exposes only scenario year/block metadata;
 - the agent's own preceding asset/state summary needed for a Markov decision;
 - the agent's own storage state and available operating limits;
 - termination/truncation metadata when the hour is the final transition.
+
+### Solver-free exogenous schema
+
+The implemented solver-free release exposes exactly `scenario_year/scenario_block`
+in its exogenous group:
+
+```text
+{
+  "scenario_year": integer,
+  "scenario_block": string
+}
+```
+
+No load, price, bus, generator, solver, or dispatch tensor is implied by this
+schema. Future exogenous fields require a versioned contract and new evidence.
 
 It must not include another team's private plan, asset IDs, dispatch decisions,
 storage schedule, resource-level decisions, evaluator callback, solver object,
 or raw score internals. Aggregate values are allowed only when explicitly
 declared in the experiment configuration and must not be team-keyed diagnostics.
 Observation keys, dtypes, bounds, and missing-value behavior must be fixed and
-tested for every supported half-year block.
+tested for every supported half-year block. Any future bus/load fields must be
+added through a versioned observation contract.
 
 ## 3. Reward accounting
 
@@ -88,7 +105,9 @@ the following budget:
 
 The acceptance report must include measured counts and timings. A policy that
 exceeds a declared limit fails the gate rather than silently truncating or
-dropping transitions.
+dropping transitions. Task 4 does not provide benchmark evidence for reset,
+step, episode, evaluator latency, or output-size budgets; those measurements
+remain open.
 
 ## 5. Evaluator parity
 
@@ -104,30 +123,30 @@ evaluator path for any authoritative comparison. Parity evidence must cover:
 
 The RL layer must not add network equations, DCOPF construction, storage
 physics that disagree with the evaluator, projection mathematics, or scoring
-coefficients. If the optional solver dependency or prepared artifacts are
-unavailable, the report must label parity as dependency-limited rather than
-claiming a score match.
+coefficients. The current solver-free Task 4 surface provides no solver-backed
+parity evidence; solver parity remains dependency-limited and no score match
+is claimed.
 
 ## 6. Acceptance criteria
 
 Phase 7 hourly operation is accepted only when all criteria below are evidenced
 by tests or a checked-in verification report:
 
-- [ ] Action and observation spaces are fixed, JSON-safe, bounded, and tested
+- [x] Action and observation spaces are fixed, JSON-safe, bounded, and tested
       on all released year/block combinations.
-- [ ] Public observations and public replay/report artifacts contain no
+- [x] Public observations and public replay/report artifacts contain no
       cross-team private strategy or evaluator-bearing fields.
-- [ ] Same release manifest, seed, and action trace reproduce the same hourly
+- [x] Same release manifest, seed, and action trace reproduce the same hourly
       observations, rewards, statuses, and terminal result within tolerance.
-- [ ] Reward accounting demonstrates one-time terminal score handling and
+- [x] Reward accounting demonstrates one-time terminal score handling and
       separately labels any dense/local signal.
 - [ ] Computational budgets report exact horizon, transition count, evaluator
       call count, latency, and output size; no budget is exceeded.
 - [ ] Production evaluator parity passes for an available solver-backed fixture,
       or the result is explicitly marked dependency-limited with no score claim.
-- [ ] CLI/API documentation and documentation tests describe the contract,
+- [x] CLI/API documentation and documentation tests describe the contract,
       privacy boundary, evaluator boundary, and non-goals.
-- [ ] `git diff --check` is clean and the change set contains no evaluator,
+- [x] `git diff --check` is clean and the change set contains no evaluator,
       dispatch, network, or scoring modifications.
 
 ## 7. Non-goals
@@ -146,5 +165,7 @@ Passing this gate does not mean that the project will:
   contract and parity evidence;
 - claim solver-backed parity when required dependencies or artifacts are absent.
 
-Until every acceptance criterion is satisfied, hourly operation remains future
-work and Phase 6 planning/replay/training behavior remains the supported scope.
+Until the remaining benchmark and solver-parity criteria are evidenced, the
+Phase 7 gate remains open. The solver-free hourly API is available for contract
+and policy-loop testing; Phase 6 planning/replay/training behavior remains the
+supported score-producing scope.
