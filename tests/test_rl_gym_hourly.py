@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+import math
 from typing import Any
 
-import numpy as np
 import pytest
 
 from ercot_game.calendars import half_year_calendar
@@ -111,6 +111,7 @@ def terminal_transition(
         result = env.step(first_action if hour == 0 and first_action is not None else idle_action())
         transitions.append(result)
         next_observation, reward, terminated, truncated, next_info = result
+        assert_public_output(next_observation, next_info)
         assert next_info["transition_count"] == hour + 1
         if hour < env.horizon_hours - 1:
             assert not terminated
@@ -135,36 +136,45 @@ def nested_keys(value: Any) -> set[str]:
     return set()
 
 
+def assert_public_output(observation: Mapping[str, Any], info: Mapping[str, Any]) -> None:
+    assert set(observation) == OBSERVATION_KEYS
+    assert set(observation["metadata"]) == METADATA_KEYS
+    assert set(observation["asset_state"]) == ASSET_STATE_KEYS
+    assert isinstance(observation["exogenous"], Mapping)
+    assert not nested_keys(observation) & PRIVATE_OBSERVATION_KEYS
+    assert not nested_keys(info) & PRIVATE_OBSERVATION_KEYS
+    json.dumps(observation, allow_nan=False)
+    json.dumps(info, allow_nan=False)
+
+
 def test_hourly_env_declares_fixed_action_and_observation_contract():
     env = make_hourly_env()
 
     assert set(env.action_space.spaces) == ACTION_KEYS
+    assert "storage_energy_mwh" not in env.action_space.spaces
+    assert "curtailment_mw" not in env.action_space.spaces
     assert set(env.observation_space.spaces) == OBSERVATION_KEYS
 
     observation, info = env.reset(seed=11)
-    assert set(observation) == OBSERVATION_KEYS
+    assert_public_output(observation, info)
     assert env.action_space.contains(idle_action())
     assert env.observation_space.contains(observation)
-    json.dumps(observation, allow_nan=False)
-    json.dumps(info, allow_nan=False)
+    step_observation, _, _, _, step_info = env.step(idle_action())
+    assert_public_output(step_observation, step_info)
 
 
 def test_hourly_observation_nested_contract_is_public_and_json_safe():
     env = make_hourly_env()
     observation, info = env.reset(seed=12)
 
-    assert set(observation["metadata"]) == METADATA_KEYS
-    assert set(observation["asset_state"]) == ASSET_STATE_KEYS
-    assert isinstance(observation["exogenous"], Mapping)
+    assert_public_output(observation, info)
     assert observation["asset_state"]["storage_soc_mwh"] == pytest.approx(4.0)
     assert observation["asset_state"]["storage_charge_limit_mw"] == pytest.approx(2.0)
     assert observation["asset_state"]["storage_discharge_limit_mw"] == pytest.approx(2.0)
-    assert not nested_keys(observation) & PRIVATE_OBSERVATION_KEYS
-    assert not nested_keys(info) & PRIVATE_OBSERVATION_KEYS
     assert "team-b" not in repr(observation)
     assert "evaluator_callback" not in repr(observation)
-    json.dumps(observation, allow_nan=False)
-    json.dumps(info, allow_nan=False)
+    step_observation, _, _, _, step_info = env.step(idle_action())
+    assert_public_output(step_observation, step_info)
 
 
 @pytest.mark.parametrize(
@@ -182,8 +192,25 @@ def test_hourly_env_uses_exact_released_half_year_horizon(block, expected_horizo
 @pytest.mark.parametrize("block", ["jan_jun", "jul_dec"])
 def test_hourly_env_supports_every_released_year_and_block(year, block):
     env = make_hourly_env(year=year, block=block)
+    observation, info = env.reset(seed=32)
+    assert_public_output(observation, info)
 
+    expected_horizon = {
+        (2027, "jan_jun"): 4344,
+        (2027, "jul_dec"): 4416,
+        (2028, "jan_jun"): 4368,
+        (2028, "jul_dec"): 4416,
+        (2029, "jan_jun"): 4344,
+        (2029, "jul_dec"): 4416,
+    }[(year, block)]
+    assert env.horizon_hours == expected_horizon
     assert env.horizon_hours == half_year_calendar(year, block).horizon
+    assert observation["metadata"]["horizon_hours"] == expected_horizon
+    next_observation, _, terminated, truncated, next_info = env.step(idle_action())
+    assert_public_output(next_observation, next_info)
+    assert not terminated
+    assert not truncated
+    assert next_observation["metadata"]["hour_index"] == 1
     assert env.plan_state.horizon.year == year
     assert env.plan_state.horizon.round_name == block
 
@@ -304,6 +331,25 @@ def test_storage_soc_remains_within_zero_to_capacity_bounds():
         assert 0.0 <= soc <= 8.0
 
 
+def test_storage_can_reach_soc_zero_but_cannot_discharge_below_zero():
+    env = make_hourly_env(invalid_action_policy="raise")
+    env.reset(seed=16)
+    discharge = {
+        "generator_output_mw": 0.0,
+        "storage_charge_mw": 0.0,
+        "storage_discharge_mw": 2.0,
+    }
+
+    observation, _, _, _, _ = env.step(discharge)
+    assert observation["asset_state"]["storage_soc_mwh"] == pytest.approx(2.0)
+    observation, _, _, _, _ = env.step(discharge)
+    assert observation["asset_state"]["storage_soc_mwh"] == pytest.approx(0.0)
+
+    with pytest.raises(ValueError, match="state|SOC|discharge"):
+        env.step({**discharge, "storage_discharge_mw": 0.1})
+    assert observation["asset_state"]["storage_soc_mwh"] == pytest.approx(0.0)
+
+
 @pytest.mark.parametrize(
     "action",
     [
@@ -321,18 +367,21 @@ def test_hourly_env_rejects_actions_that_violate_declared_limits(action):
         env.step(action)
 
 
-def test_hourly_env_rejects_nonfinite_and_unknown_actions():
+@pytest.mark.parametrize("field", sorted(ACTION_KEYS))
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
+def test_hourly_env_rejects_nonfinite_values_in_every_numeric_action_field(field, value):
     env = make_hourly_env(invalid_action_policy="raise")
     env.reset(seed=19)
+    action = idle_action()
+    action[field] = value
 
     with pytest.raises(ValueError):
-        env.step(
-            {
-                "generator_output_mw": np.nan,
-                "storage_charge_mw": 0.0,
-                "storage_discharge_mw": 0.0,
-            }
-        )
+        env.step(action)
+
+
+def test_hourly_env_rejects_unknown_actions():
+    env = make_hourly_env(invalid_action_policy="raise")
+    env.reset(seed=19)
 
     with pytest.raises(ValueError):
         env.step(
@@ -377,9 +426,11 @@ def test_hourly_env_rejects_missing_negative_nonnumeric_nonmapping_and_infinite_
 def test_default_invalid_penalty_and_terminal_behavior_is_deterministic(action):
     def run_once():
         env = make_hourly_env(invalid_action_penalty=-2.5)
-        env.reset(seed=23)
+        initial_observation, _ = env.reset(seed=23)
         observation, reward, terminated, truncated, info = env.step(action)
         return (
+            json.dumps(initial_observation["asset_state"], sort_keys=True, allow_nan=False),
+            json.dumps(observation["asset_state"], sort_keys=True, allow_nan=False),
             json.dumps(observation, sort_keys=True, allow_nan=False),
             reward,
             terminated,
@@ -391,9 +442,10 @@ def test_default_invalid_penalty_and_terminal_behavior_is_deterministic(action):
     second = run_once()
 
     assert first == second
-    assert first[1] == -2.5
-    assert first[2] is True
-    assert first[3] is False
+    assert first[0] == first[1]
+    assert first[3] == -2.5
+    assert first[4] is True
+    assert first[5] is False
 
 
 def test_hourly_lifecycle_has_one_transition_per_hour_and_terminal_metadata():
@@ -409,7 +461,8 @@ def test_hourly_lifecycle_has_one_transition_per_hour_and_terminal_metadata():
     assert terminated
     assert not truncated
     assert final_info["terminal_storage_requirement_mwh"] == pytest.approx(4.0)
-    assert final_observation["asset_state"]["storage_soc_mwh"] >= 4.0
+    assert final_info["terminal_storage_constraint"] == "satisfied"
+    assert final_observation["asset_state"]["storage_soc_mwh"] == pytest.approx(4.0)
 
     with pytest.raises(RuntimeError, match="reset"):
         env.step(idle_action())
@@ -454,13 +507,16 @@ def test_default_reward_is_zero_local_reward_without_terminal_evaluator():
 
 
 def test_terminal_evaluator_is_called_once_and_terminal_score_is_not_double_counted():
-    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    calls: list[tuple[RLPlanState, ReleaseManifest]] = []
 
-    def evaluator(*args, **kwargs):
-        calls.append((args, kwargs))
+    def evaluator(plan_state: RLPlanState, release_manifest: ReleaseManifest):
+        calls.append((plan_state, release_manifest))
         return {"team-a": {"score": 17.5}}
 
     env = make_hourly_env(evaluator_callback=evaluator)
+    env.reset(seed=40)
+    env.step(idle_action())
+    assert calls == []
     _, _, transitions = terminal_transition(env, seed=41)
     _, reward, terminated, truncated, info = transitions[-1]
 
@@ -472,24 +528,25 @@ def test_terminal_evaluator_is_called_once_and_terminal_score_is_not_double_coun
     assert info["terminal_score"] == pytest.approx(17.5)
     assert info["episode_return"] == pytest.approx(17.5)
     assert info["terminal_evaluation_status"] == "evaluated"
-    assert len(calls[0][0]) >= 2 or {"plan_state", "release_manifest"} <= set(calls[0][1])
-    callback_plan = calls[0][1].get("plan_state")
-    if callback_plan is None:
-        callback_plan = calls[0][0][0]
-    callback_release = calls[0][1].get("release_manifest")
-    if callback_release is None:
-        callback_release = calls[0][0][1]
-    assert isinstance(callback_plan, RLPlanState)
-    assert isinstance(callback_release, ReleaseManifest)
-    assert callback_plan == env.plan_state
-    assert callback_release == env.release_manifest
+    callback_plan, callback_release = calls[0]
+    assert callback_plan is env.plan_state
+    assert callback_release is env.release_manifest
+
+    calls_before_post_terminal_step = len(calls)
+    score_before_post_terminal_step = info["terminal_score"]
+    return_before_post_terminal_step = info["episode_return"]
+    with pytest.raises(RuntimeError, match="reset"):
+        env.step(idle_action())
+    assert len(calls) == calls_before_post_terminal_step
+    assert info["terminal_score"] == score_before_post_terminal_step
+    assert info["episode_return"] == return_before_post_terminal_step
 
 
 def test_terminal_evaluator_is_called_once_per_episode_and_reset_clears_state():
-    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    calls: list[tuple[RLPlanState, ReleaseManifest]] = []
 
-    def evaluator(*args, **kwargs):
-        calls.append((args, kwargs))
+    def evaluator(plan_state: RLPlanState, release_manifest: ReleaseManifest):
+        calls.append((plan_state, release_manifest))
         return {"team-a": {"score": 3.0}}
 
     env = make_hourly_env(evaluator_callback=evaluator)
