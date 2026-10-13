@@ -220,6 +220,21 @@ def test_hourly_env_declares_fixed_action_and_observation_contract():
     assert_public_output(step_observation, step_info)
 
 
+def test_observation_space_has_a_space_compatible_interface():
+    env = make_hourly_env()
+    try:
+        import gymnasium
+    except ImportError:
+        gymnasium = None
+
+    if gymnasium is not None:
+        assert isinstance(env.observation_space, gymnasium.spaces.Space)
+    assert env.observation_space.shape is None
+    assert env.observation_space.dtype is None
+    assert env.observation_space.contains(env.observation_space.sample())
+    assert env.observation_space.seed(19)
+
+
 def test_hourly_observation_nested_contract_is_public_and_json_safe():
     env = make_hourly_env()
     site = env.plan_state.sites[0]
@@ -609,6 +624,16 @@ def test_terminal_storage_violation_raises_in_raise_mode():
     for _ in range(env.horizon_hours - 1):
         env.step(idle_action())
 
+    before_observation = env._observation()
+    before_info = env._info(valid_action=None)
+    before_state = (
+        env._transition_count,
+        env._hour_index,
+        env._storage_soc_mwh,
+        env._terminated,
+        env._truncated,
+        env._local_return,
+    )
     with pytest.raises(ValueError, match="terminal storage"):
         env.step(
             {
@@ -617,6 +642,17 @@ def test_terminal_storage_violation_raises_in_raise_mode():
                 "storage_discharge_mw": 1.0,
             }
         )
+
+    assert env._observation() == before_observation
+    assert env._info(valid_action=None) == before_info
+    assert (
+        env._transition_count,
+        env._hour_index,
+        env._storage_soc_mwh,
+        env._terminated,
+        env._truncated,
+        env._local_return,
+    ) == before_state
 
 
 def test_seeded_idle_traces_are_deterministic_for_both_released_horizons():

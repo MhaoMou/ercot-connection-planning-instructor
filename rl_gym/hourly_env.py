@@ -91,27 +91,63 @@ ASSET_STATE_FIELDS = (
 EXOGENOUS_FIELDS = ("scenario_year", "scenario_block")
 
 
-class _ObservationGroupSpace:
-    """Small JSON mapping space for the structured public observation."""
+_SpaceBase = spaces.Space if gym is not None else object
 
-    def __init__(self, fields: tuple[str, ...], validator: Callable[[Mapping[str, Any]], bool]):
-        self.spaces = {field: object() for field in fields}
+
+class _ObservationGroupSpace(_SpaceBase):
+    """JSON mapping space for one structured public observation group."""
+
+    def __init__(
+        self,
+        fields: tuple[str, ...],
+        validator: Callable[[Mapping[str, Any]], bool],
+        sample_factory: Callable[[], Mapping[str, Any]],
+    ):
+        if gym is not None:
+            super().__init__(shape=None, dtype=None)
+        else:
+            self.shape = None
+            self.dtype = None
+        self.spaces = {field: None for field in fields}
         self._validator = validator
+        self._sample_factory = sample_factory
 
     def contains(self, value: Any) -> bool:
         return isinstance(value, Mapping) and set(value) == set(self.spaces) and self._validator(value)
 
+    def sample(self, mask=None):
+        del mask
+        return dict(self._sample_factory())
 
-class _ObservationSpace:
-    def __init__(self, groups: Mapping[str, _ObservationGroupSpace]):
-        self.spaces = dict(groups)
+    def seed(self, seed=None):
+        if gym is not None:
+            return super().seed(seed)
+        return [seed]
 
-    def contains(self, value: Any) -> bool:
-        return (
-            isinstance(value, Mapping)
-            and set(value) == set(self.spaces)
-            and all(self.spaces[key].contains(value[key]) for key in self.spaces)
-        )
+
+if gym is None:
+    class _ObservationSpace:
+        def __init__(self, groups: Mapping[str, _ObservationGroupSpace]):
+            self.spaces = dict(groups)
+            self.shape = None
+            self.dtype = None
+
+        def contains(self, value: Any) -> bool:
+            return (
+                isinstance(value, Mapping)
+                and set(value) == set(self.spaces)
+                and all(self.spaces[key].contains(value[key]) for key in self.spaces)
+            )
+
+        def sample(self, mask=None):
+            del mask
+            return {key: space.sample() for key, space in self.spaces.items()}
+
+        def seed(self, seed=None):
+            seeds = []
+            for offset, space in enumerate(self.spaces.values()):
+                seeds.extend(space.seed(None if seed is None else seed + offset))
+            return seeds
 
 
 def _finite_number(value: Any) -> bool:
@@ -211,11 +247,52 @@ class HourlyOperationEnv(gym.Env if gym is not None else object):
                 0.0, self._storage_power_mw, shape=(), dtype=np.float32
             ),
         })
-        self.observation_space = _ObservationSpace({
-            "metadata": _ObservationGroupSpace(METADATA_FIELDS, _metadata_contains),
-            "asset_state": _ObservationGroupSpace(ASSET_STATE_FIELDS, _asset_state_contains),
-            "exogenous": _ObservationGroupSpace(EXOGENOUS_FIELDS, _exogenous_contains),
-        })
+        observation_groups = {
+            "metadata": _ObservationGroupSpace(
+                METADATA_FIELDS,
+                _metadata_contains,
+                lambda: {
+                    "scenario_year": self.scenario_year,
+                    "scenario_block": self.scenario_block,
+                    "hour_index": 0,
+                    "horizon_hours": self.horizon_hours,
+                    "terminated": False,
+                    "truncated": False,
+                },
+            ),
+            "asset_state": _ObservationGroupSpace(
+                ASSET_STATE_FIELDS,
+                _asset_state_contains,
+                lambda: {
+                    "connection_capacity_mw": self._connection_capacity_mw,
+                    "generator_capacity_mw": self._generator_capacity_mw,
+                    "storage_power_mw": self._storage_power_mw,
+                    "storage_energy_mwh": self._storage_energy_mwh,
+                    "storage_soc_mwh": self._terminal_storage_requirement_mwh,
+                    "storage_charge_limit_mw": min(
+                        self._storage_power_mw,
+                        self._storage_energy_mwh - self._terminal_storage_requirement_mwh,
+                    ),
+                    "storage_discharge_limit_mw": min(
+                        self._storage_power_mw,
+                        self._terminal_storage_requirement_mwh,
+                    ),
+                },
+            ),
+            "exogenous": _ObservationGroupSpace(
+                EXOGENOUS_FIELDS,
+                _exogenous_contains,
+                lambda: {
+                    "scenario_year": self.scenario_year,
+                    "scenario_block": self.scenario_block,
+                },
+            ),
+        }
+        self.observation_space = (
+            spaces.Dict(observation_groups)
+            if gym is not None
+            else _ObservationSpace(observation_groups)
+        )
 
         self._seed: int | None = None
         self._hour_index = 0
@@ -261,6 +338,12 @@ class HourlyOperationEnv(gym.Env if gym is not None else object):
             return self._invalid_action("storage_soc_below_zero", "storage state of charge cannot be negative")
         if next_soc > self._storage_energy_mwh + 1e-9:
             return self._invalid_action("storage_energy_exceeded", "storage charge exceeds remaining energy capacity")
+        if (
+            self._transition_count + 1 >= self.horizon_hours
+            and next_soc + 1e-9 < self._terminal_storage_requirement_mwh
+            and self.invalid_action_policy == "raise"
+        ):
+            raise ValueError("terminal storage constraint violated: final state of charge is below half full")
 
         self._storage_soc_mwh = min(self._storage_energy_mwh, max(0.0, next_soc))
         self._transition_count += 1
@@ -271,8 +354,6 @@ class HourlyOperationEnv(gym.Env if gym is not None else object):
         if self._transition_count >= self.horizon_hours:
             self._terminated = True
             if self._storage_soc_mwh + 1e-9 < self._terminal_storage_requirement_mwh:
-                if self.invalid_action_policy == "raise":
-                    raise ValueError("terminal storage constraint violated: final state of charge is below half full")
                 reward = self.invalid_action_penalty
                 self._local_return += reward
                 info = self._info(
