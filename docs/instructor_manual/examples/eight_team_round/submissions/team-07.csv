@@ -1,0 +1,3 @@
+team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
+team-07,site-07-a,7248,40,12,6,24
+team-07,site-07-b,5465,25,0,0,0
