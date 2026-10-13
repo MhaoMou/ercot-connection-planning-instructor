@@ -83,7 +83,7 @@ the following budget:
 | Environment transitions | At most one transition per released operating hour, plus a documented terminal transition if needed. |
 | Evaluator calls | Zero for no-evaluator mode; otherwise at most one authoritative evaluation per declared evaluation boundary. |
 | Wall-clock budget | A reproducible benchmark records reset, step, episode, and evaluator latency on a documented machine/profile. |
-| Memory/output | Public traces and reports remain JSON-safe and bounded; private artifacts require explicit opt-in and are never emitted by default. |
+| Memory/output | Public traces and reports remain JSON-safe and bounded; hourly `episode_record()` output defaults to `public_sanitized`, while explicit private action capture is marked `private_record` and is not replayable by this task. |
 | Reproducibility | Fixed seed derivation, release manifest digest, environment version, and action/observation schema are recorded. |
 
 The acceptance report must include measured counts and timings. A policy that

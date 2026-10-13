@@ -90,6 +90,12 @@ Hourly operation itself is solver-free in this first increment. Solver-backed ev
 
 Hourly public records contain only schema-safe observations, local rewards, terminal status, aggregate metadata, and release identity. Private actions are retained only in an explicitly requested instructor/private artifact. Default public artifacts are not replayable and cannot reconstruct the team’s operating strategy.
 
+The hourly ``episode_record()`` API marks its default output
+``public_sanitized``. Explicit ``include_private_actions=True`` adds the
+normalized action trace and marks the result ``private_record``. This hourly
+record is not a replay artifact and must not use the Phase 6
+``private_replayable`` marker unless a compatible hourly loader is added.
+
 ### Evaluator parity
 
 Parity tests compare canonical plan serialization and, when a solver-backed fixture is available, the terminal score/cost fields returned by the existing evaluator within a declared tolerance. The hourly wrapper does not reproduce evaluator equations. If required solver dependencies or artifacts are unavailable, the verification report labels parity as dependency-limited and makes no score claim.

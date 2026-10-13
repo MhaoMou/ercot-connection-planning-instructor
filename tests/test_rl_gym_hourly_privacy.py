@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Any
 
+import numpy as np
 import pytest
 
 from ercot_game.models import SitePlan
 from rl_gym import RLPlanState, ReleaseManifest, make_release_manifest
-from rl_gym.hourly_env import HOURLY_ENVIRONMENT_VERSION, HourlyOperationEnv
+from rl_gym.hourly_env import (
+    HOURLY_ENVIRONMENT_VERSION,
+    HourlyOperationEnv,
+    _record_json_value,
+)
 
 
 ACTION_FIELDS = {
@@ -125,13 +131,51 @@ def test_private_episode_record_requires_explicit_opt_in_and_contains_action_tra
     private_record = env.episode_record(include_private_actions=True)
 
     assert public_record["privacy"] == "public_sanitized"
-    assert private_record["privacy"] == "private_replayable"
+    assert private_record["privacy"] == "private_record"
     assert all(set(step["action"]) == ACTION_FIELDS for step in private_record["steps"])
     assert all("action" not in step for step in public_record["steps"])
     json.dumps(private_record, sort_keys=True, allow_nan=False)
 
     with pytest.raises(TypeError, match="include_private_actions"):
         env.episode_record(include_private_actions=1)
+
+
+def test_mapping_action_is_normalized_before_recording_after_state_mutation():
+    env = make_hourly_env()
+    env.reset(seed=43)
+
+    env.step(MappingProxyType(idle_action()))
+
+    private_record = env.episode_record(include_private_actions=True)
+    recorded_action = private_record["steps"][0]["action"]
+    assert recorded_action == idle_action()
+    assert all(type(value) is float for value in recorded_action.values())
+
+
+def test_public_record_keeps_invalid_action_code_and_sanitized_diagnostic():
+    env = make_hourly_env()
+    env.reset(seed=44)
+    env.step({})
+
+    info = env.episode_record()["steps"][0]["info"]
+
+    assert info["invalid_action_code"] == "unknown_or_missing_action_field"
+    assert info["diagnostic"] == "action must contain exactly the three hourly fields"
+    assert not set(info) & PRIVATE_KEYS
+
+
+def test_private_record_normalizes_longdouble_and_rejects_nonfinite_values():
+    env = make_hourly_env()
+    env.reset(seed=45)
+    action = idle_action()
+    action["generator_output_mw"] = np.longdouble("1.25")
+    env.step(action)
+
+    record = env.episode_record(include_private_actions=True)
+    assert record["steps"][0]["action"]["generator_output_mw"] == pytest.approx(1.25)
+
+    with pytest.raises(ValueError, match="finite"):
+        _record_json_value(np.longdouble("nan"))
 
 
 def test_episode_record_has_deterministic_shape_and_public_terminal_aggregate_fields():

@@ -108,6 +108,8 @@ _PUBLIC_INFO_FIELDS = (
     "release_manifest_digest",
     "terminal_storage_requirement_mwh",
     "terminal_storage_constraint",
+    "invalid_action_code",
+    "diagnostic",
 )
 _TERMINAL_RECORD_FIELDS = (
     "terminal_evaluation_status",
@@ -211,7 +213,21 @@ def _record_json_value(value: Any) -> Any:
     if isinstance(value, np.ndarray):
         return _record_json_value(value.tolist())
     if isinstance(value, np.generic):
-        return _record_json_value(value.item())
+        if isinstance(value, np.bool_):
+            return bool(value)
+        if isinstance(value, np.integer):
+            return int(value)
+        if isinstance(value, np.floating):
+            try:
+                normalized = float(value)
+            except (OverflowError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"episode record NumPy scalar {type(value).__name__} cannot be normalized"
+                ) from exc
+            if not math.isfinite(normalized):
+                raise ValueError("episode record values must contain finite numbers")
+            return normalized
+        raise ValueError(f"episode record contains unsupported NumPy scalar type {type(value).__name__}")
     if isinstance(value, Mapping):
         if any(not isinstance(key, str) for key in value):
             raise TypeError("episode record mapping keys must be strings")
@@ -388,14 +404,14 @@ class HourlyOperationEnv(gym.Env if gym is not None else object):
 
         values, diagnostic = self._validate_action(action)
         if diagnostic is not None:
-            return self._record_step(action, self._invalid_action(diagnostic[0], diagnostic[1]))
+            return self._record_step(None, self._invalid_action(diagnostic[0], diagnostic[1]))
 
         charge = values["storage_charge_mw"]
         discharge = values["storage_discharge_mw"]
         next_soc = self._storage_soc_mwh + charge - discharge
         if discharge > self._storage_soc_mwh + 1e-9:
             return self._record_step(
-                action,
+                values,
                 self._invalid_action(
                     "storage_discharge_exceeds_soc",
                     "storage discharge exceeds current state of charge",
@@ -403,12 +419,12 @@ class HourlyOperationEnv(gym.Env if gym is not None else object):
             )
         if next_soc < -1e-9:
             return self._record_step(
-                action,
+                values,
                 self._invalid_action("storage_soc_below_zero", "storage state of charge cannot be negative"),
             )
         if next_soc > self._storage_energy_mwh + 1e-9:
             return self._record_step(
-                action,
+                values,
                 self._invalid_action("storage_energy_exceeded", "storage charge exceeds remaining energy capacity"),
             )
         if (
@@ -435,27 +451,27 @@ class HourlyOperationEnv(gym.Env if gym is not None else object):
                     terminal_storage_constraint="violated",
                 )
                 return self._record_step(
-                    action,
+                    values,
                     (self._observation(), reward, True, False, info),
                 )
             reward, terminal_info = self._terminal_result()
             info = self._info(valid_action=True) | terminal_info
             return self._record_step(
-                action,
+                values,
                 (self._observation(), reward, True, False, info),
             )
 
         return self._record_step(
-            action,
+            values,
             (self._observation(), reward, False, False, self._info(valid_action=True)),
         )
 
-    def _record_step(self, action: Any, result: tuple[Any, float, bool, bool, Mapping[str, Any]]):
+    def _record_step(self, action: Mapping[str, float] | None, result: tuple[Any, float, bool, bool, Mapping[str, Any]]):
         if len(self._episode_steps) >= self.horizon_hours:
             raise RuntimeError("episode record cannot contain steps beyond the released horizon")
         observation, reward, terminated, truncated, info = result
         self._episode_steps.append({
-            "action": copy.deepcopy(action),
+            "action": None if action is None else dict(action),
             "observation": copy.deepcopy(observation),
             "reward": float(reward),
             "terminated": bool(terminated),
@@ -493,7 +509,7 @@ class HourlyOperationEnv(gym.Env if gym is not None else object):
             },
         }
         record = {
-            "privacy": "private_replayable" if include_private_actions else "public_sanitized",
+            "privacy": "private_record" if include_private_actions else "public_sanitized",
             "environment_version": HOURLY_ENVIRONMENT_VERSION,
             "release_identity": self._release_identity(),
             "scenario_year": self.scenario_year,
@@ -511,10 +527,13 @@ class HourlyOperationEnv(gym.Env if gym is not None else object):
 
     @staticmethod
     def _public_info(info: Mapping[str, Any]) -> dict[str, Any]:
-        return {
+        public = {
             field: copy.deepcopy(info.get(field))
             for field in _PUBLIC_INFO_FIELDS
         }
+        diagnostic = info.get("diagnostic")
+        public["diagnostic"] = diagnostic[:256] if isinstance(diagnostic, str) else None
+        return public
 
     def _release_identity(self) -> dict[str, Any]:
         manifest = self.release_manifest
