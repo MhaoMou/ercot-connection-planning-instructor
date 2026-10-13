@@ -10,7 +10,7 @@ evaluator parity is **DEPENDENCY-LIMITED**; this report makes no score claim.
 
 ## Machine profile and invocation
 
-Evidence capture timestamp: **2026-10-12 EDT** (**2026-10-13T02:14:37Z**).
+Evidence capture timestamp: **2026-10-12 EDT** (**2026-10-13T02:19:30Z**).
 The profile contains no hostnames, credentials, or other secrets.
 
 | Item | Value |
@@ -26,14 +26,16 @@ The profile contains no hostnames, credentials, or other secrets.
 Exact benchmark invocation:
 
 ```text
-PYTHONPATH=src:. /opt/anaconda3/bin/python -m pytest \
+PYTHONPATH=src:. /opt/anaconda3/bin/python -m pytest -p no:cacheprovider \
   tests/test_rl_gym_hourly.py::test_phase7_deterministic_benchmark_evidence_covers_all_released_combinations -q
 ```
+
+focused benchmark result: `1 passed in 2.95s`
 
 The complete verification invocation was:
 
 ```text
-PYTHONPATH=src:. /opt/anaconda3/bin/python -m pytest \
+PYTHONPATH=src:. /opt/anaconda3/bin/python -m pytest -p no:cacheprovider \
   tests/test_documentation_consistency.py tests/test_rl_gym_*.py -q
 ```
 
@@ -122,6 +124,17 @@ does not include an action trace; explicit `include_private_actions=True`
 creates a separate `private_record` for trusted local inspection and is outside
 this benchmark report.
 
+## Evaluator latency and parity status
+
+Evaluator latency is **OPEN/NOT MEASURED**. The benchmark mode intentionally
+uses zero evaluator callbacks (`evaluator_call_count=0`), so its reset, step,
+and episode timings measure only the local solver-free environment and public
+record serialization. They are not evaluator-latency measurements.
+
+This is distinct from solver-backed evaluator parity, which is
+**DEPENDENCY-LIMITED** because `highspy` is unavailable in the documented
+profile. No solver-backed score or parity claim is made.
+
 ## Acceptance status
 
 - [x] Exact released horizon and one-transition-per-hour counts are evidenced
@@ -130,6 +143,8 @@ this benchmark report.
       evaluator call count, latency, and output size without private fields.
 - [x] Default no-callback benchmark has deterministic `evaluator_call_count=0`
       and no official score claim.
+- [ ] Evaluator latency: **OPEN/NOT MEASURED** because the benchmark
+      intentionally uses zero evaluator callbacks.
 - [ ] Computational budget: measurements are captured, but no approved
       machine/profile threshold or budget pass is claimed here.
 - [ ] Solver-backed evaluator parity: **DEPENDENCY-LIMITED**; no available

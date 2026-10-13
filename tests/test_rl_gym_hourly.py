@@ -1043,9 +1043,18 @@ def test_phase7_verification_report_states_scope_and_open_acceptance_items():
         "Gymnasium",
         "highspy",
         "Exact benchmark invocation",
-        "2026-10-13T02:14:37Z",
+        "2026-10-13T02:19:30Z",
         "64,000 + 2,048 * horizon_hours",
+        "Evaluator latency",
+        "OPEN/NOT MEASURED",
+        "zero evaluator callbacks",
+        "focused benchmark result",
     ):
         assert term in report
+    assert re.search(r"focused benchmark result.*\d+ passed in \d+\.\d+s", report)
+    assert "PYTHONPATH=src:. /opt/anaconda3/bin/python -m pytest -p no:cacheprovider" in report
+    assert "tests/test_rl_gym_hourly.py::test_phase7_deterministic_benchmark_evidence_covers_all_released_combinations -q" in report
+    assert "Solver-backed evaluator parity" in report
+    assert "DEPENDENCY-LIMITED" in report
     assert "- [ ] Computational budget" in report
     assert "- [ ] Solver-backed evaluator parity" in report
