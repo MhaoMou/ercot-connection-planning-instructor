@@ -271,6 +271,8 @@ class HourlyOperationEnv(gym.Env if gym is not None else object):
         if self._transition_count >= self.horizon_hours:
             self._terminated = True
             if self._storage_soc_mwh + 1e-9 < self._terminal_storage_requirement_mwh:
+                if self.invalid_action_policy == "raise":
+                    raise ValueError("terminal storage constraint violated: final state of charge is below half full")
                 reward = self.invalid_action_penalty
                 self._local_return += reward
                 info = self._info(

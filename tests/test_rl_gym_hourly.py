@@ -602,6 +602,23 @@ def test_terminal_transition_fails_when_storage_soc_is_below_half_full():
     assert final_reward < 0.0
 
 
+def test_terminal_storage_violation_raises_in_raise_mode():
+    env = make_hourly_env(invalid_action_policy="raise")
+    env.reset(seed=30)
+
+    for _ in range(env.horizon_hours - 1):
+        env.step(idle_action())
+
+    with pytest.raises(ValueError, match="terminal storage"):
+        env.step(
+            {
+                "generator_output_mw": 0.0,
+                "storage_charge_mw": 0.0,
+                "storage_discharge_mw": 1.0,
+            }
+        )
+
+
 def test_seeded_idle_traces_are_deterministic_for_both_released_horizons():
     for block in ("jan_jun", "jul_dec"):
         first = terminal_transition(make_hourly_env(block=block), seed=31)[2]
