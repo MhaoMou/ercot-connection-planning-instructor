@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 import math
+from pathlib import Path
+import time
 from typing import Any
 
 import numpy as np
@@ -11,7 +13,7 @@ import pytest
 from ercot_game.calendars import half_year_calendar
 from ercot_game.models import SitePlan
 from rl_gym import RLPlanState, ReleaseManifest, make_release_manifest
-from rl_gym.hourly_env import HourlyOperationEnv
+from rl_gym.hourly_env import HOURLY_ENVIRONMENT_VERSION, HourlyOperationEnv
 
 
 ACTION_KEYS = {
@@ -57,6 +59,16 @@ PRIVATE_OBSERVATION_KEYS = {
     "team_scores",
     "resource_level",
 }
+BENCHMARK_BASE_SEED = 70_000
+RELEASED_HORIZONS = {
+    (2027, "jan_jun"): 4344,
+    (2027, "jul_dec"): 4416,
+    (2028, "jan_jun"): 4368,
+    (2028, "jul_dec"): 4416,
+    (2029, "jan_jun"): 4344,
+    (2029, "jul_dec"): 4416,
+}
+PHASE7_VERIFICATION_PATH = Path(__file__).parents[1] / "rl_gym" / "PHASE7_VERIFICATION.md"
 
 
 def make_hourly_env(
@@ -104,6 +116,54 @@ def idle_action() -> dict[str, float]:
         "storage_charge_mw": 0.0,
         "storage_discharge_mw": 0.0,
     }
+
+
+def benchmark_seed(year: int, block: str) -> int:
+    block_offset = 0 if block == "jan_jun" else 1
+    return BENCHMARK_BASE_SEED + (year - 2027) * 2 + block_offset
+
+
+def run_hourly_benchmark_case(year: int, block: str) -> dict[str, Any]:
+    env = make_hourly_env(year=year, block=block)
+    seed = benchmark_seed(year, block)
+    episode_start = time.perf_counter()
+    reset_start = time.perf_counter()
+    observation, reset_info = env.reset(seed=seed)
+    reset_latency = time.perf_counter() - reset_start
+    assert_public_output(observation, reset_info)
+
+    step_latency_total = 0.0
+    final_info = reset_info
+    for hour in range(env.horizon_hours):
+        step_start = time.perf_counter()
+        observation, reward, terminated, truncated, final_info = env.step(idle_action())
+        step_latency_total += time.perf_counter() - step_start
+        assert_public_output(observation, final_info)
+        assert final_info["transition_count"] == hour + 1
+        assert terminated is (hour == env.horizon_hours - 1)
+        assert truncated is False
+        assert reward == 0.0
+
+    public_record = env.episode_record()
+    public_payload = json.dumps(public_record, sort_keys=True, allow_nan=False)
+    episode_latency = time.perf_counter() - episode_start
+    report = {
+        "privacy": public_record["privacy"],
+        "environment_version": public_record["environment_version"],
+        "release_identity": public_record["release_identity"],
+        "scenario_year": year,
+        "scenario_block": block,
+        "horizon_hours": env.horizon_hours,
+        "transition_count": public_record["transition_count"],
+        "evaluator_call_count": final_info["evaluator_call_count"],
+        "seed": seed,
+        "seed_derivation": "70000 + (year - 2027) * 2 + block_offset(jan_jun=0, jul_dec=1)",
+        "reset_latency_seconds": reset_latency,
+        "step_latency_seconds": step_latency_total / env.horizon_hours,
+        "episode_latency_seconds": episode_latency,
+        "output_size_bytes": len(public_payload.encode("utf-8")),
+    }
+    return report
 
 
 def terminal_transition(
@@ -770,3 +830,73 @@ def test_terminal_evaluator_failure_is_publicly_status_only():
     assert info["terminal_score"] is None
     assert info["terminal_evaluation_status"] == "evaluation_failed"
     assert "private evaluator diagnostic" not in repr(info)
+
+
+def test_phase7_deterministic_benchmark_evidence_covers_all_released_combinations():
+    reports = [
+        run_hourly_benchmark_case(year, block)
+        for year, block in RELEASED_HORIZONS
+    ]
+
+    assert {(report["scenario_year"], report["scenario_block"]) for report in reports} == set(RELEASED_HORIZONS)
+    assert [report["seed"] for report in reports] == [
+        benchmark_seed(year, block) for year, block in RELEASED_HORIZONS
+    ]
+    for report in reports:
+        key = (report["scenario_year"], report["scenario_block"])
+        assert report["privacy"] == "public_sanitized"
+        assert report["environment_version"] == HOURLY_ENVIRONMENT_VERSION
+        assert report["release_identity"]["release_scenario_year"] == key[0]
+        assert report["release_identity"]["release_scenario_block"] == key[1]
+        assert report["release_identity"]["release_manifest_digest"]
+        assert report["horizon_hours"] == RELEASED_HORIZONS[key]
+        assert report["transition_count"] == RELEASED_HORIZONS[key]
+        assert report["evaluator_call_count"] == 0
+        assert report["seed_derivation"] == (
+            "70000 + (year - 2027) * 2 + block_offset(jan_jun=0, jul_dec=1)"
+        )
+        for field in (
+            "reset_latency_seconds",
+            "step_latency_seconds",
+            "episode_latency_seconds",
+        ):
+            assert math.isfinite(report[field])
+            assert report[field] >= 0.0
+        assert report["output_size_bytes"] > 0
+
+    payload = json.dumps(reports, sort_keys=True, allow_nan=False)
+    private_report_keys = {
+        "action",
+        "actions",
+        "plan",
+        "private_plan",
+        "raw_diagnostic",
+        "raw_diagnostics",
+        "diagnostic",
+        "evaluator_output",
+        "solver",
+        "storage_schedule",
+        "team_scores",
+    }
+    assert not nested_keys(json.loads(payload)) & private_report_keys
+
+
+def test_phase7_verification_report_states_scope_and_open_acceptance_items():
+    report = PHASE7_VERIFICATION_PATH.read_text(encoding="utf-8")
+
+    for term in (
+        "three-field action",
+        "generator_output_mw",
+        "storage_charge_mw",
+        "storage_discharge_mw",
+        "scenario_year/scenario_block",
+        "one-time optional evaluator callback",
+        "DEPENDENCY-LIMITED",
+        "no score claim",
+        "public_sanitized",
+        "output_size_bytes",
+        "seed derivation",
+    ):
+        assert term in report
+    assert "- [ ] Computational budget" in report
+    assert "- [ ] Solver-backed evaluator parity" in report
