@@ -57,14 +57,26 @@ expect substantially different timing from the recorded Electrify result.
 ## Recorded result
 
 The compact checked-in result is [`results.json`](results.json). The verified
-remote run completed in 1,216.75 seconds (20.3 minutes), used approximately
-9.65 GiB peak resident memory, accepted all eight files, and returned a
-feasible joint dispatch. The run ID is recorded in the JSON for provenance.
+Electrify run on 2026-10-14 used the active rule file
+(`dispatch-scoring-jan_jun-v1`: $6,500/MWh IT value, $25M/MW site cost,
+$1.5M/MW generator capital, the $80/$150/$250 generator curve, and $400k/MW
+plus $250k/MWh storage). It completed in 1,507.80 seconds (25.1 minutes), used
+approximately 9.62 GiB peak resident memory, accepted all eight files, and
+returned a feasible joint dispatch with no projection. Scores range from
+$160M (team-08) to $378M (team-01). The run ID is recorded in the JSON.
 
-All scores are negative in this demonstration because the active connection
-site coefficient is $20 million per MW. The example is useful for showing the
-full score decomposition, but it should not be presented as a recommended
-calibration or as a class leaderboard.
+This is a standalone Submission 2 run with no asset ledger, so every asset is
+charged capital; in the classroom flow, assets built in Submission 1 would not
+be charged again. The scenario block's manifest was marked validated by the
+Phase 7 remote smoke test (2 of 4,368 hours), the same status as the earlier
+recorded run. The example is useful for showing the full score decomposition,
+but it should not be presented as a recommended calibration or as a class
+leaderboard.
+
+[`grid_map.svg`](grid_map.svg) is the classroom grid map for this run
+(`ercot-game-grid-map`): buses colored by the total connection capacity of all
+teams, lines colored by peak loading over the 4,368 hours. Open it in a browser
+to hover, zoom, and pan.
 
 The raw remote `evaluation.json`, period dispatch files, and logs are not
 checked into Git because they are very large. Keep those artifacts in the
