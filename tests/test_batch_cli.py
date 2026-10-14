@@ -166,7 +166,7 @@ def test_cli_defaults_to_scored_submission_number_two(tmp_path, monkeypatch, cap
     assert "summary: 0 teams scored, 0 rejected" in capsys.readouterr().out
 
 
-def test_cli_forwards_practice_submission_number_one(tmp_path, monkeypatch, capsys):
+def test_cli_forwards_submission_number_one(tmp_path, monkeypatch, capsys):
     submissions_dir, artifact_dir, rules_path, region_map_path = _write_inputs(tmp_path)
     _write_submission(submissions_dir / "team-a.csv", "team-a")
     observed: list[int | None] = []
@@ -457,7 +457,7 @@ def test_classroom_command_runs_all_six_rounds_and_writes_public_summary(
                 week_id=f"week-{index // 2 + 1}",
                 submission_number=index % 2 + 1,
                 feedback_only=index < 2,
-                scored=index >= 2 and index % 2 == 1,
+                scored=index >= 2,
                 evaluation=SimpleNamespace(
                     dispatch=SimpleNamespace(periods=()),
                     source_period_indices=(),

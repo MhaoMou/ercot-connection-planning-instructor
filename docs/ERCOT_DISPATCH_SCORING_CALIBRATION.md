@@ -13,8 +13,8 @@ curtailment.
 ### Energy price
 
 The scored evaluator settles Submission 2 grid purchases at the nonnegative LMP
-from the selected joint dispatch at the selected bus and hour. Submission 1 is
-practice and has no energy-purchase cost. These are instructional model-derived
+from the selected joint dispatch at the selected bus and hour. Submission 1
+has no energy-purchase cost (in Weeks 2 and 3 it is still scored). These are instructional model-derived
 LMPs, not official ERCOT market prices. Baseline ACTIVSg2000 LMP artifacts are
 released economic-profile references and fallbacks, not a replacement for the
 joint-dispatch settlement when a dispatch LMP is available.
@@ -98,8 +98,9 @@ The missing calibration choices are:
 NREL gives the relevant fixed-charge-rate and LCOE equations in its ATB
 methodology.
 
-The approved teaching rule is `$1,500,000/MW`, charged once for generator
-capacity newly built in a weekly match. This is rounded near EIA's 2024
+The approved teaching rule is `$1,500,000/MW`, charged once, in the submission
+where the generator capacity is first built (Submission 1 assets carried into
+Submission 2 are not charged again). This is rounded near EIA's 2024
 internal-combustion-engine installed cost of `$1,522/kW`, which is a more
 appropriate anchor for modular colocated generation than a utility-scale
 combined-cycle plant.
@@ -117,7 +118,8 @@ Source:
 
 **Approved rule:** use `$25,000,000/MW` of newly built connection capacity.
 This is a capacity-dependent AI-data-center facility-cost proxy and is charged
-once within a weekly match. It is not a universal electrical interconnection
+once, in the submission where the site is first built (a Submission 1 site
+carried into Submission 2 is not charged again). It is not a universal electrical interconnection
 tariff: actual substation and network-upgrade costs are site-specific. JLL
 reports shell/core construction near `$10.7m/MW` and AI fit-out up to
 `$25m/MW`; Morgan Stanley reports roughly `$21m–$31m/MW` for AI construction
@@ -151,7 +153,7 @@ The following cannot be responsibly inferred as a single market number:
 | Maximum candidate-generator capacity | Set relative to site peak load. |
 | Number of sites/generators | Decide whether assets are unlimited or bounded. |
 | Period horizon and price artifact | The submission horizon is the complete released half-year: 4,344 non-leap Jan-Jun, 4,368 leap Jan-Jun, or 4,416 Jul-Dec; Submission 2 energy prices come from the selected joint-dispatch LMP. |
-| Weekly submission aggregation | Decide replace-versus-accumulate policy before student release. |
+| Weekly submission aggregation | Decided: Week 1 is practice; in Weeks 2 and 3 both submissions are scored and the final ranking is Week 2 S1 + Week 2 S2 + Week 3 S1 + Week 3 S2. |
 | Tie breaking | Confirm deterministic team-ID ordering or choose an explicit secondary metric. |
 
 LBNL studies show that data-center demand flexibility and large-load tariffs

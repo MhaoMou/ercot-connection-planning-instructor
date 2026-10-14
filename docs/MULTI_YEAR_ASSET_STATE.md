@@ -11,15 +11,17 @@ two-submission matches:
 | Week | Submission 1 | Submission 2 | State treatment |
 |---|---|---|---|
 | Week 1 | `2027_jan_jun` | `2027_jul_dec` | State persists within the week; feedback-only and unranked. |
-| Week 2 | `2028_jan_jun` | `2028_jul_dec` | State persists within the week; independent scored match. |
-| Week 3 | `2029_jan_jun` | `2029_jul_dec` | State persists within the week; independent scored match. |
+| Week 2 | `2028_jan_jun` | `2028_jul_dec` | State persists within the week; both submissions scored. |
+| Week 3 | `2029_jan_jun` | `2029_jul_dec` | State persists within the week; both submissions scored. |
 
 The coordinator requires the six rounds in order. It rejects a second submission
 when the first submission for that week has not committed successfully. It
 resets the asset ledger at the start of Weeks 2 and 3. Week 1 produces feedback
-for both submissions but contributes no score to the final ranking. Submission
-2 of Weeks 2 and 3 supplies the weekly rankings; final rankings aggregate valid
-team scores across those two scored submissions.
+for both submissions but contributes no score to the final ranking. In Weeks 2
+and 3, both Submission 1 and Submission 2 are scored; each weekly ranking ranks
+the Submission 1 + Submission 2 total, and the final ranking is the sum of the
+four scores Week 2 S1 + Week 2 S2 + Week 3 S1 + Week 3 S2 (an invalid
+submission scores 0).
 
 ## Canonical plan and evaluator-assigned assets
 
@@ -68,9 +70,12 @@ specification is rejected.
 
 Within one weekly match:
 
-- generator capital is charged once for each newly constructed evaluator asset;
-- storage capital is charged once for each newly constructed evaluator asset;
-- connection-site cost is charged once for newly declared connection capacity;
+- capital is charged once, in the submission where the asset is first built;
+- Submission 1 is charged for every site, generator, and storage asset it builds;
+- Submission 2 is charged only for sites/assets that are new relative to the
+  Submission 1 ledger; carried-forward sites and assets are not charged again
+  (`site_cost_connection_capacity_mw_by_team` and the `CapitalCostScope` passed
+  to the evaluator contain only the new items);
 - operational generator cost uses the complete materialized portfolio, including
   assets carried from Submission 1;
 - storage operating cost is not charged.

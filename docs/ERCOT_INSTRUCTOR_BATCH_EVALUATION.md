@@ -29,9 +29,9 @@ There are three weekly matches and six half-year submissions:
 
 | Week | Submission 1 | Submission 2 | Ranking treatment |
 |---|---|---|---|
-| Week 1 | `2027_jan_jun` | `2027_jul_dec` | Feedback-only practice week; excluded from final ranking. |
-| Week 2 | `2028_jan_jun` | `2028_jul_dec` | Scored match; Submission 2 is ranked. |
-| Week 3 | `2029_jan_jun` | `2029_jul_dec` | Scored match; Submission 2 is ranked. |
+| Week 1 | `2027_jan_jun` | `2027_jul_dec` | Practice/feedback only; neither submission counts. |
+| Week 2 | `2028_jan_jun` | `2028_jul_dec` | Scored match; both Submission 1 and Submission 2 count. |
+| Week 3 | `2029_jan_jun` | `2029_jul_dec` | Scored match; both Submission 1 and Submission 2 count. |
 
 The released horizons are:
 
@@ -43,10 +43,14 @@ The released horizons are:
 
 Within one week, Submission 1 is the first-stage plan. The coordinator carries
 accepted sites, evaluator-assigned generator and storage assets, and final
-storage SOC into Submission 2. Generator, storage, and newly built connection
-capital is charged once in that weekly match. At the start of the next week,
-the asset ledger and SOC reset. Final ranking aggregates valid scored
-Submission 2 results from Weeks 2 and 3.
+storage SOC into Submission 2. Capital cost (connection-site cost per MW,
+generator capital, storage capital) is charged once, in the submission where
+the asset is first built: Submission 1 pays for everything it builds, and
+Submission 2 pays only for newly added sites/assets, not for those carried
+from Submission 1. At the start of the next week, the asset ledger and SOC
+reset. The final ranking is the sum of four scores: Week 2 Submission 1 +
+Week 2 Submission 2 + Week 3 Submission 1 + Week 3 Submission 2 (an invalid
+submission scores 0). Week 1 is excluded.
 
 ## Run a half-year batch
 
@@ -81,12 +85,15 @@ ercot-game-batch run \
 `--submission-number` is evaluator-side metadata, not a CSV field. It accepts
 `1` or `2` and defaults to `2`.
 
-- `--submission-number 1` is practice and excludes energy-purchase cost while
-  retaining the other active scoring terms.
+- `--submission-number 1` excludes energy-purchase cost while retaining the
+  other active scoring terms.
 - `--submission-number 2` settles each team's grid purchases at the
   nonnegative LMP from that submission's joint dispatch.
 - Week 1 remains feedback-only even though its second submission uses the
-  Submission 2 settlement rule.
+  Submission 2 settlement rule. In Weeks 2 and 3 both submissions are scored.
+- A standalone `run` has no prior-submission asset ledger, so it charges
+  capital for every asset in the files. Use `ercot-game-batch classroom` to
+  carry Submission 1 assets into Submission 2 without a second capital charge.
 
 The `--year`, `--round`, and `--horizon` options describe evaluator
 context. They do not describe rows that must appear in a student CSV.
@@ -135,7 +142,9 @@ has:
 - 100% charge/discharge efficiency and a one-hour SOC transition;
 - initial SOC equal to one-half of energy capacity;
 - terminal SOC at least one-half of energy capacity;
-- a binary operating mode preventing simultaneous charge and discharge;
+- one signed net-power variable per asset and period (positive discharges,
+  negative charges), so the coupled horizon remains a linear program with no
+  binary operating-mode variable;
 - a discharge restriction to the owning team's load.
 
 Storage cannot be used to serve another team, and storage operating cost is not

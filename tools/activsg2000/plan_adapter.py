@@ -258,9 +258,10 @@ def evaluate_plan_with_prepared_dcopf(
 
     This adapter models fixed load: no curtailment or load shedding recourse.
     With a prepared artifact, storage dispatch is team-owned
-    inside one coupled horizon DCOPF mixed-integer program: each storage
-    asset has a binary operating-mode variable that prevents simultaneous
-    charging and discharging. This solver-backed path requires the optional
+    inside one coupled horizon DCOPF linear program: each storage asset has
+    one signed net-power variable per period (positive discharges, negative
+    charges), so no binary operating-mode variable is needed. This
+    solver-backed path requires the optional
     ``highspy`` dependency. The deterministic continuous peak-shaving schedule
     below is only the legacy compatibility path for callers that do not
     provide a prepared artifact; it is not the centralized horizon model.

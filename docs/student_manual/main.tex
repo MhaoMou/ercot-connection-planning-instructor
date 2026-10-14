@@ -86,9 +86,11 @@ all groups will be collected and evaluated together using a DC optimal power
 flow (\code{DCOPF}) dispatch model. \textbf{Groups are ranked by score.}
 
 The classroom game has three weeks and six half-year submissions. Each week
-has two submissions: Submission 1 is a practice plan and Submission 2 is the
-scored plan for Weeks 2 and 3. Week 1 is feedback-only and is not included in
-the final ranking.
+has two submissions. Week 1 is practice: both of its submissions receive
+feedback only and do not count. In Weeks 2 and 3, \textbf{both Submission 1 and
+Submission 2 are scored and both count}. Your final ranking is the sum of four
+scores: Week 2 Submission 1 + Week 2 Submission 2 + Week 3 Submission 1 +
+Week 3 Submission 2.
 
 \subsection{What you must do}
 Your team must design and submit one complete half-year connection plan in the
@@ -209,18 +211,23 @@ decisions with the selected hourly scenario and economic artifacts.
 \toprule
 Week & Submission 1 & Submission 2 & Treatment\\
 \midrule
-1 & \code{2027\_jan\_jun} & \code{2027\_jul\_dec} & Feedback-only practice week; excluded from final ranking.\\
-2 & \code{2028\_jan\_jun} & \code{2028\_jul\_dec} & Scored weekly match; Submission 2 is the scored result.\\
-3 & \code{2029\_jan\_jun} & \code{2029\_jul\_dec} & Scored weekly match; Submission 2 is the scored result.\\
+1 & \code{2027\_jan\_jun} & \code{2027\_jul\_dec} & Practice week: feedback only; neither submission counts.\\
+2 & \code{2028\_jan\_jun} & \code{2028\_jul\_dec} & Scored weekly match; Submission 1 and Submission 2 both count.\\
+3 & \code{2029\_jan\_jun} & \code{2029\_jul\_dec} & Scored weekly match; Submission 1 and Submission 2 both count.\\
 \bottomrule
 \end{tabularx}
 \end{center}
 
 Within a week, the evaluator carries accepted sites, evaluator-assigned
 generator and storage assets, and the final storage state of charge from
-Submission 1 into Submission 2. Capital cost for an asset is charged once when
-it is first built in that weekly match. At the beginning of the next week, the
-asset ledger and SOC reset; no asset or SOC carries between weeks.
+Submission 1 into Submission 2. Capital cost (site cost, generator capital, and
+storage capital) is charged once, in the submission where the asset is first
+built: Submission 1 pays for everything it builds, and Submission 2 pays only
+for sites and assets newly added in Submission 2. Assets carried over from
+Submission 1 are not charged again. Submission 1 has no energy-purchase cost;
+Submission 2 pays for grid purchases at the joint-dispatch LMP. At the
+beginning of the next week, the asset ledger and SOC reset; no asset or SOC
+carries between weeks.
 
 For each selected site $s$, submit a nonnegative connection capacity and
 optional private generation and storage capacities. A team's resources serve
@@ -244,8 +251,8 @@ evaluator assigns deterministic private asset IDs internally from the team and
 site IDs. These IDs are not lookup keys into the public generator catalog. The
 evaluator applies the
 same convex piecewise-linear operating-cost curve to every team-built generator
-at every site: the first 25\% of capacity costs \$60/MWh, the next 50\% costs
-\$100/MWh, and the final 25\% costs \$160/MWh. You submit the capacity and the
+at every site: the first 25\% of capacity costs \$80/MWh, the next 50\% costs
+\$150/MWh, and the final 25\% costs \$250/MWh. You submit the capacity and the
 evaluator chooses hourly dispatch. For a generator with capacity $G_{i,g}$,
 dispatch satisfies
 \[
@@ -276,7 +283,11 @@ with
   e_{i,b,H}\ge 0.5B_{i,b}.
 \]
 Students submit storage capacities only. The grid operator chooses charging and
-discharging in the centralized dispatch. Storage is private to the submitting
+discharging in the centralized dispatch. Because efficiency is ideal and
+storage has no operating cost, the evaluator represents each device by one
+signed net-power variable per hour ($q_{i,b,t}-c_{i,b,t}$; positive discharges,
+negative charges), so the dispatch remains a linear program with no binary
+charge/discharge mode variable. Storage is private to the submitting
 team: charging appears as additional team demand and discharging reduces that
 team's grid purchase; it cannot serve any other team's load. The evaluator
 assigns the storage asset ID from the team/site identity.
@@ -285,15 +296,15 @@ assigns the storage asset ID from the team/site identity.
 the following instructional coefficients:
 \begin{align*}
  C^{\mathrm{storage,cap}}_{i,b}={}&
- (\USD350{,}000/\MW)P_{i,b}
- +(\USD200{,}000/\MWh)B_{i,b}.
+ (\USD400{,}000/\MW)P_{i,b}
+ +(\USD250{,}000/\MWh)B_{i,b}.
 \end{align*}
-For a four-hour device, the two capital terms correspond to approximately
-\USD1.15m/MW of installed power capacity. Storage operating cost is not charged.
-These are rounded teaching coefficients informed by U.S. battery-storage construction and O\&M benchmarks,
-not a project quotation or an ERCOT tariff~\cite{eia2024bess,nrel2021bess,
-nrel2024bess}. The four-hour relation gives a total capital equivalent of
-\USD1.15m/MW. Storage operating cost is zero in the active evaluator.
+For a four-hour device ($B_{i,b}=4P_{i,b}$), the two capital terms correspond to
+\USD1.4m/MW of installed power capacity. Storage operating cost is not charged.
+These are rounded teaching coefficients informed by U.S. battery-storage cost
+benchmarks, not a project quotation or an ERCOT tariff~\cite{eia2024bess,
+nrel2023bess}. Storage capital is charged once, in the submission where the
+device is first built.
 
 \subsection{DCOPF}
 
@@ -429,14 +440,27 @@ The components are:
   the nonnegative LMP from the selected joint dispatch at the selected bus and
   hour. Submission 1 has no energy-purchase cost;
   \item $C_i^{\mathrm{gen,op}}$: team-generator dispatch charged at the common
-  25\%/50\%/25\% curve of \USD60/100/160 per MWh;
-  \item $C_i^{\mathrm{gen,cap}}$: newly built generator MW multiplied by
-  \USD1.5m/MW, charged once per weekly match;
-  \item $C_i^{\mathrm{storage,cap}}$: newly built storage charged at
-  \USD400,000/MW plus \USD250,000/MWh, with no storage operating cost;
-  \item $C_i^{\mathrm{site}}$: newly built connection capacity multiplied by
-  \USD25m/MW, charged once per weekly match;
+  25\%/50\%/25\% curve of \USD80/150/250 per MWh;
+  \item $C_i^{\mathrm{gen,cap}}$: generator MW newly built in this submission
+  multiplied by \USD1.5m/MW;
+  \item $C_i^{\mathrm{storage,cap}}$: storage newly built in this submission
+  charged at \USD400,000/MW plus \USD250,000/MWh, with no storage operating cost;
+  \item $C_i^{\mathrm{site}}$: connection capacity newly built in this
+  submission multiplied by \USD25m/MW.
 \end{itemize}
+Capital terms are charged once, in the submission where a site or asset is
+first built. In Submission 1 they cover everything you build; in Submission 2
+they cover only sites and assets you add in Submission 2, because Submission 1
+assets carry over without a second charge. Everything resets between weeks.
+An invalid submission scores 0.
+
+Your final ranking is the sum of the four scored submissions:
+\[
+  S_i^{\mathrm{final}}
+  = S_i^{\mathrm{W2,S1}} + S_i^{\mathrm{W2,S2}}
+  + S_i^{\mathrm{W3,S1}} + S_i^{\mathrm{W3,S2}}.
+\]
+Week 1 scores are practice feedback and are not included.
 
 The active instructional coefficients are listed below. The selected rule file
 and economic-profile artifacts remain authoritative for a released round.
@@ -447,7 +471,7 @@ and economic-profile artifacts remain authoritative for a released round.
 \toprule
 Parameter & Active value & Basis\\
 \midrule
-Generator capital & \USD1.5m/MW & One-time weekly-match coefficient, rounded near EIA's 2024 internal-combustion-engine cost~\cite{eia2024generatorcosts}.\\
+Generator capital & \USD1.5m/MW & Charged once, in the submission where the generator is first built; rounded near EIA's 2024 internal-combustion-engine cost~\cite{eia2024generatorcosts}.\\
 Site cost & \USD25m/MW & AI-data-center facility-capital proxy, not a universal interconnection tariff; informed by JLL and Morgan Stanley~\cite{jll2026dc,morganstanley2024dc}.\\
 Generator operating cost & Piecewise \$80/150/250 per MWh at 25/50/25\% & Source-informed colocated natural-gas/diesel-standby curve; exact mapping is instructional~\cite{eia2026lcoe,eia2025heatrate}.\\
 Energy price & Submission 2 joint-dispatch LMP & Locational price at the selected bus and hour; Submission 1 has no energy-purchase cost.\\
@@ -481,8 +505,9 @@ vector is constant by policy; the energy price is not a student-chosen value.
   \item Decide whether private generation or storage improves your score.
   \item Generate the \code{CSV} and run the \code{validator}.
   \item Keep the exact submitted file and validator output for reproducibility.
-  \item Submit both weekly files before the announced deadlines; revise the
-  first-stage plan for Submission 2 if the instructor permits revisions.
+  \item Submit both weekly files before the announced deadlines. In Weeks 2
+  and 3 both submissions count, so treat Submission 1 as a scored plan too;
+  Submission 2 may add new sites and assets on top of it.
 \end{enumerate}
 
 \subsection{What to inspect after evaluation}
@@ -531,8 +556,11 @@ Before uploading, confirm:
 
   \item[What carries from Submission 1 to Submission 2?]
   Accepted sites, evaluator-assigned generators and storage assets, and final
-  storage SOC persist within the week. Capital is charged once per weekly
-  match. The ledger and SOC reset at the start of the next week.
+  storage SOC persist within the week. Capital is charged once, in the
+  submission where an asset is first built: carried-over Submission 1 assets
+  are not charged again in Submission 2, and Submission 2 pays capital only
+  for newly added sites and assets. The ledger and SOC reset at the start of
+  the next week.
 
   \item[Can I schedule storage myself?]
   No. Submit only storage power and energy capacities. The centralized grid
@@ -545,8 +573,8 @@ Before uploading, confirm:
 
   \item[Which result is official?]
   The instructor-generated result and audit files determine the official
-  score. Week 1 is feedback-only; final ranking uses scored Submission 2
-  results from Weeks 2 and 3. Local calculations are for debugging and
+  score. Week 1 is feedback-only; the final ranking is the sum of Submission 1
+  and Submission 2 scores from Weeks 2 and 3 (four scores in total). Local calculations are for debugging and
   strategy development.
 
   \item[Why can the instructor not release a score yet?]

@@ -169,11 +169,11 @@ def evaluate_round(
             else frozenset()
         )
         prior_site_ids = frozenset(prior_team.sites) if prior_team is not None else frozenset()
-        prior_site_capacity_mw = (
-            sum(site.connection_capacity_mw for site in prior_team.sites.values())
-            if prior_team is not None
-            else 0.0
-        )
+        # Capital cost (site, generator, storage) is charged once, in the
+        # submission where the asset is first built.  Within a weekly match,
+        # Submission 2 is charged only for sites/assets that are new relative
+        # to the carried-forward Submission 1 ledger; the ledger reset at a
+        # weekly boundary makes every asset new again in the next week.
         if plan.connections:
             current_new_site_capacity_mw = sum(
                 connection.capacity_mw
@@ -193,10 +193,8 @@ def evaluate_round(
             current_new_site_count = sum(
                 site.site_id not in prior_site_ids for site in plan.sites
             )
-        new_site_capacity_mw[plan.team_id] = (
-            prior_site_capacity_mw + current_new_site_capacity_mw
-        )
-        new_site_counts[plan.team_id] = len(prior_site_ids) + current_new_site_count
+        new_site_capacity_mw[plan.team_id] = float(current_new_site_capacity_mw)
+        new_site_counts[plan.team_id] = int(current_new_site_count)
         materialized_generator_ids = {
             canonical_asset_key(plan.team_id, generator.connection_id, "generator"): generator.generator_id
             for generator in materialized.generators
@@ -217,22 +215,10 @@ def evaluate_round(
             for asset_key in declared_storage_keys
             if asset_key not in prior_storage_keys
         )
-        prior_generator_scope_ids = frozenset(
-            materialized_generator_ids[asset_key]
-            for asset_key in prior_generator_keys
-            if asset_key in materialized_generator_ids
-        )
-        prior_storage_scope_ids = frozenset(
-            materialized_storage_ids[asset_key]
-            for asset_key in prior_storage_keys
-            if asset_key in materialized_storage_ids
-        )
-        weekly_generator_ids = prior_generator_scope_ids | new_generators
-        weekly_storage_ids = prior_storage_scope_ids | new_storages
-        if weekly_generator_ids:
-            new_generator_ids[plan.team_id] = weekly_generator_ids
-        if weekly_storage_ids:
-            new_storage_ids[plan.team_id] = weekly_storage_ids
+        if new_generators:
+            new_generator_ids[plan.team_id] = new_generators
+        if new_storages:
+            new_storage_ids[plan.team_id] = new_storages
 
     kwargs = dict(evaluator_kwargs or {})
     if any(name in kwargs for name in _STAGE6_EVALUATOR_KWARGS):
@@ -293,12 +279,19 @@ class ClassroomRoundInput:
 
 @dataclass(frozen=True)
 class WeeklyRanking:
-    """Practice feedback and the scored ranking for one weekly match."""
+    """Per-submission results and the weekly ranking for one weekly match.
+
+    ``submission_results`` holds the ranked results of each evaluated
+    submission of the week, in submission order.  For the feedback-only
+    Week 1 these are practice feedback and ``rankings`` is empty.  For the
+    scored Weeks 2 and 3, both Submission 1 and Submission 2 count, and
+    ``rankings`` ranks each team's weekly total (Submission 1 + Submission 2).
+    """
 
     week_id: str
     feedback_only: bool
     rankings: tuple[TeamScore, ...] = ()
-    practice_feedback: tuple[TeamScore, ...] = ()
+    submission_results: tuple[tuple[TeamScore, ...], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -317,7 +310,9 @@ class ClassroomEvaluationResult:
             "weekly_rankings": {
                 ranking.week_id: {
                     "feedback_only": ranking.feedback_only,
-                    "practice_feedback": _score_counts(ranking.practice_feedback),
+                    "submission_results": [
+                        _score_counts(scores) for scores in ranking.submission_results
+                    ],
                     "rankings": _score_counts(ranking.rankings),
                 }
                 for ranking in self.weekly_rankings
@@ -388,57 +383,78 @@ def evaluate_classroom(
             )
         )
 
+    # Final ranking = sum of the four scored submissions: Week 2 S1 + Week 2
+    # S2 + Week 3 S1 + Week 3 S2.  Week 1 is practice feedback only.
     weekly_rankings: list[WeeklyRanking] = []
     final_scores: list[TeamScore] = []
     for week_id, week_results in _group_week_results(results):
-        first = week_results[0]
-        practice_feedback = tuple(getattr(first.evaluation, "team_scores", ()))
-        if first.feedback_only:
+        feedback_only = week_results[0].feedback_only
+        submission_results = tuple(
+            _rank_scores(tuple(getattr(result.evaluation, "team_scores", ())))
+            for result in week_results
+        )
+        if feedback_only:
             rankings: tuple[TeamScore, ...] = ()
-        elif len(week_results) < 2:
-            rankings = ()
         else:
-            rankings = _rank_scores(getattr(week_results[1].evaluation, "team_scores", ()))
-            final_scores.extend(score for score in rankings if score.valid)
+            scored_scores = [
+                score for scores in submission_results for score in scores
+            ]
+            rankings = _rank_scores(_sum_scores_by_team(scored_scores))
+            final_scores.extend(scored_scores)
         weekly_rankings.append(
             WeeklyRanking(
                 week_id=week_id,
-                feedback_only=first.feedback_only,
+                feedback_only=feedback_only,
                 rankings=rankings,
-                practice_feedback=practice_feedback,
+                submission_results=submission_results,
             )
         )
 
-    aggregate_by_team: dict[str, TeamScore] = {}
-    for score in final_scores:
-        previous = aggregate_by_team.get(score.team_id)
-        if previous is None:
-            aggregate_by_team[score.team_id] = score
-        else:
-            aggregate_by_team[score.team_id] = replace(
-                previous,
-                score=previous.score + score.score,
-                served_load_mwh=previous.served_load_mwh + score.served_load_mwh,
-                it_value=previous.it_value + score.it_value,
-                energy_cost=previous.energy_cost + score.energy_cost,
-                generator_operating_cost=(
-                    previous.generator_operating_cost + score.generator_operating_cost
-                ),
-                generator_capital_cost=(
-                    previous.generator_capital_cost + score.generator_capital_cost
-                ),
-                site_cost=previous.site_cost + score.site_cost,
-                storage_capital_cost=(
-                    previous.storage_capital_cost + score.storage_capital_cost
-                ),
-            )
-    final_rankings = _rank_scores(tuple(aggregate_by_team.values()))
+    final_rankings = _rank_scores(_sum_scores_by_team(final_scores))
     return ClassroomEvaluationResult(
         submissions=tuple(results),
         weekly_rankings=tuple(weekly_rankings),
         final_rankings=final_rankings,
         state=results[-1].state,
     )
+
+
+def _sum_scores_by_team(scores: Sequence[TeamScore]) -> tuple[TeamScore, ...]:
+    """Sum scored submissions per team.
+
+    Invalid or infeasible submissions contribute the rules' infeasible score
+    (0 under the released rules).  The aggregate is valid/feasible when at
+    least one summed submission was, so one failed submission lowers a team's
+    total without moving the team into a separate ranking tier.
+    """
+    aggregate_by_team: dict[str, TeamScore] = {}
+    for score in scores:
+        previous = aggregate_by_team.get(score.team_id)
+        if previous is None:
+            aggregate_by_team[score.team_id] = replace(score, submission_key=None)
+            continue
+        feasible = previous.feasible or score.feasible
+        aggregate_by_team[score.team_id] = replace(
+            previous,
+            valid=previous.valid or score.valid,
+            feasible=feasible,
+            failure_reason=None if feasible else previous.failure_reason,
+            score=previous.score + score.score,
+            served_load_mwh=previous.served_load_mwh + score.served_load_mwh,
+            it_value=previous.it_value + score.it_value,
+            energy_cost=previous.energy_cost + score.energy_cost,
+            generator_operating_cost=(
+                previous.generator_operating_cost + score.generator_operating_cost
+            ),
+            generator_capital_cost=(
+                previous.generator_capital_cost + score.generator_capital_cost
+            ),
+            site_cost=previous.site_cost + score.site_cost,
+            storage_capital_cost=(
+                previous.storage_capital_cost + score.storage_capital_cost
+            ),
+        )
+    return tuple(aggregate_by_team.values())
 
 
 def _group_week_results(
@@ -670,7 +686,8 @@ class RoundEvaluationResult:
 
     @property
     def scored(self) -> bool:
-        return not self.feedback_only and self.submission_number == 2
+        """Both submissions of Weeks 2 and 3 count; Week 1 is feedback only."""
+        return not self.feedback_only
 
     @property
     def predecessor_round_key(self) -> str | None:

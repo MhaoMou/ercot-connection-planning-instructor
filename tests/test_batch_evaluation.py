@@ -508,7 +508,9 @@ def test_evaluate_csv_batch_uses_materialized_plan_and_charges_only_new_assets(
     assert result.input_sha256_by_team == {"team-a": "parsed-sha"}
     assert score.generator_capital_cost == 50.0
     assert score.storage_capital_cost == 46.0
-    assert score.generator_operating_cost == 210.0
+    # $80/$150/$250 curve: gen-old 1.0 MW in segment 1 (80) + gen-new
+    # 1.25 MW at $80 and 0.75 MW at $150 = 80 + 100 + 112.5.
+    assert score.generator_operating_cost == 292.5
     assert score.site_cost == 7.0
 
 
@@ -1290,7 +1292,7 @@ def test_scoring_settles_grid_purchase_at_each_site_bus():
     assert score_b.energy_cost == 34.0
 
 
-def test_practice_submission_excludes_energy_purchase_cost_and_scored_submission_uses_joint_lmp():
+def test_submission_one_excludes_energy_purchase_cost_and_submission_two_uses_joint_lmp():
     dispatch = SimpleNamespace(
         periods=(
             SimpleNamespace(
@@ -1310,12 +1312,12 @@ def test_practice_submission_excludes_energy_purchase_cost_and_scored_submission
         energy_price_per_mwh=(999.0,),
     )
 
-    practice = _score_team(plan, dispatch, rules, submission_number=1)
-    scored = _score_team(plan, dispatch, rules, submission_number=2)
+    submission_one = _score_team(plan, dispatch, rules, submission_number=1)
+    submission_two = _score_team(plan, dispatch, rules, submission_number=2)
 
-    assert practice.energy_cost == 0.0
-    assert scored.energy_cost == 80.0
-    assert scored.score == practice.score - 80.0
+    assert submission_one.energy_cost == 0.0
+    assert submission_two.energy_cost == 80.0
+    assert submission_two.score == submission_one.score - 80.0
 
 
 def test_revised_capex_and_connection_cost_are_capacity_based_and_storage_has_no_operating_cost():

@@ -106,3 +106,19 @@ def test_active_rule_metadata_matches_generator_and_scenario_manifests(round_nam
     assert block_manifest["block"] == f"{year}-{round_name}"
     assert package_manifest["blocks"][block_manifest["block"]]["horizon"] == block_manifest["horizon"]
     assert package_manifest["blocks"][block_manifest["block"]]["calendar_block"] == round_name
+
+
+def test_runtime_team_generator_cost_curve_matches_released_rules():
+    from ercot_game.csv_submission import TEAM_GENERATOR_COST_CURVE
+
+    for filename in (
+        "dispatch_scoring_rules_jan_jun_v1.json",
+        "dispatch_scoring_rules_jul_dec_v1.json",
+    ):
+        payload = json.loads(
+            (ROOT / "data" / "teaching" / filename).read_text(encoding="utf-8")
+        )
+        assert TEAM_GENERATOR_COST_CURVE == tuple(
+            (item["capacity_fraction"], item["marginal_cost_per_mwh"])
+            for item in payload["team_generator_cost_curve"]
+        )

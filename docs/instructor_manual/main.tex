@@ -111,8 +111,8 @@ refer to a public bus in the selected scenario block. The canonical CSV submits
 generator and storage capacities directly; it does not select an existing public
 generator or storage device by ID. Every team-built generator uses the same
 convex piecewise-linear
-operating curve at every bus: 25\% of capacity at \$60/MWh, the next 50\% at
-\$100/MWh, and the final 25\% at \$160/MWh. Students submit capacities; the
+operating curve at every bus: 25\% of capacity at \$80/MWh, the next 50\% at
+\$150/MWh, and the final 25\% at \$250/MWh. Students submit capacities; the
 evaluator determines hourly dispatch. Team-built generators and storage serve only
 their submitting team.
 
@@ -139,17 +139,22 @@ The classroom schedule has three weekly matches and six submissions:
 \toprule
 Week & Submission 1 & Submission 2 & Ranking and state treatment\\
 \midrule
-1 & \code{2027\_jan\_jun} & \code{2027\_jul\_dec} & Feedback-only practice week; state persists within the week and is excluded from final ranking.\\
-2 & \code{2028\_jan\_jun} & \code{2028\_jul\_dec} & Independent scored match; Submission 2 is ranked.\\
-3 & \code{2029\_jan\_jun} & \code{2029\_jul\_dec} & Independent scored match; Submission 2 is ranked.\\
+1 & \code{2027\_jan\_jun} & \code{2027\_jul\_dec} & Practice week: feedback only; state persists within the week; neither submission counts.\\
+2 & \code{2028\_jan\_jun} & \code{2028\_jul\_dec} & Independent scored match; Submission 1 and Submission 2 both count.\\
+3 & \code{2029\_jan\_jun} & \code{2029\_jul\_dec} & Independent scored match; Submission 1 and Submission 2 both count.\\
 \bottomrule
 \end{tabularx}
 \end{center}
 
 Accepted sites, evaluator-assigned assets, and final storage SOC persist from
-Submission 1 to Submission 2 within a week. Generator, storage, and newly
-built connection capital is charged once in that weekly match. The asset ledger
-and SOC reset at the beginning of the next week.
+Submission 1 to Submission 2 within a week. Capital cost (connection-site
+cost per MW, generator capital, storage capital) is charged once, in the
+submission where the asset is first built: Submission 1 pays for everything it
+builds, and Submission 2 pays only for newly added sites and assets, not for
+those carried from Submission 1. The asset ledger and SOC reset at the
+beginning of the next week. The final ranking is the sum of four scores:
+Week 2 Submission 1 + Week 2 Submission 2 + Week 3 Submission 1 + Week 3
+Submission 2; Week 1 is excluded and an invalid submission scores 0.
 
 The released artifacts are under
 \path{data/processed/activsg2000_scenarios_v1/<year>/<block>}. The root and
@@ -190,7 +195,9 @@ Do not distribute it as a current student template.
 Students submit storage capacities only. The grid operator schedules storage in
 the centralized prepared HiGHS model. Storage uses MW power capacity and MWh
 energy capacity. With ideal charging and discharging efficiency, the evaluator
-enforces power and energy bounds, binary no-simultaneous charge/discharge,
+represents each asset by one signed net-power variable per period (positive
+discharges, negative charges), so the coupled horizon is a linear program with
+no binary operating-mode variable. It enforces power and energy bounds,
 discharge no greater than the stored energy, an initial state of charge of
 $0.5B$, and a terminal state of charge of at least $0.5B$. Discharge can reduce
 only the owning team's load.
@@ -236,12 +243,14 @@ ercot-game-batch run \
 
 The submission number is evaluator-side metadata, not a CSV column. The CLI
 accepts \code{1} or \code{2} and defaults explicitly to \code{2}. Use
-\clioption{--submission-number 1} for a practice run: it excludes energy-purchase
-cost while retaining the other active scoring terms. Use
-\clioption{--submission-number 2} for the scored run, which settles grid purchases
-at the locational marginal price (LMP) from the selected joint dispatch.
-Submission 1 is practice and has no energy-purchase cost while retaining the
-other active scoring terms.
+\clioption{--submission-number 1} for a Submission 1 run: it excludes
+energy-purchase cost while retaining the other active scoring terms. Use
+\clioption{--submission-number 2} for a Submission 2 run, which settles grid
+purchases at the locational marginal price (LMP) from the selected joint
+dispatch. In Weeks 2 and 3 both submissions are scored. A standalone
+\code{run} has no prior-submission asset ledger and therefore charges capital
+for every asset in the files; the \code{classroom} command below carries
+Submission 1 assets into Submission 2 without a second capital charge.
 
 For an end-to-end classroom run, provide a manifest containing the six released
 rounds and use:
@@ -254,7 +263,10 @@ ercot-game-batch classroom \\
 
 The classroom coordinator rejects a second submission without a committed first
 submission for that week, persists the asset ledger and SOC within the week,
-resets them between weeks, and writes aggregate classroom-safe outputs.
+resets them between weeks, charges capital only in the submission where an
+asset is first built, ranks each scored week by the Submission 1 + Submission 2
+total, ranks the final standings by the sum of the four Week 2 and Week 3
+scores, and writes aggregate classroom-safe outputs.
 
 Validate the complete scenario package:
 \begin{lstlisting}
@@ -315,7 +327,7 @@ For Submission 2, energy purchase cost uses the nonnegative LMP from the
 selected joint dispatch at the selected bus and hour. The released LMP
 artifacts are deterministic economic-profile references with one row per hour
 and one column per bus; raw balance duals are retained for audit. Submission 1
-is practice and has no energy-purchase cost. IT value is a complete
+has no energy-purchase cost (it is still scored in Weeks 2 and 3). IT value is a complete
 full-horizon vector supplied in the corresponding economic-profile JSON. These
 are instructional model outputs, not official ERCOT market prices. The
 submission number is selected on the instructor CLI and is never represented by
@@ -374,9 +386,13 @@ Rank & Team & Buses & Request (MW) & Connected (MW) & Gen (MW) & Storage (MW/MWh
 \end{center}
 
 The total connected capacity is 705~MW and total served load is
-3,079,440~MWh. Scores are negative because the active site-capital coefficient
-is \USD20 million/MW; site cost dominates the IT-service value in this
-fixture. The private generators are present in the plans but were not
+3,079,440~MWh. This recorded run predates the current coefficients: it used
+the superseded pilot values (IT value \USD1,500/MWh, site cost \USD20m/MW,
+generator capital \USD1.3m/MW, storage capital \USD350,000/MW plus
+\USD200,000/MWh), so its scores do not reflect the active rule files. Scores
+are negative because site cost dominated the IT-service value under those
+pilot values. It is also a standalone Submission 2 run, so every asset is
+charged capital. The private generators are present in the plans but were not
 dispatched in this joint optimum, so their operating-cost component is zero.
 The complete score decomposition is in \code{results.json}.
 
@@ -516,8 +532,8 @@ Before release, verify:
   \item Freeze and hash the submission directory.
   \item Run format validation and the full batch evaluation for each submission,
   or run the classroom coordinator.
-  \item Confirm weekly persistence, one-time capital charges, and reset at the
-  start of Weeks 2 and 3.
+  \item Confirm weekly persistence, capital charged only in the submission
+  where an asset is first built, and reset at the start of Weeks 2 and 3.
   \item Inspect valid/invalid counts, per-team projection scope, and diagnostics.
   \item Release protected summaries and retain the complete instructor archive.
 \end{enumerate}

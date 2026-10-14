@@ -75,7 +75,7 @@ def test_plan_state_preserves_half_year_metadata_and_materializes_evaluator_plan
         ("generator:team-a:site-north", "site-north"),
     ]
     assert plan.generators[0].marginal_cost_per_mwh == TEAM_GENERATOR_COMPATIBILITY_COST_PER_MWH
-    assert TEAM_GENERATOR_COST_CURVE == ((0.25, 60.0), (0.50, 100.0), (0.25, 160.0))
+    assert TEAM_GENERATOR_COST_CURVE == ((0.25, 80.0), (0.50, 150.0), (0.25, 250.0))
     assert [(item.storage_id, item.connection_id) for item in plan.storages] == [
         ("storage:team-a:site-north", "site-north"),
     ]

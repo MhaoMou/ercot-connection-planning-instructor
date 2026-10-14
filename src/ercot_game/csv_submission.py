@@ -48,7 +48,8 @@ _CANONICAL_EXAMPLE = (
 # Team-built generators use a common convex curve, independent of the public
 # generator catalog. The scalar is retained only for compatibility with the
 # canonical plan model; dispatch expands it into three cost segments.
-TEAM_GENERATOR_COST_CURVE = ((0.25, 60.0), (0.50, 100.0), (0.25, 160.0))
+# Must match "team_generator_cost_curve" in data/teaching/dispatch_scoring_rules_*_v1.json.
+TEAM_GENERATOR_COST_CURVE = ((0.25, 80.0), (0.50, 150.0), (0.25, 250.0))
 TEAM_GENERATOR_COMPATIBILITY_COST_PER_MWH = 100.0
 
 

@@ -143,7 +143,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         choices=(1, 2),
         default=2,
-        help="weekly submission number: 1 for practice without energy-purchase cost; 2 for scored evaluation (default)",
+        help="weekly submission number: 1 = Submission 1 (no energy-purchase cost); 2 = Submission 2 (grid purchases settled at joint-dispatch LMP; default)",
     )
     run_parser.add_argument(
         "--workers",

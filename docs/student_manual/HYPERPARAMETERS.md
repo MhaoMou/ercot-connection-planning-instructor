@@ -66,21 +66,25 @@ The game has three weekly matches and six half-year submissions:
 
 | Week | Submission 1 | Submission 2 | Treatment |
 |---|---|---|---|
-| Week 1 | `2027_jan_jun` | `2027_jul_dec` | Feedback-only practice week; excluded from final ranking. |
-| Week 2 | `2028_jan_jun` | `2028_jul_dec` | Scored weekly match; Submission 2 is the scored result. |
-| Week 3 | `2029_jan_jun` | `2029_jul_dec` | Scored weekly match; Submission 2 is the scored result. |
+| Week 1 | `2027_jan_jun` | `2027_jul_dec` | Practice week: feedback only; neither submission counts. |
+| Week 2 | `2028_jan_jun` | `2028_jul_dec` | Scored weekly match; Submission 1 and Submission 2 both count. |
+| Week 3 | `2029_jan_jun` | `2029_jul_dec` | Scored weekly match; Submission 1 and Submission 2 both count. |
 
 Within a week, Submission 1 is the first-stage plan. Its sites, evaluator-
-assigned assets, and final storage SOC are carried into Submission 2. Generator
-and storage capital cost is charged once when an asset is first built in that
-weekly match. At the beginning of the next week, the asset ledger and SOC reset;
-the previous week's assets do not receive credit or carry-over treatment.
+assigned assets, and final storage SOC are carried into Submission 2. Capital
+cost (connection-site cost, generator capital, storage capital) is charged
+once, in the submission where the asset is first built: Submission 1 pays for
+everything it builds, and Submission 2 pays only for newly added sites and
+assets. Assets carried over from Submission 1 are not charged again. At the
+beginning of the next week, the asset ledger and SOC reset; the previous
+week's assets do not receive credit or carry-over treatment.
 
-Submission 1 is practice: it has no energy-purchase cost. Submission 2 uses
-the LMP from its selected joint dispatch for each team's grid purchases. Week 1
+Submission 1 has no energy-purchase cost. Submission 2 uses the LMP from its
+selected joint dispatch for each team's grid purchases. Week 1 is practice: it
 still produces feedback artifacts, but neither of its submissions contributes
-to the final ranking. The final ranking aggregates the scored Submission 2
-results from Weeks 2 and 3.
+to the final ranking. In Weeks 2 and 3 both submissions are scored, and the
+final ranking is the sum of four scores: Week 2 Submission 1 + Week 2
+Submission 2 + Week 3 Submission 1 + Week 3 Submission 2.
 
 ## Canonical student CSV
 
@@ -131,10 +135,10 @@ only and must not be copied into an active submission.
 | Parameter | Value | Units | Origin | Rationale / reference |
 |---|---:|---|---|---|
 | IT-service value | 6,500 | USD/MWh served load | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | AI-intensive instructional opportunity value, rounded from a recent compute-value estimate with a blended value near $6,350/MWh. Cloud prices remain contextual, not a direct tariff conversion. See [Compute Heat Rate](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=6322318) and the [IEA Energy and AI executive summary](https://www.iea.org/reports/energy-and-ai/executive-summary). |
-| Energy purchase cost, Submission 1 | 0 | USD | INSTRUCTOR-CHOSEN | Practice settlement excludes grid-energy cost. |
+| Energy purchase cost, Submission 1 | 0 | USD | INSTRUCTOR-CHOSEN | Submission 1 settlement excludes grid-energy cost (it is still scored in Weeks 2 and 3). |
 | Energy purchase cost, Submission 2 | Joint-dispatch LMP times grid purchase | USD/MWh | DERIVED | The LMP is selected from the joint dispatch at the team's bus; it is not a student-chosen independent price. |
 | Team-generator marginal curve | 25% at 80, 50% at 150, 25% at 250 | USD/MWh and capacity share | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | Convex curve for generic colocated natural-gas reciprocating/simple-cycle generation with diesel-standby/scarcity premium; exact curve remains instructional. See [EIA 2026 LCOE page](https://www.eia.gov/outlooks/aeo/electricity_generation/), [EIA AEO2025 technology-cost report](https://www.eia.gov/analysis/studies/powerplants/capitalcost/pdf/capital_cost_AEO2025.pdf), and [California Energy Commission data-center overview](https://www.energy.ca.gov/programs-and-topics/topics/data-centers). |
-| Team-generator capital | 1,500,000 | USD/MW | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | Rounded near EIA's 2024 internal-combustion-engine installed cost of $1,522/kW; charged once per newly built generator MW in a weekly match. See [EIA generator costs](https://www.eia.gov/electricity/generatorcosts/). |
+| Team-generator capital | 1,500,000 | USD/MW | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | Rounded near EIA's 2024 internal-combustion-engine installed cost of $1,522/kW; charged once, in the submission where the generator MW is first built. See [EIA generator costs](https://www.eia.gov/electricity/generatorcosts/). |
 | Connection-site cost | 25,000,000 | USD/MW | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | AI-data-center facility-capital proxy, not a universal interconnection tariff. JLL reports $10.7M/MW shell/core and up to $25M/MW AI fit-out; Morgan Stanley reports approximately $21–31M/MW including GPUs/servers. See [JLL outlook](https://www.jll.com/en-us/insights/market-outlook/global-data-centers) and [Morgan Stanley data-center research](https://www.morganstanley.com/content/dam/msdotcom/en/assets/pdfs/Research_Bridging-Data-Center-Gap.pdf). |
 | Storage power capital | 400,000 | USD/MW | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | Rounded component of the 2028 moderate four-hour storage projection. See [NREL 2023 storage projections](https://www.nrel.gov/docs/fy23osti/85332.pdf) and [NREL 2024 utility-scale storage ATB](https://atb.nrel.gov/electricity/2024/2023/utility-scale_battery_storage). |
 | Storage energy capital | 250,000 | USD/MWh | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | Rounded component of the same 2028 moderate four-hour projection. |
@@ -172,8 +176,12 @@ SOC[end] >= 0.5 * storage_energy_mwh
 ```
 
 The transition uses one hour and 100% efficiency. The prepared HiGHS model
-uses a binary operating-mode variable to prevent simultaneous charge and
-discharge. Discharge can reduce only the owning team's load. It cannot be
+represents each storage asset with one signed net-power variable per period
+(`discharge[t] - charge[t]`; positive discharges, negative charges), so the
+coupled horizon dispatch is a linear program with no binary operating-mode
+variable. With ideal efficiency and no storage operating cost, simultaneous
+charge and discharge has no value, so this is equivalent to the two-variable
+form above. Discharge can reduce only the owning team's load. It cannot be
 exported to another team. A separate continuous peak-shaving path exists only
 for explicitly marked no-artifact compatibility tests; it is not the active
 classroom dispatch.
@@ -203,8 +211,9 @@ team-out and individual fallback attempts are recorded where possible.
 ## Persistent assets and privacy-safe outputs
 
 The round coordinator carries accepted team-owned assets and final SOC from
-Submission 1 to Submission 2 within a week, charges newly built capital only
-once, and resets the ledger at each new week. The state file is written only
+Submission 1 to Submission 2 within a week, charges capital only in the
+submission where an asset is first built (Submission 2 is charged only for
+newly added sites/assets), and resets the ledger at each new week. The state file is written only
 after a usable dispatch and valid final SOC have been obtained.
 
 The raw instructor output contains the full audit record, submitted plans,

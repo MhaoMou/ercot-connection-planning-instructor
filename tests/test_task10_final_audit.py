@@ -188,7 +188,7 @@ def _audit_evaluation(**kwargs):
     )
 
 
-def test_full_six_round_lifecycle_has_practice_scored_and_reset_boundaries(tmp_path: Path) -> None:
+def test_full_six_round_lifecycle_has_feedback_scored_and_reset_boundaries(tmp_path: Path) -> None:
     plans_by_round = {
         "2027_jan_jun": (_audit_plan("team-a", "site-w1", "gen-w1"), _audit_plan("team-b", "site-b1", "gen-b1")),
         "2027_jul_dec": (_empty_plan("team-a"), _empty_plan("team-b")),
@@ -226,10 +226,11 @@ def test_full_six_round_lifecycle_has_practice_scored_and_reset_boundaries(tmp_p
     assert result.submissions[1].feedback_only is True
     assert result.submissions[1].preserves_prior_submission is True
     assert result.submissions[2].ledger_reset is True
-    assert result.submissions[2].scored is False
+    assert result.submissions[2].scored is True
     assert result.submissions[3].scored is True
     assert result.submissions[3].preserves_prior_submission is True
     assert result.submissions[4].ledger_reset is True
+    assert result.submissions[4].scored is True
     assert result.submissions[5].scored is True
     assert result.submissions[2].prior_state.asset_ledger.team_ids() == ()
     assert result.submissions[3].prior_state.asset_ledger.team("team-a").generators["gen-w2"].capacity_mw == 1.0
@@ -237,13 +238,14 @@ def test_full_six_round_lifecycle_has_practice_scored_and_reset_boundaries(tmp_p
     assert result.submissions[5].prior_state.asset_ledger.team("team-a").generators["gen-w3"].capacity_mw == 1.0
     assert result.weekly_rankings[0].rankings == ()
     assert all(ranking.rankings for ranking in result.weekly_rankings[1:])
+    # Final ranking sums Week 2 S1 + S2 + Week 3 S1 + S2 (Week 1 excluded).
     assert {score.team_id: score.score for score in result.final_rankings} == {
-        "team-a": 20.0,
-        "team-b": 40.0,
+        "team-a": 40.0,
+        "team-b": 80.0,
     }
 
 
-def test_practice_has_no_energy_charge_and_scored_round_uses_joint_lmp() -> None:
+def test_submission_one_has_no_energy_charge_and_submission_two_uses_joint_lmp() -> None:
     dispatch = SimpleNamespace(
         periods=(
             SimpleNamespace(
@@ -263,11 +265,11 @@ def test_practice_has_no_energy_charge_and_scored_round_uses_joint_lmp() -> None
         energy_price_per_mwh=(999.0,),
     )
 
-    practice = _score_team(plan, dispatch, rules, submission_number=1)
-    scored = _score_team(plan, dispatch, rules, submission_number=2)
-    assert practice.energy_cost == 0.0
-    assert scored.energy_cost == 80.0
-    assert scored.score == practice.score - scored.energy_cost
+    submission_one = _score_team(plan, dispatch, rules, submission_number=1)
+    submission_two = _score_team(plan, dispatch, rules, submission_number=2)
+    assert submission_one.energy_cost == 0.0
+    assert submission_two.energy_cost == 80.0
+    assert submission_two.score == submission_one.score - submission_two.energy_cost
 
 
 def test_fair_projection_handles_missing_catalog_and_zero_request_without_leakage(

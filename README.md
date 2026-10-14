@@ -22,10 +22,21 @@ ACTIVSg2000 scenario package (full DCOPF validation pending/unverified here)
 The Python evaluator is authoritative. Students submit CSV files; instructors
 run the batch evaluator and return scores plus the intended privacy-safe
 feedback artifacts. Student-owned generators and storage serve only their own
-team. The current score uses IT value of \$1500/MWh, a team-generator curve of
-\$60/\$100/\$160 per MWh at 25/50/25\%, site cost of \$20m/MW, generator
-capital cost of \$1.3m/MW, and storage capital costs of \$350k/MW plus
-\$200k/MWh. Storage operating cost is not charged.
+team. The current score (from `data/teaching/dispatch_scoring_rules_*_v1.json`)
+uses IT value of \$6,500/MWh, a team-generator curve of \$80/\$150/\$250 per
+MWh over 25%/50%/25% of capacity, site cost of \$25M/MW of connection
+capacity, generator capital cost of \$1.5M/MW, and storage capital costs of
+\$400k/MW plus \$250k/MWh. Storage operating cost is not charged, and an
+invalid submission scores 0.
+
+The classroom game has three weekly matches of two half-year submissions.
+Week 1 (2027) is practice/feedback only. In Weeks 2 (2028) and 3 (2029), both
+Submission 1 and Submission 2 are scored, and the final ranking is the sum of
+the four scores: Week 2 S1 + Week 2 S2 + Week 3 S1 + Week 3 S2. Capital cost
+(site, generator, storage) is charged once, in the submission where the asset
+is first built: assets built in Submission 1 carry into Submission 2 without a
+second charge, and Submission 2 pays only for newly added sites/assets. All
+assets reset between weeks.
 
 ## Repository layout
 
@@ -94,12 +105,15 @@ ercot-game-batch run \
   --output-dir work/batch_results_jan_jun
 ```
 
-`--submission-number 2` is the explicit scored-evaluation default and includes
-locational energy-purchase cost settled at the LMP from the selected joint
-dispatch. Use `--submission-number 1` for a practice run; it has no
-energy-purchase cost while retaining the other active scoring terms.
-Submission 1 is practice and Submission 2 is scored; submission number is evaluator-side
-metadata and is not a CSV column.
+`--submission-number 2` is the default and includes locational
+energy-purchase cost settled at the LMP from the selected joint dispatch. Use
+`--submission-number 1` for a Submission 1 run; it has no energy-purchase cost
+while retaining the other active scoring terms. In Weeks 2 and 3 both
+submissions are scored; submission number is evaluator-side metadata and is
+not a CSV column. A standalone `run` has no prior-submission ledger and
+therefore charges capital for every asset in the files; the `classroom`
+command carries Submission 1 assets into Submission 2 so they are charged only
+once.
 
 Use `--year 2027 --round jul_dec` for July--December. The evaluator derives
 the correct half-year length and source-row offset from the calendar. For
