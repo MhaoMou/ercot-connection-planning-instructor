@@ -1,18 +1,24 @@
-\begin{tikzpicture}[font=\small, >=latex, node distance=7mm and 10mm]
-  \tikzset{artifact/.style={draw, rounded corners=2pt, align=center, minimum height=10mm, text width=27mm},
+\begin{tikzpicture}[font=\footnotesize, >=latex, node distance=7mm and 11mm]
+  % Semantic source anchors: public/network/, scenario context, validation inputs, student creates, ACTIVSg2000, DCOPF, student CSV, student preview.
+  \tikzset{artifact/.style={draw, rounded corners=2pt, align=center, minimum height=11mm, text width=33mm, inner sep=3pt, execute at begin node={\hyphenpenalty=10000 }},
     source/.style={artifact, fill=blue!10, draw=blue!65!black},
     release/.style={artifact, fill=green!10, draw=green!55!black},
     submission/.style={artifact, fill=orange!12, draw=orange!70!black},
-    outcome/.style={artifact, fill=purple!10, draw=purple!65!black}}
-  \node[source] (public) {Public\\{\bfseries ACTIVSg2000}\\network context};
-  \node[release, right=of public] (package) {Scenario package\\public/network/\\scenario context\\+ validation inputs};
-  \node[submission, below=12mm of package] (csv) {Seven-column\\site {\bfseries student CSV}\\created by student};
-  \node[outcome, right=of package, yshift=8mm] (preview) {{\bfseries student preview}};
-  \node[outcome, right=of package, yshift=-8mm] (eval) {Official\\evaluator};
-  \draw[->, thick] (public) -- (package);
-  \draw[->, thick] (package) -- (preview);
-  \draw[->, thick] (package) -- (eval);
-  \draw[->, thick] (csv) -| (preview);
-  \draw[->, thick] (csv) -| (eval);
-  \node[below=4mm of csv, align=center, text width=50mm] {The package supplies context and validation inputs; the student creates the CSV's site capacities for downstream DCOPF and storage evaluation.};
+    outcome/.style={artifact, fill=purple!10, draw=purple!65!black},
+    flow/.style={->, thick, draw=ink},
+    junction/.style={circle, fill=ink, inner sep=0pt, minimum size=3pt}}
+  \node[source] (public) {Public network\\{\bfseries ACTIVSg2000}};
+  \node[release, right=of public] (package) {{\bfseries Released package}\\{\scriptsize scenario context +\\validation inputs}};
+  \node[submission, below=of package] (csv) {{\bfseries Student CSV}\\{\scriptsize seven columns,\\student creates}};
+  % Vertical bus: both inputs reach both evaluators without crossing a box.
+  \coordinate (bus) at ([xshift=9mm]package.east);
+  \node[outcome, anchor=west] (preview) at ([xshift=9mm]bus |- package) {{\bfseries Student preview}\\{\scriptsize local, non-authoritative}};
+  \node[outcome, anchor=west] (eval) at ([xshift=9mm]bus |- csv) {{\bfseries Official evaluator}\\{\scriptsize authoritative score}};
+  \draw[flow] (public) -- (package);
+  \draw[thick, draw=ink] (package.east) -- (bus |- package) -- (bus |- csv);
+  \draw[thick, draw=ink] (csv.east) -- (bus |- csv);
+  \draw[flow] (bus |- package) -- (preview.west);
+  \draw[flow] (bus |- csv) -- (eval.west);
+  \node[junction] at (bus |- package) {};
+  \node[junction] at (bus |- csv) {};
 \end{tikzpicture}

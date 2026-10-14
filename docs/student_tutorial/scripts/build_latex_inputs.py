@@ -15,8 +15,18 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FENCE_RE = re.compile(r"```([A-Za-z0-9_+.-]*)\n(.*?)```", re.DOTALL)
+FENCE_RE = re.compile(r"(```|~~~)([A-Za-z0-9_+.-]*)\n(.*?)\1", re.DOTALL)
 INLINE_CODE_RE = re.compile(r"`([^`]+)`")
+INLINE_TOKEN_SPACE = r"\hspace{0.35em}"
+SHORT_SPACED_CODE_MAX_LENGTH = 72
+
+
+def _render_long_spaced_code(code: str) -> str:
+    """Render long spaced code literally, with readable token boundaries."""
+    tokens = code.split(" ")
+    return (r"\hspace{0.25em}\allowbreak").join(
+        r"\texttt{\detokenize{" + token + "}}" for token in tokens
+    )
 
 
 def latex_escape(text: str) -> str:
@@ -42,7 +52,15 @@ def _markdown_text(text: str) -> str:
         cursor = 0
         for match in INLINE_CODE_RE.finditer(value):
             chunks.append(latex_escape(value[cursor : match.start()]))
-            chunks.append(r"\path{" + match.group(1) + "}")
+            code = match.group(1)
+            chunks.append(INLINE_TOKEN_SPACE)
+            if " " in code and len(code) <= SHORT_SPACED_CODE_MAX_LENGTH:
+                chunks.append(r"\texttt{" + latex_escape(code) + "}")
+            elif " " in code:
+                chunks.append(_render_long_spaced_code(code))
+            else:
+                chunks.append(r"\path{" + code + "}")
+            chunks.append(INLINE_TOKEN_SPACE)
             cursor = match.end()
         chunks.append(latex_escape(value[cursor:]))
         return "".join(chunks)
@@ -62,13 +80,15 @@ def _markdown_text(text: str) -> str:
 
 def render_response(response: str) -> str:
     """Render prose safely and code fences as listings blocks."""
+    # Normalize literal backslash-n sequences in frozen prose transcripts.
+    response = response.replace("\\n", "\n")
     chunks = []
     cursor = 0
     for match in FENCE_RE.finditer(response):
         chunks.append(_markdown_text(response[cursor : match.start()]))
-        language = match.group(1).lower()
+        language = match.group(2).lower()
         language = {"py": "Python", "python": "Python", "matlab": "Matlab", "bash": "bash", "sh": "bash", "csv": "CSV", "json": "JSON"}.get(language, "")
-        code = match.group(2)
+        code = match.group(3)
         option = "[language=" + language + "]" if language else ""
         chunks.append(_render_listing(code, option))
         cursor = match.end()

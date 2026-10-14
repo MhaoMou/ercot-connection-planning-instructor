@@ -1,6 +1,7 @@
 import json
 import hashlib
 import importlib.util
+import re
 import subprocess
 from pathlib import Path
 from pathlib import PurePosixPath, PureWindowsPath
@@ -40,15 +41,23 @@ REQUIRED_PROMPT_HEADINGS = [
     "## Expected evidence",
     "## Privacy constraints",
 ]
-REQUIRED_FIGURES = [
+RENDERED_FIGURES = [
     "pipeline.tex",
-    "data_relationships.tex",
     "student_vs_evaluator.tex",
-    "three_bus_dcopf.tex",
-    "csv_evaluation_flow.tex",
     "storage_soc.tex",
-    "strategy_experiment.tex",
 ]
+SOURCE_ONLY_FIGURES = [
+    "csv_evaluation_flow.tex",
+    "data_relationships.tex",
+    "strategy_experiment.tex",
+    "three_bus_dcopf.tex",
+]
+ALL_FIGURES = RENDERED_FIGURES + SOURCE_ONLY_FIGURES
+EARLY_PROMPT_SECTIONS = (
+    "Explore the data",
+    "Write and check your CSV",
+    "Develop a strategy",
+)
 TRANSCRIPT_KEYS = {
     "prompt_id",
     "prompt",
@@ -199,15 +208,37 @@ def test_tutorial_registry_lists_all_required_prompt_ids():
 
 def test_student_tutorial_has_all_planned_tikz_figures():
     figures = TUTORIAL_ROOT / "figures"
-    assert [path.name for path in sorted(figures.glob("*.tex"))] == sorted(REQUIRED_FIGURES)
+    assert [path.name for path in sorted(figures.glob("*.tex"))] == sorted(ALL_FIGURES)
 
 
-def test_main_integrates_each_tikz_figure_with_caption():
+def test_rendered_figures_are_integrated_with_captions():
     main = (TUTORIAL_ROOT / "main.tex").read_text(encoding="utf-8")
-    for figure_name in REQUIRED_FIGURES:
+    figure_blocks = re.findall(r"\\begin\{figure\}.*?\\end\{figure\}", main, re.DOTALL)
+    for figure_name in RENDERED_FIGURES:
         stem = Path(figure_name).stem
-        assert f"figures/{stem}" in main
-    assert main.count("\\caption{") >= len(REQUIRED_FIGURES)
+        block = next((block for block in figure_blocks if f"figures/{stem}" in block), "")
+        assert block, f"rendered figure {figure_name} is not integrated in main.tex"
+        assert "\\caption{" in block, f"rendered figure {figure_name} has no caption"
+
+
+def test_source_only_figures_remain_in_inventory_without_rendered_inclusion():
+    main = (TUTORIAL_ROOT / "main.tex").read_text(encoding="utf-8")
+    figures = TUTORIAL_ROOT / "figures"
+    for figure_name in SOURCE_ONLY_FIGURES:
+        assert (figures / figure_name).is_file()
+        assert f"figures/{Path(figure_name).stem}" not in "\n".join(
+            line for line in main.splitlines() if not line.lstrip().startswith("%")
+        )
+
+
+def test_early_sections_contain_contextual_prompt_blocks():
+    main = (TUTORIAL_ROOT / "main.tex").read_text(encoding="utf-8")
+    for section_name in EARLY_PROMPT_SECTIONS:
+        start = main.index(f"\\section{{{section_name}}}")
+        next_section_match = re.search(r"^\\section\{", main[start + 1 :], re.MULTILINE)
+        next_section = start + 1 + next_section_match.start() if next_section_match else -1
+        section = main[start:] if next_section == -1 else main[start:next_section]
+        assert "\\begin{promptbox}" in section
 
 
 def test_tikz_figures_use_current_architecture_terms_only():
@@ -220,7 +251,7 @@ def test_tikz_figures_use_current_architecture_terms_only():
         "csv_evaluation_flow.tex": ("ACTIVSg2000", "student CSV", "DCOPF", "student preview"),
         "strategy_experiment.tex": ("ACTIVSg2000", "student CSV", "DCOPF", "student preview"),
     }
-    for figure_name in REQUIRED_FIGURES:
+    for figure_name in ALL_FIGURES:
         text = (TUTORIAL_ROOT / "figures" / figure_name).read_text(encoding="utf-8")
         lowered = text.lower()
         assert not any(term in lowered for term in forbidden)
@@ -251,41 +282,36 @@ def test_task5_csv_flow_separates_exact_evaluator_from_preview():
     assert "exact instructor evaluator" in flow
     assert "joint storage-aware" in flow
     assert "dcopf/lp" in flow
-    assert "six-hour sampled" in main
-    assert "joint storage-aware dcopf/lp" in main
+    assert "every 6th hour" in main
+    assert "not dispatched (idle)" in main
+    assert "dispatched over the whole half-year" in main
 
 
 def test_task5_csv_flow_gives_output_boxes_a_clear_vertical_gap():
     flow = (TUTORIAL_ROOT / "figures" / "csv_evaluation_flow.tex").read_text(encoding="utf-8")
 
-    assert "right=of model, yshift=12mm" in flow
-    assert "right=of model, yshift=-12mm" in flow
+    assert "right=of checked, yshift=12mm" in flow
+    assert "right=of checked, yshift=-12mm" in flow
 
 
 def test_task5_strategy_figure_uses_synthetic_not_activsg2000_inputs():
     strategy = (TUTORIAL_ROOT / "figures" / "strategy_experiment.tex").read_text(encoding="utf-8").lower()
-    main = (TUTORIAL_ROOT / "main.tex").read_text(encoding="utf-8").lower()
 
     assert "notebook 07" in strategy
     assert "synthetic candidate plans" in strategy
     assert "hand-built preview metrics" in strategy
     assert "activsg2000-derived inputs" not in strategy
-    assert "synthetic candidate plans" in main
-    assert "hand-built preview metrics" in main
 
 
 def test_task5_strategy_figure_has_bounded_layout():
     strategy = (TUTORIAL_ROOT / "figures" / "strategy_experiment.tex").read_text(encoding="utf-8")
-    main = (TUTORIAL_ROOT / "main.tex").read_text(encoding="utf-8")
 
     assert "text width=25mm" in strategy
-    assert "text width=98mm" in strategy
     assert "minimum height=10mm" in strategy
     assert "right=of fixture" in strategy
     assert "right=of variant" in strategy
     assert "right=of validate" in strategy
     assert "right=of preview" in strategy
-    assert "\\resizebox{0.96\\linewidth}{!}" in main
 
 
 def test_registry_has_expected_top_level_shape():
@@ -420,12 +446,12 @@ def test_latex_presentation_layer_has_required_source_contracts():
         "cleveref",
     ):
         assert package in main
-    for environment in ("promptbox", "aibox", "verifybox", "checkpointbox", "warningbox", "outputbox"):
+    for environment in ("keybox", "warningbox", "exercisebox", "promptbox", "aibox"):
         assert f"{environment}" in main
     assert "breaklines=true" in main
     assert "breakatwhitespace=false" in main
     assert "emergencystretch=3em" in main
-    for phrase in ("AI-use", "privacy", "fact-check", "one-hour half-year", "student preview"):
+    for phrase in ("Using AI", "privacy", "one-hour half-year", "student_preview"):
         assert phrase.lower() in main.lower()
     assert "@misc{activsg2000" in bibliography
 

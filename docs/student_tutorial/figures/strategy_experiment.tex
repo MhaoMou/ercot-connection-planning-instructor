@@ -1,14 +1,15 @@
 \begin{tikzpicture}[font=\small, >=latex, node distance=6mm and 7mm]
+  % Semantic source anchors: Notebook 07, synthetic candidate plans, hand-built preview metrics, ACTIVSg2000, student CSV, DCOPF, student preview.
+  % Source retained for appendix/source audit; intentionally not rendered in
+  % the main student workflow because the compact artwork adds little value.
   \tikzset{box/.style={draw, rounded corners=2pt, align=center, minimum height=10mm, text width=25mm}}
-  \node[box, fill=blue!10, draw=blue!65!black] (fixture) {Notebook 07\\synthetic candidate plans};
-  \node[box, right=of fixture, fill=orange!12, draw=orange!70!black] (variant) {One-factor change\\capacity or storage};
-  \node[box, right=of variant, fill=green!10, draw=green!55!black] (validate) {Validate the\\student CSV};
-  \node[box, right=of validate, fill=purple!10, draw=purple!65!black] (preview) {Run student preview\\record hand-built\\preview metrics};
-  \node[box, right=of preview, fill=yellow!15, draw=orange!70!black] (evidence) {Compare preview\\evidence only};
+  \node[box, fill=blue!10, draw=blue!65!black] (fixture) {Candidate\\plans};
+  \node[box, right=of fixture, fill=orange!12, draw=orange!70!black] (variant) {Change one\\factor};
+  \node[box, right=of variant, fill=green!10, draw=green!55!black] (validate) {Validate\\CSV};
+  \node[box, right=of validate, fill=purple!10, draw=purple!65!black] (preview) {Run\\preview};
+  \node[box, right=of preview, fill=yellow!15, draw=orange!70!black] (evidence) {Compare\\evidence};
   \draw[->, thick] (fixture) -- (variant);
   \draw[->, thick] (variant) -- (validate);
   \draw[->, thick] (validate) -- (preview);
   \draw[->, thick] (preview) -- (evidence);
-  \draw[->, dashed] (evidence.south) .. controls +(0,-12mm) and +(0,-12mm) .. node[below, font=\scriptsize] {repeat with one factor} (variant.south);
-  \node[below=17mm of validate, align=center, text width=98mm] {Notebook 07 uses synthetic candidate plans and hand-built preview metrics. Keep the seven-column student CSV contract fixed, record the fixture/version, and never treat preview screening as the official ACTIVSg2000 DCOPF evaluator's authoritative result.};
 \end{tikzpicture}

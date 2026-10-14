@@ -181,7 +181,7 @@ def test_audit_rejects_unknown_citation_key(tmp_path):
     auditor = _load_auditor()
     root = _copy_tutorial(tmp_path)
     main = root / "main.tex"
-    main.write_text(main.read_text(encoding="utf-8").replace("activsg2000,", "missing_key,"), encoding="utf-8")
+    main.write_text(main.read_text(encoding="utf-8").replace(r"\cite{activsg2000}", r"\cite{missing_key}"), encoding="utf-8")
 
     errors = auditor.audit(root)
 
@@ -201,15 +201,37 @@ def test_audit_requires_required_sources_in_transcript_coverage(tmp_path):
     assert any("source coverage" in error for error in errors)
 
 
-def test_audit_requires_all_prompt_transcript_notebook_and_figure_integrations(tmp_path):
+def test_audit_requires_rendered_figure_integrations(tmp_path):
     auditor = _load_auditor()
     root = _copy_tutorial(tmp_path)
     main = root / "main.tex"
-    main.write_text(main.read_text(encoding="utf-8").replace(r"\input{generated/transcripts.tex}", ""), encoding="utf-8")
+    main.write_text(main.read_text(encoding="utf-8").replace(r"\input{figures/storage_soc.tex}", ""), encoding="utf-8")
 
-    errors = auditor.audit(root)
+    errors = auditor.audit(root, allow_unbuilt=True)
 
-    assert any("prompt/transcript modules" in error for error in errors)
+    assert any("does not integrate figure storage_soc.tex" in error for error in errors)
+
+
+def test_audit_ignores_commented_figure_integrations(tmp_path):
+    auditor = _load_auditor()
+    root = _copy_tutorial(tmp_path)
+    main_path = root / "main.tex"
+    main = main_path.read_text(encoding="utf-8")
+    main += (
+        "\n% \\begin{figure}\n"
+        "%   \\input{figures/storage_soc.tex}\n"
+        "%   \\caption{Commented-out caption}\n"
+        "% \\end{figure}\n"
+    )
+    active_storage = r"  \input{figures/storage_soc.tex}"
+    assert active_storage in main
+    main = main.replace(active_storage, "% " + active_storage, 1)
+    main_path.write_text(main, encoding="utf-8")
+
+    errors = auditor.audit(root, allow_unbuilt=True)
+
+    assert any("does not integrate figure storage_soc.tex" in error for error in errors)
+    assert any("storage_soc.tex must have an integrated caption" in error for error in errors)
 
 
 def test_release_audit_requires_generated_transcripts(tmp_path):

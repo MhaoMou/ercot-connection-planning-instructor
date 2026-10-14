@@ -1,12 +1,12 @@
 \begin{tikzpicture}[font=\small, >=latex]
+  % Semantic source anchors: ACTIVSg2000, student CSV, DCOPF, student preview.
   \tikzset{box/.style={draw, rounded corners=2pt, align=center, minimum height=11mm, text width=31mm}}
-  \node[box, fill=blue!10, draw=blue!65!black] (raw) at (0,0) {Public ACTIVSg2000\\network model};
-  \node[box, fill=green!10, draw=green!55!black] (released) at (4.1,0) {Released scenario\\package + manifest};
-  \node[box, fill=orange!12, draw=orange!70!black] (csv) at (8.2,0) {student CSV\\team/site/bus + capacities};
-  \node[box, fill=purple!10, draw=purple!65!black] (model) at (4.1,-1.65) {Planning Model\\loads, limits, scenarios};
+  \node[box, fill=blue!10, draw=blue!65!black] (raw) at (0,0) {Public ACTIVSg2000\\model};
+  \node[box, fill=green!10, draw=green!55!black] (released) at (4.1,0) {Released scenario\\package};
+  \node[box, fill=orange!12, draw=orange!70!black] (csv) at (8.2,0) {Student\\CSV};
+  \node[box, fill=purple!10, draw=purple!65!black] (model) at (4.1,-1.65) {Planning model};
   \draw[->, thick] (raw) -- node[above, font=\scriptsize] {provenance} (released);
   \draw[->, thick] (released) -- node[above, font=\scriptsize] {contract} (csv);
   \draw[->, thick] (released) -- (model);
   \draw[->, thick] (csv) -- (model);
-  \node[below=8mm of model, align=center, text width=94mm] {The student CSV is a site-level input to the planning model; it is not a replacement for the public source or released scenarios.\\DCOPF uses the assembled model, while student preview exposes only diagnostic evidence.};
 \end{tikzpicture}

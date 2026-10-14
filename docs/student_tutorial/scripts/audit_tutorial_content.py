@@ -47,10 +47,23 @@ EXPECTED_NOTEBOOK_ASSOCIATIONS = {
     "colab-preview": "notebooks/06_student_preview.ipynb",
     "strategy-experiments": "notebooks/07_strategy_ablation.ipynb",
 }
-EXPECTED_FIGURES = {
-    "pipeline.tex", "data_relationships.tex", "student_vs_evaluator.tex",
-    "three_bus_dcopf.tex", "csv_evaluation_flow.tex", "storage_soc.tex", "strategy_experiment.tex",
-}
+RENDERED_FIGURES = (
+    "pipeline.tex",
+    "student_vs_evaluator.tex",
+    "storage_soc.tex",
+)
+SOURCE_ONLY_FIGURES = (
+    "csv_evaluation_flow.tex",
+    "data_relationships.tex",
+    "strategy_experiment.tex",
+    "three_bus_dcopf.tex",
+)
+EXPECTED_FIGURES = set(RENDERED_FIGURES) | set(SOURCE_ONLY_FIGURES)
+EARLY_CONTEXTUAL_PROMPT_SECTIONS = (
+    "Explore the data",
+    "Write and check your CSV",
+    "Develop a strategy",
+)
 REQUIRED_PROMPT_HEADINGS = (
     "# Prompt metadata", "## Goal", "## Context supplied to the AI",
     "## Prompt", "## Expected evidence", "## Privacy constraints",
@@ -125,6 +138,28 @@ def _read_json_object(path: Path, label: str, errors: list[str]) -> dict | None:
         errors.append(f"{label}: JSON value must be an object")
         return None
     return value
+
+
+def _strip_latex_comments(text: str) -> str:
+    """Remove unescaped LaTeX comments while preserving line boundaries."""
+    active_lines: list[str] = []
+    for line in text.splitlines(keepends=True):
+        backslashes = 0
+        comment_index = None
+        for index, character in enumerate(line):
+            if character == "%" and backslashes % 2 == 0:
+                comment_index = index
+                break
+            if character == "\\":
+                backslashes += 1
+            else:
+                backslashes = 0
+        if comment_index is None:
+            active_lines.append(line)
+        else:
+            newline = line[len(line.rstrip("\r\n")) :]
+            active_lines.append(line[:comment_index] + newline)
+    return "".join(active_lines)
 
 
 def _is_explicit_legacy_context(line: str, match: re.Match[str]) -> bool:
@@ -340,15 +375,14 @@ def _check_coverage(
     if actual_figures != EXPECTED_FIGURES:
         errors.append("tutorial must contain exactly the seven required figures")
     main = next((text for name, text in texts if name == "main.tex"), "")
-    normalized_main = main.replace("\\", "")
-    if r"\input{generated/transcripts.tex}" not in main:
-        errors.append("main.tex does not integrate all prompt/transcript modules")
-    for figure in EXPECTED_FIGURES:
-        if f"figures/{Path(figure).stem}" not in main:
+    active_main = _strip_latex_comments(main)
+    figure_blocks = re.findall(r"\\begin\{figure\}.*?\\end\{figure\}", active_main, re.DOTALL)
+    for figure in RENDERED_FIGURES:
+        reference = f"figures/{Path(figure).stem}"
+        if reference not in active_main:
             errors.append(f"main.tex does not integrate figure {figure}")
-    for notebook in EXPECTED_NOTEBOOKS:
-        if notebook not in normalized_main:
-            errors.append(f"main.tex does not reference notebook {notebook}")
+        if not any(reference in block and "\\caption{" in block for block in figure_blocks):
+            errors.append(f"rendered figure {figure} must have an integrated caption")
     generated = _safe_path(
         root, "generated/transcripts.tex", "generated/transcripts.tex", errors
     )
@@ -391,6 +425,14 @@ def _check_content_contract(root: Path, texts: list[tuple[str, str]], errors: li
     if "ai" not in lower or "privacy" not in lower or "do not upload" not in lower:
         errors.append("tutorial must provide explicit AI-use and privacy guidance")
     main = next((text for name, text in texts if name == "main.tex"), "")
+    for section_name in EARLY_CONTEXTUAL_PROMPT_SECTIONS:
+        match = re.search(
+            rf"^\\section\{{{re.escape(section_name)}\}}.*?(?=^\\section\{{|\Z)",
+            main,
+            re.MULTILINE | re.DOTALL,
+        )
+        if match is None or "\\begin{promptbox}" not in match.group(0):
+            errors.append(f"main.tex early section lacks a contextual prompt block: {section_name}")
     references = next((text for name, text in texts if name == "references.bib"), "")
     bib_keys = set(re.findall(r"@\w+\s*\{\s*([^,\s]+)", references))
     citations = {key.strip() for group in re.findall(r"\\(?:cite|nocite)(?:\w*)?\{([^}]*)\}", main) for key in group.split(",") if key.strip()}
