@@ -28,6 +28,7 @@ rl = [
 ercot-game-batch = "ercot_game.batch_cli:main"
 ercot-game-check-csv = "ercot_game.csv_validator:main"
 ercot-game-preview = "ercot_game.student_preview:main"
+ercot-game-grid-map = "ercot_game.grid_map:main"
 ercot-game-compare-baselines = "rl_gym.reporting:main"
 
 # The package contains the canonical CSV evaluator and Zenodo DCOPF adapter.

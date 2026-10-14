@@ -113,11 +113,37 @@ records the six blocks and their validation state.
 The CSV uses source `bus_id` values directly. Site capacities are specified in
 MW/MWh, and each team's submitted resources serve only that team. The score
 includes IT value, site cost, generator capital/operating cost, and storage
-capital cost. Use `--submission-number 1` for practice; it has no
-energy-purchase cost. Use `--submission-number 2` for scored evaluation; it
+capital cost. Use `--submission-number 1` for Submission 1; it has no
+energy-purchase cost. Use `--submission-number 2` for Submission 2; it
 settles energy purchases at the selected joint dispatch LMP. The CLI defaults explicitly to Submission 2, and
-`--submission-number` is not a CSV field. Submission 1 is practice; Submission
-2 is scored.
+`--submission-number` is not a CSV field. Week 1 (2027) is practice/feedback
+only; in Weeks 2 and 3 both submissions are scored, and the final ranking is
+Week 2 S1 + Week 2 S2 + Week 3 S1 + Week 3 S2. Capital cost is charged once,
+in the submission where an asset is first built; the `classroom` command
+carries Submission 1 assets into Submission 2 without a second charge.
+
+## Classroom grid map
+
+After each evaluated submission, release a privacy-safe interactive map with
+the score breakdown and service fractions. Each bus is colored by the total
+connection capacity of all valid teams at that bus (no team or site IDs appear
+in the file), and each line by its peak loading over the evaluated hours.
+
+```bash
+ercot-game-grid-map \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
+  --submissions-dir <round submissions directory> \
+  --dispatch-dir <evaluator output directory>/dispatch \
+  --title "Week 2, Submission 1 (2028 January-June)" \
+  --output <release directory>/grid_map.svg
+```
+
+For Submission 2, repeat `--submissions-dir` with the Submission 1 directory so
+carried-over sites are included. The bus positions come from
+`data/teaching/activsg2000_layout_v1.json`, a deterministic schematic layout
+(the scenario package has no coordinates), so every round's map looks the same.
+A bus with a single team still reveals that team's total at that bus, but not
+which team it is.
 
 ## Data and privacy
 
