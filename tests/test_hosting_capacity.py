@@ -578,6 +578,20 @@ def test_matrix_driver_sanitizes_embedded_paths_in_all_metadata_strings(tmp_path
     assert "loaded from <local-path>" in metadata_text
 
 
+def test_json_safe_sanitizes_arbitrary_absolute_paths_but_preserves_urls():
+    metadata = hosting_capacity._json_safe(
+        {
+            "note": "inputs /mnt/data/input, /srv/project/input, /root/secret",
+            "url": "https://example.com/project/input",
+            "nested": ["keep this explanatory text", {"value": 3}],
+        }
+    )
+
+    assert metadata["note"] == "inputs <local-path>, <local-path>, <local-path>"
+    assert metadata["url"] == "https://example.com/project/input"
+    assert metadata["nested"] == ["keep this explanatory text", {"value": 3}]
+
+
 def test_matrix_driver_checkpoint_identity_includes_normalized_period_inputs(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "tools.hosting_capacity._solve_matrix_period",

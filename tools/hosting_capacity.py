@@ -518,14 +518,14 @@ def _canonical_json(value: object) -> str:
     return json.dumps(_json_safe(value), sort_keys=True, separators=(",", ":"))
 
 
-_LOCAL_PATH_IN_DIAGNOSTIC = re.compile(
-    r"(?<![A-Za-z0-9])/(?:private|Users|home|tmp|var|opt|usr|etc|workspace|Volumes|Applications|System|Library)"
-    r"(?:/[^\s\"'<>:,;)\]}]+)*"
+_LOCAL_PATH_IN_METADATA = re.compile(
+    r"(?<![A-Za-z0-9:/])/(?!/)"
+    r"(?:[^\s\"'<>:,;)\]}]+/)*[^\s\"'<>:,;)\]}]+"
 )
 
 
 def _sanitize_local_paths_in_text(value: str) -> str:
-    return _LOCAL_PATH_IN_DIAGNOSTIC.sub("<local-path>", value)
+    return _LOCAL_PATH_IN_METADATA.sub("<local-path>", value)
 
 
 def _metadata_for_persistence(metadata: Mapping[str, object]) -> dict[str, object]:
