@@ -1,5 +1,7 @@
 from dataclasses import FrozenInstanceError
+import importlib.util
 import inspect
+import math
 
 import pytest
 
@@ -7,6 +9,7 @@ import tools.activsg2000.dcopf as dcopf
 from tools.activsg2000.dcopf import (
     Branch,
     Bus,
+    DCOPFInfeasible,
     Generator,
     ReusableDCOPFModel,
 )
@@ -14,6 +17,7 @@ from tools.hosting_capacity import (
     HOSTING_CAPACITY_STATUSES,
     HostingCapacityPeriod,
     HostingCapacityPoint,
+    solve_hosting_capacity_at_bus,
     validate_period,
 )
 
@@ -131,3 +135,121 @@ def test_candidate_probe_status_mapping_rejects_ambiguous_unboundedness(status, 
     assert status_mapper(status, base_case=False) == (
         "solver_error" if status == "infeasible" else expected
     )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("highspy") is None, reason="highspy is not installed")
+def test_solve_hosting_capacity_at_bus_returns_tiny_period_capacity():
+    point = solve_hosting_capacity_at_bus(_tiny_period(), "b2", solver_backend="highs")
+
+    assert point.period_index == 0
+    assert point.bus_id == "b2"
+    assert point.hosting_capacity_mw == pytest.approx(15.0)
+    assert point.status == "optimal"
+    assert point.objective_value == pytest.approx(15.0)
+    assert point.solve_time_s is not None and point.solve_time_s >= 0.0
+    assert point.binding_resources == ()
+
+
+def test_solve_hosting_capacity_at_bus_unknown_bus_is_invalid_input():
+    point = solve_hosting_capacity_at_bus(_tiny_period(), "missing", solver_backend="highs")
+
+    assert point.status == "invalid_input"
+    assert point.hosting_capacity_mw is None
+    assert point.objective_value is None
+    assert point.binding_resources == ()
+
+
+@pytest.mark.skipif(importlib.util.find_spec("highspy") is None, reason="highspy is not installed")
+def test_solve_hosting_capacity_at_bus_maps_base_infeasibility():
+    period = _tiny_period(
+        generators=(Generator("g1", "b1", 0.0, 4.0, 10.0),),
+    )
+
+    point = solve_hosting_capacity_at_bus(period, "b2", solver_backend="highs")
+
+    assert point.status == "infeasible_base_case"
+    assert point.hosting_capacity_mw is None
+    assert point.objective_value is None
+
+
+@pytest.mark.skipif(importlib.util.find_spec("highspy") is None, reason="highspy is not installed")
+def test_solve_hosting_capacity_at_bus_maps_disconnected_candidate():
+    period = _tiny_period(branches=())
+
+    point = solve_hosting_capacity_at_bus(period, "b2", solver_backend="highs")
+
+    assert point.status == "infeasible_base_case"
+    assert point.hosting_capacity_mw is None
+
+
+def test_solve_hosting_capacity_at_bus_maps_malformed_values_without_zero_capacity():
+    point = solve_hosting_capacity_at_bus(
+        _tiny_period(), "b2", solver_backend="highs", upper_bound_mw=math.nan
+    )
+
+    assert point.status == "invalid_input"
+    assert point.hosting_capacity_mw is None
+    assert point.objective_value is None
+
+
+def test_solve_hosting_capacity_at_bus_uses_resolved_auto_backend(monkeypatch):
+    class FakeModel:
+        def __init__(self, **kwargs):
+            assert kwargs["candidate_demand_bus_id"] == "b2"
+
+        def max_additional_demand(self, buses, bus_id, *, upper_bound_mw, fixed_injection_mw_by_bus):
+            assert bus_id == "b2"
+            return 7.5, "optimal"
+
+    monkeypatch.setattr(dcopf, "resolve_solver_backend", lambda backend: "highs")
+    monkeypatch.setattr(dcopf, "ReusableDCOPFModel", FakeModel)
+
+    point = solve_hosting_capacity_at_bus(_tiny_period(), "b2", solver_backend="auto")
+
+    assert point.status == "optimal"
+    assert point.hosting_capacity_mw == pytest.approx(7.5)
+
+
+@pytest.mark.parametrize(
+    "failure_status", ("solver_error", "interrupted", "numerical_failure", "unbounded")
+)
+def test_solve_hosting_capacity_at_bus_maps_backend_statuses(monkeypatch, failure_status):
+    class FakeModel:
+        def __init__(self, **kwargs):
+            pass
+
+        def max_additional_demand(self, *args, **kwargs):
+            return math.nan, failure_status
+
+    monkeypatch.setattr(dcopf, "resolve_solver_backend", lambda backend: "highs")
+    monkeypatch.setattr(dcopf, "ReusableDCOPFModel", FakeModel)
+
+    point = solve_hosting_capacity_at_bus(_tiny_period(), "b2", solver_backend="auto")
+
+    assert point.status == failure_status
+    assert point.hosting_capacity_mw is None
+    assert point.objective_value is None
+
+
+@pytest.mark.skipif(importlib.util.find_spec("highspy") is None, reason="highspy is not installed")
+def test_hosting_capacity_boundary_uses_public_task2_model_api():
+    period = _tiny_period()
+    model = ReusableDCOPFModel(
+        buses=tuple(period.buses),
+        generators=tuple(period.generators),
+        branches=tuple(period.branches),
+        candidate_demand_bus_id="b2",
+    )
+    capacity, status = model.max_additional_demand(
+        tuple(period.buses),
+        "b2",
+        fixed_injection_mw_by_bus=period.fixed_injection_mw_by_bus,
+    )
+
+    assert status == "optimal"
+    assert capacity == pytest.approx(15.0, abs=1e-7)
+    at_capacity = _tiny_period(buses=(Bus("b1", 0.0, reference=True), Bus("b2", 20.0)))
+    above_capacity = _tiny_period(buses=(Bus("b1", 0.0, reference=True), Bus("b2", 20.0 + 1e-5)))
+    assert model.solve(tuple(at_capacity.buses)).status == "optimal"
+    with pytest.raises(DCOPFInfeasible):
+        model.solve(tuple(above_capacity.buses), return_result=False)

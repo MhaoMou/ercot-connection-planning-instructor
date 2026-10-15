@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import math
+import time
 from collections.abc import Mapping, Sequence
 from numbers import Real
 from types import MappingProxyType
 from typing import Literal
 
+import tools.activsg2000.dcopf as dcopf
 from tools.activsg2000.dcopf import Branch, Bus, Generator
 
 
@@ -156,3 +158,132 @@ def validate_period(period: HostingCapacityPeriod) -> HostingCapacityPeriod:
         fixed_injection_mw_by_bus=MappingProxyType(normalized_injections),
         source_metadata=MappingProxyType(dict(metadata)),
     )
+
+
+def solve_hosting_capacity_at_bus(
+    period: HostingCapacityPeriod,
+    candidate_bus_id: str,
+    *,
+    solver_backend: str = "auto",
+    solver_threads: int = 1,
+    upper_bound_mw: float | None = None,
+) -> HostingCapacityPoint:
+    """Solve the single-period maximum additional demand at one bus.
+
+    The Task 2 reusable model owns the LP construction and canonical solver
+    status mapping.  This function only validates the public contract,
+    selects the backend, and translates the probe result to a stable point
+    record.  No generator, storage, or intertemporal state is introduced.
+    """
+    started = time.perf_counter()
+
+    def elapsed() -> float:
+        return max(0.0, time.perf_counter() - started)
+
+    raw_period_index = getattr(period, "period_index", -1)
+    period_index = (
+        raw_period_index
+        if isinstance(raw_period_index, int) and not isinstance(raw_period_index, bool)
+        else -1
+    )
+
+    def point(
+        status: HostingCapacityStatus,
+        *,
+        capacity: float | None = None,
+        objective_value: float | None = None,
+    ) -> HostingCapacityPoint:
+        return HostingCapacityPoint(
+            period_index=period_index,
+            bus_id=candidate_bus_id,
+            hosting_capacity_mw=capacity,
+            status=status,
+            objective_value=objective_value,
+            solve_time_s=elapsed(),
+            binding_resources=(),
+        )
+
+    try:
+        normalized_period = validate_period(period)
+    except KeyboardInterrupt:
+        return point("interrupted")
+    except Exception:
+        return point("invalid_input")
+
+    period_index = normalized_period.period_index
+    bus_ids = {bus.bus_id for bus in normalized_period.buses}
+    if not isinstance(candidate_bus_id, str) or not candidate_bus_id or candidate_bus_id not in bus_ids:
+        return point("invalid_input")
+    if (
+        not isinstance(solver_threads, int)
+        or isinstance(solver_threads, bool)
+        or solver_threads <= 0
+    ):
+        return point("invalid_input")
+    if upper_bound_mw is not None and (
+        not _finite_real(upper_bound_mw) or upper_bound_mw < 0
+    ):
+        return point("invalid_input")
+
+    try:
+        resolved_backend = dcopf.resolve_solver_backend(solver_backend)
+    except KeyboardInterrupt:
+        return point("interrupted")
+    except (TypeError, ValueError):
+        return point("invalid_input")
+    except Exception:
+        return point("solver_error")
+
+    try:
+        if resolved_backend == "highs":
+            model = dcopf.ReusableDCOPFModel(
+                buses=tuple(normalized_period.buses),
+                generators=tuple(normalized_period.generators),
+                branches=tuple(normalized_period.branches),
+                enable_candidate_demand_probes=True,
+                candidate_demand_bus_id=candidate_bus_id,
+                solver_threads=solver_threads,
+            )
+        elif resolved_backend == "gurobi":
+            model = dcopf.GurobiReusableDCOPFModel(
+                buses=tuple(normalized_period.buses),
+                generators=tuple(normalized_period.generators),
+                branches=tuple(normalized_period.branches),
+                enable_candidate_demand_probes=True,
+                candidate_demand_bus_id=candidate_bus_id,
+                solver_threads=solver_threads,
+            )
+        else:
+            return point("solver_error")
+    except KeyboardInterrupt:
+        return point("interrupted")
+    except (TypeError, ValueError):
+        return point("invalid_input")
+    except Exception:
+        return point("solver_error")
+
+    try:
+        capacity, status = model.max_additional_demand(
+            tuple(normalized_period.buses),
+            candidate_bus_id,
+            upper_bound_mw=upper_bound_mw,
+            fixed_injection_mw_by_bus=normalized_period.fixed_injection_mw_by_bus,
+        )
+    except KeyboardInterrupt:
+        return point("interrupted")
+    except (InterruptedError, TimeoutError):
+        return point("interrupted")
+    except (ArithmeticError, FloatingPointError, OverflowError):
+        return point("numerical_failure")
+    except Exception:
+        return point("solver_error")
+
+    if status not in HOSTING_CAPACITY_STATUSES:
+        return point("solver_error")
+    if status != "optimal":
+        return point(status)  # type: ignore[arg-type]
+    if not _finite_real(capacity) or capacity < 0:
+        return point("numerical_failure")
+
+    capacity = float(capacity)
+    return point("optimal", capacity=capacity, objective_value=capacity)
