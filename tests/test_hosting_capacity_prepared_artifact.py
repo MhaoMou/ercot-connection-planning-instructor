@@ -240,6 +240,34 @@ def test_existing_prepared_solve_boundary_rejects_missing_demand_bus(
         solve_prepared_period(artifact_dir, period_index=0)
 
 
+@pytest.mark.parametrize(
+    "period_index",
+    [True, 1.0, -1],
+)
+def test_scenario_prepared_solve_rejects_invalid_period_index_before_profile_access(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, period_index: object
+) -> None:
+    artifact = dcopf.PreparedArtifact(
+        buses_raw=(),
+        demand_rows=(),
+        generators_raw=(),
+        branches_raw=(),
+        dcline_raw=(),
+        renewable_profile_mw_by_generator={},
+        scenario_year=2028,
+        scenario_block="jan_jun",
+    )
+    monkeypatch.setattr(dcopf, "load_prepared_artifact", lambda *_args, **_kwargs: artifact)
+    monkeypatch.setattr(
+        dcopf,
+        "_prepared_period_inputs",
+        lambda *_args, **_kwargs: pytest.fail("scenario profile access must follow index validation"),
+    )
+
+    with pytest.raises(ValueError, match="period_index"):
+        solve_prepared_period(tmp_path, period_index=period_index)  # type: ignore[arg-type]
+
+
 def test_prepared_provider_rejects_out_of_range_periods(tmp_path: Path) -> None:
     provider = prepared_artifact_period_provider(_write_small_prepared_artifact(tmp_path))
 

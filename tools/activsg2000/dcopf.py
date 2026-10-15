@@ -493,10 +493,12 @@ def _validate_prepared_demand_row(
 def _validate_prepared_demand_schema(
     artifact: PreparedArtifact, period_indices: Sequence[int]
 ) -> None:
+    period_indices = tuple(period_indices)
+    for period_index in period_indices:
+        _validate_prepared_period_index(period_index)
     if artifact.scenario_year is not None:
         return
     for period_index in period_indices:
-        _validate_prepared_period_index(period_index)
         if period_index >= len(artifact.demand_rows):
             raise ValueError(f"period_index out of range: {period_index}")
         _validate_prepared_demand_row(artifact.demand_rows[period_index], artifact.buses_raw)
