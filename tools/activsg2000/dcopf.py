@@ -307,6 +307,14 @@ def _artifact_fingerprint(root: Path) -> tuple[tuple[str, int | None, int | None
     return tuple(fingerprint)
 
 
+def _scenario_metadata(root: Path) -> tuple[int | None, str | None]:
+    scenario_path = root / "scenario_profile.json"
+    if not scenario_path.is_file():
+        return None, None
+    profile = __import__("json").loads(scenario_path.read_text(encoding="utf-8"))
+    return int(profile["year"]), str(profile["calendar_block"])
+
+
 @lru_cache(maxsize=8)
 def _load_prepared_artifact_cached(
     root_string: str,
@@ -314,12 +322,8 @@ def _load_prepared_artifact_cached(
 ) -> PreparedArtifact:
     """Load and cache the static CSV tables for a prepared dispatch artifact."""
     root = Path(root_string)
-    scenario_year = scenario_block = None
+    scenario_year, scenario_block = _scenario_metadata(root)
     scenario_path = root / "scenario_profile.json"
-    if scenario_path.is_file():
-        profile = __import__("json").loads(scenario_path.read_text(encoding="utf-8"))
-        scenario_year = int(profile["year"])
-        scenario_block = str(profile["calendar_block"])
     return PreparedArtifact(
         buses_raw=_read_csv_rows(root / "bus.csv"),
         demand_rows=() if scenario_path.is_file() else _read_csv_rows(root / "demand_bus.csv"),
@@ -332,9 +336,31 @@ def _load_prepared_artifact_cached(
     )
 
 
+@lru_cache(maxsize=8)
+def _load_prepared_static_artifact_cached(
+    root_string: str,
+    fingerprint: tuple[tuple[str, int | None, int | None, int | None, int | None], ...],
+) -> PreparedArtifact:
+    """Load only the static tables needed to normalize one prepared period."""
+    root = Path(root_string)
+    scenario_year, scenario_block = _scenario_metadata(root)
+    return PreparedArtifact(
+        buses_raw=_read_csv_rows(root / "bus.csv"),
+        demand_rows=(),
+        generators_raw=_read_csv_rows(root / "generator_limits.csv"),
+        branches_raw=_read_csv_rows(root / "branch_limits.csv"),
+        dcline_raw=_read_csv_rows(root / "dcline.csv"),
+        renewable_profile_mw_by_generator=MappingProxyType({}),
+        scenario_year=scenario_year,
+        scenario_block=scenario_block,
+    )
+
+
 def clear_prepared_artifact_cache() -> None:
     """Invalidate all cached prepared artifacts after deliberate file replacement."""
     _load_prepared_artifact_cached.cache_clear()
+    _load_prepared_static_artifact_cached.cache_clear()
+    _prepared_period_inputs_from_path_cached.cache_clear()
 
 
 def load_prepared_artifact(artifact_dir: str | Path) -> PreparedArtifact:
@@ -346,6 +372,69 @@ def load_prepared_artifact(artifact_dir: str | Path) -> PreparedArtifact:
 # Preserve the cache-management affordance exposed by the former decorated
 # public function while keeping the cache key independent of mutable callers.
 load_prepared_artifact.cache_clear = clear_prepared_artifact_cache  # type: ignore[attr-defined]
+
+
+def load_prepared_static_artifact(artifact_dir: str | Path) -> PreparedArtifact:
+    """Load prepared network tables without materializing legacy demand data."""
+    root = Path(artifact_dir).resolve()
+    return _load_prepared_static_artifact_cached(str(root), _artifact_fingerprint(root))
+
+
+def _read_prepared_demand_row(root: Path, period_index: int) -> Mapping[str, str]:
+    if not isinstance(period_index, int) or isinstance(period_index, bool):
+        raise ValueError("period_index must be an integer")
+    if period_index < 0:
+        raise ValueError(f"period_index out of range: {period_index}")
+    path = root / "demand_bus.csv"
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        for row_number, row in enumerate(reader):
+            if row_number == period_index:
+                return MappingProxyType(dict(row))
+    raise ValueError(f"period_index out of range: {period_index}")
+
+
+def _validate_prepared_demand_row(
+    demand_row: Mapping[str, str], buses_raw: Sequence[Mapping[str, str]]
+) -> None:
+    bus_ids = {row["bus_id"] for row in buses_raw}
+    missing_bus_ids = bus_ids - set(demand_row)
+    if missing_bus_ids:
+        raise ValueError(
+            "prepared demand is missing bus data: "
+            + ", ".join(sorted(missing_bus_ids))
+        )
+    ignored_fields = {"period", "timestamp", "hour", "datetime"}
+    unknown_bus_ids = set(demand_row) - bus_ids - ignored_fields
+    if unknown_bus_ids:
+        raise ValueError(
+            "prepared demand references unknown bus: "
+            + ", ".join(sorted(unknown_bus_ids))
+        )
+
+
+def _manifest_scenario_metadata(manifest: Mapping[str, object]) -> tuple[int | None, str | None]:
+    block = manifest.get("block")
+    if not isinstance(block, str) or "-" not in block:
+        return None, None
+    year_text, calendar_block = block.split("-", 1)
+    try:
+        year = int(year_text)
+    except ValueError:
+        return None, None
+    return year, calendar_block
+
+
+def prepared_artifact_scenario_metadata(artifact_dir: str | Path) -> tuple[int | None, str | None]:
+    """Return scenario identity from a validated artifact without loading its horizon."""
+    from ercot_game.scenario_package import require_validated_block
+
+    root = Path(artifact_dir).resolve()
+    manifest = require_validated_block(root)
+    artifact = load_prepared_static_artifact(root)
+    if artifact.scenario_year is not None:
+        return artifact.scenario_year, artifact.scenario_block
+    return _manifest_scenario_metadata(manifest)
 
 
 def _highs():
@@ -2918,21 +3007,6 @@ def _prepared_period_inputs(
             raise ValueError(f"period_index out of range: {period_index}")
         demand_row = artifact.demand_rows[period_index]
         availability = {}
-    bus_ids = tuple(row["bus_id"] for row in artifact.buses_raw)
-    expected_bus_ids = set(bus_ids)
-    missing_bus_ids = expected_bus_ids - set(demand_row)
-    if missing_bus_ids:
-        raise ValueError(
-            "prepared demand is missing bus data: "
-            + ", ".join(sorted(missing_bus_ids))
-        )
-    ignored_demand_fields = {"period", "timestamp", "hour", "datetime"}
-    unknown_bus_ids = set(demand_row) - expected_bus_ids - ignored_demand_fields
-    if unknown_bus_ids:
-        raise ValueError(
-            "prepared demand references unknown bus: "
-            + ", ".join(sorted(unknown_bus_ids))
-        )
     submitted_demand = additional_demand_mw_by_bus or {}
     buses = tuple(
         Bus(
@@ -2987,7 +3061,6 @@ def prepared_period_inputs(
     artifact: PreparedArtifact,
     *,
     period_index: int,
-    validate_artifact: bool = True,
 ) -> tuple[tuple[Bus, ...], tuple[Generator, ...], tuple[Branch, ...], Mapping[str, float]]:
     """Return the validated normalized inputs for one prepared period.
 
@@ -3000,10 +3073,9 @@ def prepared_period_inputs(
         raise ValueError("period_index must be an integer")
     if period_index < 0:
         raise ValueError(f"period_index out of range: {period_index}")
-    if validate_artifact:
-        from ercot_game.scenario_package import require_validated_block
+    from ercot_game.scenario_package import require_validated_block
 
-        require_validated_block(artifact_dir)
+    require_validated_block(artifact_dir)
     try:
         return _prepared_period_inputs(
             artifact_dir,
@@ -3013,6 +3085,49 @@ def prepared_period_inputs(
         )
     except IndexError as exc:
         raise ValueError(f"period_index out of range: {period_index}") from exc
+
+
+@lru_cache(maxsize=32)
+def _prepared_period_inputs_from_path_cached(
+    root_string: str,
+    fingerprint: tuple[tuple[str, int | None, int | None, int | None, int | None], ...],
+    period_index: int,
+) -> tuple[tuple[Bus, ...], tuple[Generator, ...], tuple[Branch, ...], Mapping[str, float]]:
+    root = Path(root_string)
+    artifact = _load_prepared_static_artifact_cached(root_string, fingerprint)
+    if artifact.scenario_year is not None:
+        return _prepared_period_inputs(
+            root,
+            artifact,
+            period_index=period_index,
+            validate_artifact=False,
+        )
+
+    demand_row = _read_prepared_demand_row(root, period_index)
+    _validate_prepared_demand_row(demand_row, artifact.buses_raw)
+    one_period_artifact = replace(artifact, demand_rows=(demand_row,))
+    return _prepared_period_inputs(
+        root,
+        one_period_artifact,
+        period_index=0,
+        validate_artifact=False,
+    )
+
+
+def prepared_period_inputs_from_path(
+    artifact_dir: str | Path,
+    period_index: int,
+) -> tuple[tuple[Bus, ...], tuple[Generator, ...], tuple[Branch, ...], Mapping[str, float]]:
+    """Normalize one validated prepared period without loading its full horizon."""
+    from ercot_game.scenario_package import require_validated_block
+
+    root = Path(artifact_dir).resolve()
+    require_validated_block(root)
+    return _prepared_period_inputs_from_path_cached(
+        str(root),
+        _artifact_fingerprint(root),
+        period_index,
+    )
 
 
 def _prepared_compact_horizon_inputs(

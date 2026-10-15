@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import inspect
 import json
 import pickle
 from pathlib import Path
@@ -8,7 +9,14 @@ from pathlib import Path
 import pytest
 
 from ercot_game.scenario_package import ScenarioPackageError
-from tools.activsg2000.dcopf import Bus, Branch, Generator, load_prepared_artifact, prepared_period_inputs
+import tools.activsg2000.dcopf as dcopf
+from tools.activsg2000.dcopf import (
+    Bus,
+    Branch,
+    Generator,
+    load_prepared_artifact,
+    prepared_period_inputs,
+)
 from tools.hosting_capacity import (
     HostingCapacityPeriod,
     ieee14_period_provider,
@@ -122,6 +130,7 @@ def test_public_prepared_period_wrapper_validates_before_conversion(tmp_path: Pa
     artifact_dir = _write_small_prepared_artifact(tmp_path, validation_status="pending")
     artifact = load_prepared_artifact(artifact_dir)
 
+    assert "validate_artifact" not in inspect.signature(prepared_period_inputs).parameters
     with pytest.raises(ScenarioPackageError, match="validation_status"):
         prepared_period_inputs(artifact_dir, artifact, period_index=0)
 
@@ -131,6 +140,38 @@ def test_prepared_provider_validates_at_construction(tmp_path: Path) -> None:
 
     with pytest.raises(ScenarioPackageError, match="validation_status"):
         prepared_artifact_period_provider(artifact_dir)
+
+
+def test_prepared_provider_does_not_use_eager_legacy_artifact_loader(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifact_dir = _write_small_prepared_artifact(tmp_path)
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("provider must not load eager legacy tables")
+
+    monkeypatch.setattr(dcopf, "load_prepared_artifact", fail_if_called)
+    monkeypatch.setattr(dcopf, "_read_renewable_profiles", fail_if_called)
+    provider = prepared_artifact_period_provider(artifact_dir)
+
+    period = provider(1)
+    assert period.buses[1].demand_mw == 7.0
+
+
+def test_prepared_provider_rejects_unknown_demand_keys_in_adapter_path(tmp_path: Path) -> None:
+    artifact_dir = _write_small_prepared_artifact(tmp_path)
+    _write_csv(
+        artifact_dir / "demand_bus.csv",
+        ("period", "b1", "b2", "unknown-bus"),
+        [
+            {"period": 0, "b1": 1.0, "b2": 5.0, "unknown-bus": 0.0},
+            {"period": 1, "b1": 2.0, "b2": 7.0, "unknown-bus": 0.0},
+        ],
+    )
+
+    provider = prepared_artifact_period_provider(artifact_dir)
+    with pytest.raises(ValueError, match="unknown bus"):
+        provider(0)
 
 
 def test_prepared_provider_rejects_out_of_range_periods(tmp_path: Path) -> None:

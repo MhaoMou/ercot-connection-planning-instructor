@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import hashlib
-from functools import lru_cache
 import math
 from pathlib import Path
 import time
@@ -208,41 +207,20 @@ class _StaticPeriodProvider:
         )
 
 
-@lru_cache(maxsize=4)
-def _load_cached_artifact(artifact_dir: str) -> dcopf.PreparedArtifact:
-    """Load one prepared artifact once in each process that uses a provider."""
-    return dcopf.load_prepared_artifact(artifact_dir)
-
-
 def _artifact_path_identity(artifact_dir: Path) -> str:
     digest = hashlib.sha256(str(artifact_dir).encode("utf-8")).hexdigest()[:12]
     return f"{artifact_dir.name}:{digest}"
 
 
-def _manifest_scenario_metadata(manifest: Mapping[str, object]) -> tuple[int | None, str | None]:
-    block = manifest.get("block")
-    if not isinstance(block, str) or "-" not in block:
-        return None, None
-    year_text, calendar_block = block.split("-", 1)
-    try:
-        year = int(year_text)
-    except ValueError:
-        return None, None
-    return year, calendar_block
-
-
 @dataclass(frozen=True)
 class _PreparedArtifactPeriodProvider:
     artifact_dir: str
-    scenario_year: int | None = None
-    scenario_block: str | None = None
 
     def __call__(self, period_index: int) -> HostingCapacityPeriod:
-        artifact = _load_cached_artifact(self.artifact_dir)
-        buses, generators, branches, fixed_injections = dcopf.prepared_period_inputs(
+        scenario_year, scenario_block = dcopf.prepared_artifact_scenario_metadata(self.artifact_dir)
+        buses, generators, branches, fixed_injections = dcopf.prepared_period_inputs_from_path(
             self.artifact_dir,
-            artifact,
-            period_index=period_index,
+            period_index,
         )
         period = HostingCapacityPeriod(
             period_index=period_index,
@@ -254,8 +232,8 @@ class _PreparedArtifactPeriodProvider:
                 "source": "prepared_artifact",
                 "artifact_path_identity": _artifact_path_identity(Path(self.artifact_dir)),
                 "artifact_dir": Path(self.artifact_dir).name,
-                "scenario_year": self.scenario_year if self.scenario_year is not None else artifact.scenario_year,
-                "scenario_block": self.scenario_block if self.scenario_block is not None else artifact.scenario_block,
+                "scenario_year": scenario_year,
+                "scenario_block": scenario_block,
                 "period_index": period_index,
             },
         )
@@ -272,14 +250,8 @@ def prepared_artifact_period_provider(artifact_dir: str | Path) -> Callable[[int
     root = Path(artifact_dir).resolve()
     from ercot_game.scenario_package import require_validated_block
 
-    manifest = require_validated_block(root)
-    artifact = dcopf.load_prepared_artifact(root)
-    manifest_year, manifest_block = _manifest_scenario_metadata(manifest)
-    return _PreparedArtifactPeriodProvider(
-        str(root),
-        scenario_year=artifact.scenario_year if artifact.scenario_year is not None else manifest_year,
-        scenario_block=artifact.scenario_block if artifact.scenario_block is not None else manifest_block,
-    )
+    require_validated_block(root)
+    return _PreparedArtifactPeriodProvider(str(root))
 
 
 def ieee14_period_provider(
