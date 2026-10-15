@@ -163,6 +163,57 @@ def test_unbounded_backend_status_is_preserved_without_fabricated_capacity(monke
     assert point.objective_value is None
 
 
+def test_highs_candidate_probe_distinguishes_unbounded_from_ambiguous_status():
+    class FakeHighsStatus:
+        def __init__(self, name):
+            self.name = name
+
+    class FakeHighsModelStatus:
+        kUnbounded = FakeHighsStatus("kUnbounded")
+
+    ambiguous_status = FakeHighsStatus("kUnboundedOrInfeasible")
+
+    assert (
+        dcopf._highs_candidate_probe_status(
+            FakeHighsModelStatus.kUnbounded,
+            FakeHighsModelStatus,
+            base_case=False,
+        )
+        == "unbounded"
+    )
+    assert (
+        dcopf._highs_candidate_probe_status(
+            ambiguous_status,
+            FakeHighsModelStatus,
+            base_case=False,
+        )
+        == "solver_error"
+    )
+
+
+def test_gurobi_candidate_probe_distinguishes_unbounded_from_ambiguous_status():
+    class FakeGRB:
+        UNBOUNDED = 5
+        INF_OR_UNBD = 4
+
+    assert (
+        dcopf._gurobi_candidate_probe_status(
+            FakeGRB.UNBOUNDED,
+            FakeGRB,
+            base_case=False,
+        )
+        == "unbounded"
+    )
+    assert (
+        dcopf._gurobi_candidate_probe_status(
+            FakeGRB.INF_OR_UNBD,
+            FakeGRB,
+            base_case=False,
+        )
+        == "solver_error"
+    )
+
+
 def test_nonfinite_input_returns_invalid_input_before_a_solve():
     period = _two_bus_period(candidate_demand_mw=math.nan)
 
@@ -202,10 +253,13 @@ def test_auto_backend_uses_monkeypatched_resolver_result(monkeypatch):
 
 
 @pytest.mark.skipif(
-    GUROBIPY_MISSING,
-    reason="gurobipy is not installed",
+    HIGHSPY_MISSING or GUROBIPY_MISSING,
+    reason="highspy and gurobipy are required for backend parity",
 )
 def test_hosting_capacity_gurobi_matches_highs_on_small_case():
+    if not dcopf.gurobi_is_available():
+        pytest.skip("gurobipy is installed but no usable Gurobi license is available")
+
     period = _two_bus_period(candidate_demand_mw=5.0, generator_p_max_mw=20.0)
 
     highs = solve_hosting_capacity_at_bus(period, "b2", solver_backend="highs")
