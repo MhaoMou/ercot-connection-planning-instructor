@@ -64,6 +64,8 @@ ercot-game-batch run \
   --year 2027 --round jan_jun \
   --submission-number 2 \
   --workers 8 \
+  --solver-backend auto \
+  --output-mode compact \
   --projection-iterations 10 \
   --output-dir work/batch_results_jan_jun
 ```
@@ -78,12 +80,29 @@ ercot-game-batch run \
   --year 2027 --round jul_dec \
   --submission-number 2 \
   --workers 8 \
+  --solver-backend auto \
+  --output-mode compact \
   --projection-iterations 10 \
   --output-dir work/batch_results_jul_dec
 ```
 
 `--submission-number` is evaluator-side metadata, not a CSV field. It accepts
 `1` or `2` and defaults to `2`.
+
+The production storage route is the exact multi-storage Benders solver.
+`--solver-backend auto` is the default: it uses Gurobi when `gurobipy` and a
+valid license can be started, and otherwise falls back to HiGHS. Use
+`--solver-backend highs` or `--solver-backend gurobi` to force a backend.
+`--output-mode compact` writes scores, manifests, team diagnostics, aggregate
+diagnostics, and hashes without the large per-period dispatch export. Use
+`--output-mode full` when the detailed hourly dispatch is needed for debugging
+or visualization.
+
+For controlled performance comparisons, use
+`tools/benchmarks/benchmark_instructor_evaluator.py`. It runs isolated
+subprocesses, records wall time and solver diagnostics, and writes compact
+CSV/JSON benchmark summaries. Run it on the intended evaluation host rather
+than using local desktop timing as a release claim.
 
 - `--submission-number 1` excludes energy-purchase cost while retaining the
   other active scoring terms.

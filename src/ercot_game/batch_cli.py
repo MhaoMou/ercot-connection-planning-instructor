@@ -173,6 +173,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="source-artifact row offset: 0 for Jan-Jun or 4368 for Jul-Dec; inferred from horizon when omitted",
     )
     run_parser.add_argument(
+        "--output-mode",
+        choices=("full", "compact"),
+        default="full",
+        help="full writes per-period dispatch JSON; compact writes scores, manifests, diagnostics, and hashes only",
+    )
+    run_parser.add_argument(
+        "--solver-backend",
+        choices=("auto", "highs", "gurobi"),
+        default="auto",
+        help="storage recourse LP backend; auto uses licensed Gurobi when available, otherwise HiGHS",
+    )
+    run_parser.add_argument(
         "--region-map",
         required=False,
         type=Path,
@@ -356,6 +368,7 @@ def _run(args: argparse.Namespace) -> int:
         ),
         dispatch_workers=args.workers,
         projection_iterations=args.projection_iterations,
+        storage_solver_backend=args.solver_backend,
         submission_number=args.submission_number,
     )
     write_batch_outputs(
@@ -365,6 +378,7 @@ def _run(args: argparse.Namespace) -> int:
         evaluator_version=_evaluator_version(),
         period_indices=period_indices,
         source_period_indices=result.source_period_indices,
+        output_mode=args.output_mode,
     )
     print(f"output directory: {args.output_dir.resolve()}")
     print(_summary(result))

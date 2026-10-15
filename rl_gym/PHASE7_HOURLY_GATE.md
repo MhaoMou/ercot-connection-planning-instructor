@@ -144,6 +144,11 @@ by tests or a checked-in verification report:
       call count, latency, and output size; no budget is exceeded.
 - [ ] Production evaluator parity passes for an available solver-backed fixture,
       or the result is explicitly marked dependency-limited with no score claim.
+
+The production callback implementation is now available through
+`ProductionEvaluatorConfig` and `make_production_evaluator`; this closes the
+adapter-implementation portion of the criterion but does not close the
+solver-backed evidence requirement.
 - [x] CLI/API documentation and documentation tests describe the contract,
       privacy boundary, evaluator boundary, and non-goals.
 - [x] `git diff --check` is clean and the change set contains no evaluator,

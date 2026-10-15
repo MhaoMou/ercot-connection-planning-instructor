@@ -154,6 +154,15 @@ The default deterministic benchmark still intentionally uses zero evaluator call
 so its evaluator-latency field remains **OPEN/NOT MEASURED**; its
 reset, step, and episode measurements are solver-free measurements only.
 
+The repository now includes `ProductionEvaluatorConfig` and
+`make_production_evaluator`. This callback is the supported production bridge:
+it writes the canonical seven-column plan CSV and calls the existing batch
+evaluator with the configured scenario artifacts and rules. It does not expose
+solver objects or duplicate scoring logic. Unit tests verify configuration,
+scenario matching, serialization, and delegation. Full solver-backed parity and
+complete half-year latency remain open because the available local profile does
+not include `highspy`.
+
 A two-hour storage-enabled production smoke fixture also passed. It used one
 canonical CSV submission, the prepared 2028 January--June ACTIVSg2000 block,
 remote HiGHS, and the actual `evaluate_csv_batch` path. The batch evaluator
@@ -174,6 +183,30 @@ complete released package.
 The copied block was validated for the first two hours with HiGHS for this
 smoke test; the release package itself remains blocked until all released
 hours have passed validation.
+
+The new `make_production_evaluator` callback was then checked against a direct
+call to that same evaluator on Electrify. For the same one-site plan
+(`10 MW` connection, `2 MW` private generator, `1 MW` / `4 MWh` storage), the
+callback and direct paths agreed on every returned score field over diagnostic
+periods `0` and `1`: feasibility, served load, IT value, energy cost,
+generator operating and capital cost, storage capital cost, site cost, and
+total score. Both paths used remote HiGHS and the copied 2028 January--June
+artifact. The callback took `2.421 s`; the direct comparison took `0.812 s`.
+This is a **callback-to-direct parity PASS for the bounded storage fixture**;
+it is not a full-half-year parity or release-package validation result. The
+diagnostic copy was explicitly marked as validated only for this two-hour
+check and must not be treated as a released scenario artifact.
+
+The explicit reusable coupled-LP option was also compared with the exact
+Benders route on the same two-hour storage fixture. The production callback
+was configured with `storage_solver="monolithic"`; its score matched a direct
+monolithic evaluation, and the monolithic and Benders evaluations matched on
+feasibility, served load, IT value, energy cost, generator operating and
+capital cost, storage capital cost, site cost, and total score. Measured
+remote runtimes were `0.637 s` for monolithic and `0.747 s` for Benders on
+this two-hour case. This closes only the **bounded solver-selection parity**
+check. It does not authorize changing the production default or claim that
+the coupled LP is faster at the full 4,368-hour horizon.
 
 Measured remote production-evaluator latency for the same storage-enabled
 fixture was approximately **0.67 s for 2 hours** and **73.55 s for 24 hours**.

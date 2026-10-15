@@ -975,6 +975,13 @@ def _fair_continuous_projection(
     *,
     projection_iterations: int = 10,
     time_step_hours: float = 1.0,
+    storage_solver: str = "benders",
+    storage_parallel_workers: int | None = None,
+    storage_solver_threads: int = 1,
+    storage_solver_backend: str = "auto",
+    storage_wall_time_limit_seconds: float | None = 1500.0,
+    storage_max_iterations: int = 200,
+    storage_tighten_feasible_bounds: bool = False,
 ) -> FairProjectionResult | None:
     """Project valid plans continuously using total-load then PF objectives.
 
@@ -1022,6 +1029,13 @@ def _fair_continuous_projection(
                 period_indices,
                 source_period_indices=source_period_indices,
                 stop_on_infeasible=True,
+                storage_solver=storage_solver,
+                storage_parallel_workers=storage_parallel_workers,
+                storage_solver_threads=storage_solver_threads,
+                storage_solver_backend=storage_solver_backend,
+                storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
+                storage_max_iterations=storage_max_iterations,
+                storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
             )
         except (DCOPFInfeasible, DCOPFUnresolved, ValueError, NotImplementedError):
             result = None
@@ -1391,6 +1405,13 @@ def _dispatch_plans(
     source_period_indices: tuple[int, ...] | None = None,
     workers: int = 1,
     stop_on_infeasible: bool = False,
+    storage_solver: str = "benders",
+    storage_parallel_workers: int | None = None,
+    storage_solver_threads: int = 1,
+    storage_solver_backend: str = "auto",
+    storage_wall_time_limit_seconds: float | None = 1500.0,
+    storage_max_iterations: int = 200,
+    storage_tighten_feasible_bounds: bool = False,
 ) -> BatchDispatchResult:
     """Call the adapter with optional performance controls.
 
@@ -1409,10 +1430,23 @@ def _dispatch_plans(
         source_periods,
     )
     optional = {}
-    if workers != 1:
-        optional["workers"] = workers
+    effective_workers = workers if storage_parallel_workers is None else storage_parallel_workers
+    if effective_workers != 1:
+        optional["workers"] = effective_workers
     if stop_on_infeasible:
         optional["stop_on_infeasible"] = True
+    if storage_solver != "benders":
+        optional["storage_solver"] = storage_solver
+    if storage_solver_backend != "auto":
+        optional["storage_solver_backend"] = storage_solver_backend
+    if storage_solver_threads != 1:
+        optional["solver_threads"] = storage_solver_threads
+    if storage_wall_time_limit_seconds != 1500.0:
+        optional["storage_wall_time_limit_seconds"] = storage_wall_time_limit_seconds
+    if storage_max_iterations != 200:
+        optional["storage_max_iterations"] = storage_max_iterations
+    if storage_tighten_feasible_bounds:
+        optional["tighten_feasible_bounds"] = True
     if not optional:
         dispatch = evaluate_plans_with_prepared_dcopf(
             artifact_dir, adapter_plans, period_indices=source_periods
@@ -1549,6 +1583,13 @@ def evaluate_csv_batch(
     default_generator_cost_per_mwh: float | None = None,
     dispatch_workers: int = 1,
     projection_iterations: int = 10,
+    storage_solver: str = "benders",
+    storage_parallel_workers: int | None = None,
+    storage_solver_threads: int = 1,
+    storage_solver_backend: str = "auto",
+    storage_wall_time_limit_seconds: float | None = 1500.0,
+    storage_max_iterations: int = 200,
+    storage_tighten_feasible_bounds: bool = False,
     plan_overrides: Mapping[str, TeamPlan] | None = None,
     capital_cost_scope: CapitalCostScope | None = None,
     site_cost_connection_count_by_team: Mapping[str, int] | None = None,
@@ -1575,6 +1616,37 @@ def evaluate_csv_batch(
         raise ValueError("dispatch_workers must be a positive integer")
     if not isinstance(projection_iterations, int) or isinstance(projection_iterations, bool) or projection_iterations <= 0:
         raise ValueError("projection_iterations must be a positive integer")
+    if storage_solver not in {"benders", "monolithic"}:
+        raise ValueError("storage_solver must be 'benders' or 'monolithic'")
+    if storage_solver_backend not in {"auto", "highs", "gurobi"}:
+        raise ValueError("storage_solver_backend must be 'auto', 'highs', or 'gurobi'")
+    if storage_parallel_workers is not None and (
+        not isinstance(storage_parallel_workers, int)
+        or isinstance(storage_parallel_workers, bool)
+        or storage_parallel_workers <= 0
+    ):
+        raise ValueError("storage_parallel_workers must be a positive integer or None")
+    if (
+        not isinstance(storage_solver_threads, int)
+        or isinstance(storage_solver_threads, bool)
+        or storage_solver_threads <= 0
+    ):
+        raise ValueError("storage_solver_threads must be a positive integer")
+    if storage_wall_time_limit_seconds is not None and (
+        isinstance(storage_wall_time_limit_seconds, bool)
+        or not isinstance(storage_wall_time_limit_seconds, (int, float))
+        or not math.isfinite(float(storage_wall_time_limit_seconds))
+        or storage_wall_time_limit_seconds < 0
+    ):
+        raise ValueError("storage_wall_time_limit_seconds must be finite, non-negative, or None")
+    if (
+        not isinstance(storage_max_iterations, int)
+        or isinstance(storage_max_iterations, bool)
+        or storage_max_iterations <= 0
+    ):
+        raise ValueError("storage_max_iterations must be a positive integer")
+    if not isinstance(storage_tighten_feasible_bounds, bool):
+        raise ValueError("storage_tighten_feasible_bounds must be a boolean")
     if source_period_indices is not None and source_period_offset is not None:
         raise ValueError(
             "provide either source_period_indices or source_period_offset, not both"
@@ -1661,6 +1733,13 @@ def evaluate_csv_batch(
                 selected_periods,
                 source_period_indices=selected_source_periods,
                 workers=dispatch_workers,
+                storage_solver=storage_solver,
+                storage_parallel_workers=storage_parallel_workers,
+                storage_solver_threads=storage_solver_threads,
+                storage_solver_backend=storage_solver_backend,
+                storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
+                storage_max_iterations=storage_max_iterations,
+                storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
             )
         except (DCOPFInfeasible, DCOPFUnresolved) as exc:
             batch_failure_reason = str(exc)
@@ -1688,6 +1767,13 @@ def evaluate_csv_batch(
                 selected_source_periods,
                 projection_iterations=projection_iterations,
                 time_step_hours=rules.time_step_hours,
+                storage_solver=storage_solver,
+                storage_parallel_workers=storage_parallel_workers,
+                storage_solver_threads=storage_solver_threads,
+                storage_solver_backend=storage_solver_backend,
+                storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
+                storage_max_iterations=storage_max_iterations,
+                storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
             )
             if projection is not None:
                 dispatch = projection.dispatch
@@ -1784,6 +1870,13 @@ def evaluate_csv_batch(
                         selected_periods,
                         source_period_indices=selected_source_periods,
                         workers=dispatch_workers,
+                        storage_solver=storage_solver,
+                        storage_parallel_workers=storage_parallel_workers,
+                        storage_solver_threads=storage_solver_threads,
+                        storage_solver_backend=storage_solver_backend,
+                        storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
+                        storage_max_iterations=storage_max_iterations,
+                        storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
                     )
                 except (DCOPFInfeasible, DCOPFUnresolved) as remainder_exc:
                     remainder_ids = tuple(plan.team_id for plan in remainder)
@@ -1885,6 +1978,13 @@ def evaluate_csv_batch(
                             selected_periods,
                             source_period_indices=selected_source_periods,
                             workers=dispatch_workers,
+                            storage_solver=storage_solver,
+                            storage_parallel_workers=storage_parallel_workers,
+                            storage_solver_threads=storage_solver_threads,
+                            storage_solver_backend=storage_solver_backend,
+                            storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
+                            storage_max_iterations=storage_max_iterations,
+                            storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
                         )
                     except (DCOPFInfeasible, DCOPFUnresolved) as individual_exc:
                         dispatch_records.append(
@@ -2488,8 +2588,11 @@ def write_batch_outputs(
     evaluator_version: str,
     period_indices: tuple[int, ...],
     source_period_indices: tuple[int, ...] | None = None,
+    output_mode: str = "full",
 ) -> None:
     """Write deterministic, self-auditing batch evaluation artifacts."""
+    if output_mode not in {"full", "compact"}:
+        raise ValueError("output_mode must be 'full' or 'compact'")
     if not period_indices:
         raise ValueError("period_indices must be non-empty")
     if any(not isinstance(index, int) or isinstance(index, bool) for index in period_indices):
@@ -2508,7 +2611,8 @@ def write_batch_outputs(
     diagnostics_dir = root / "diagnostics"
     dispatch_dir = root / "dispatch"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    dispatch_dir.mkdir(parents=True, exist_ok=True)
+    if output_mode == "full":
+        dispatch_dir.mkdir(parents=True, exist_ok=True)
     _remove_tracked_generated_files(root)
 
     generated_paths: list[Path] = [root / "leaderboard.csv", root / "submission_manifest.csv"]
@@ -2572,22 +2676,24 @@ def write_batch_outputs(
         period_indices,
         source_period_indices,
     )
-    for period_index in period_indices:
-        dispatch_path = dispatch_dir / f"period_{period_index}.json"
-        _write_canonical_json(dispatch_path, selected_periods[period_index])
-        generated_paths.append(dispatch_path)
+    if output_mode == "full":
+        for period_index in period_indices:
+            dispatch_path = dispatch_dir / f"period_{period_index}.json"
+            _write_canonical_json(dispatch_path, selected_periods[period_index])
+            generated_paths.append(dispatch_path)
 
     periods_by_team: dict[str, list[dict[str, Any]]] = {score.team_id: [] for score in evaluation.team_scores}
-    for period_index in period_indices:
-        period = selected_periods[period_index]
-        for team_id, load in period["submitted_load_mw_by_team"].items():
-            periods_by_team.setdefault(team_id, []).append(
-                {
-                    "period_index": period_index,
-                    "submitted_load_mw": load,
-                    "generator_dispatch_mw": period["generator_dispatch_mw_by_team"].get(team_id, {}),
-                }
-            )
+    if output_mode == "full":
+        for period_index in period_indices:
+            period = selected_periods[period_index]
+            for team_id, load in period["submitted_load_mw_by_team"].items():
+                periods_by_team.setdefault(team_id, []).append(
+                    {
+                        "period_index": period_index,
+                        "submitted_load_mw": load,
+                        "generator_dispatch_mw": period["generator_dispatch_mw_by_team"].get(team_id, {}),
+                    }
+                )
     diagnostic_filenames = _diagnostic_filenames(records)
     team_diagnostics = {}
     for score in evaluation.team_scores:
@@ -2629,6 +2735,12 @@ def write_batch_outputs(
     )
     scoring_configuration = evaluation.rules_payload or {"rules_version": evaluation.rules_version}
     evaluation_metadata = {
+        "output_mode": output_mode,
+        "solver_diagnostics": (
+            None
+            if evaluation.dispatch is None or getattr(evaluation.dispatch, "solver_diagnostics", None) is None
+            else asdict(evaluation.dispatch.solver_diagnostics)
+        ),
         "competition_scope": evaluation.competition_scope,
         "projection_diagnostics": (
             None
@@ -2670,7 +2782,7 @@ def write_batch_outputs(
         "evaluation_metadata": evaluation_metadata,
         "aggregate_diagnostics": aggregate_diagnostics,
         "isolation_events": [asdict(event) for event in evaluation.isolation_events],
-        "periods": [selected_periods[index] for index in period_indices],
+        "periods": [selected_periods[index] for index in period_indices] if output_mode == "full" else [],
     }
     run_id = hashlib.sha256(_canonical_json_bytes(run_seed)).hexdigest()
     payload = {
@@ -2697,7 +2809,7 @@ def write_batch_outputs(
         "aggregate_diagnostics": aggregate_diagnostics,
         "failure_reason": evaluation.failure_reason,
         "team_diagnostics": team_diagnostics,
-        "periods": [selected_periods[index] for index in period_indices],
+        "periods": [selected_periods[index] for index in period_indices] if output_mode == "full" else [],
         "output_sha256": output_hashes,
         "rules": evaluation.rules_payload or {"rules_version": evaluation.rules_version},
     }

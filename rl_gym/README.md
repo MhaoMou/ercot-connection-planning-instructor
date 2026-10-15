@@ -25,6 +25,61 @@ Phase 6 planning/replay/experiment/reporting/training APIs are implemented.
 The solver-free hourly operation surface is available while its exact gate is documented in
 [`PHASE7_HOURLY_GATE.md`](PHASE7_HOURLY_GATE.md).
 
+## Production evaluator callback
+
+The RL layer now provides a thin callback factory for terminal evaluation. It
+serializes the frozen plan through the canonical seven-column CSV contract and
+delegates to the existing production batch evaluator; it does not duplicate
+DCOPF, projection, storage, or scoring mathematics.
+
+```python
+from pathlib import Path
+
+from rl_gym import ProductionEvaluatorConfig, make_production_evaluator
+
+callback = make_production_evaluator(
+    ProductionEvaluatorConfig(
+        scenario_year=2028,
+        scenario_block="jan_jun",
+        artifact_dir=Path("data/processed/activsg2000_scenarios_v1/2028/jan_jun"),
+        rules_path=Path("data/teaching/dispatch_scoring_rules_jan_jun_v1.json"),
+        submission_dir=Path("work/rl-gym-evaluations"),
+    )
+)
+```
+
+Pass `callback` as the `evaluator_callback` to `HourlyOperationEnv`. That
+environment invokes it at most once at the declared terminal boundary.
+`ConnectionPlanningEnv` retains its older batch-evaluator seam for backward
+compatibility and should continue to use `evaluate_plan_state` directly.
+Missing solver dependencies or invalid production artifacts are reported as an
+evaluation failure; they are never converted into a valid score. A small
+solver-backed parity fixture is required before claiming full release
+readiness, and complete half-year runtime evidence remains open.
+
+The callback defaults to the exact Benders storage route used by the
+instructor evaluator. For controlled benchmarking, it can explicitly select
+the reusable coupled LP route and its solver controls:
+
+```python
+ProductionEvaluatorConfig(
+    # ... scenario and path fields ...
+    storage_solver="monolithic",       # default: "benders"
+    storage_solver_backend="auto",      # licensed Gurobi, otherwise HiGHS
+    storage_parallel_workers=2,
+    storage_solver_threads=2,
+    storage_wall_time_limit_seconds=3600.0,
+    storage_max_iterations=200,
+    storage_tighten_feasible_bounds=False,
+)
+```
+
+The coupled LP is exact under the current unit-efficiency, continuous-storage
+formulation, but it must remain opt-in until full-horizon parity and scoring
+performance are verified. The solver-only Colab benchmark is not by itself a
+replacement for this production callback because the callback must also
+extract team-owned dispatch, storage state, costs, and scores.
+
 ## Phase 6 implemented APIs and commands
 
 Phase 6 adds reproducible research plumbing around the planning environments.
@@ -270,18 +325,22 @@ The current classroom convention is:
 - the current student CSV has exactly seven columns and no generator-ID or
   storage-ID fields; the evaluator assigns deterministic private asset IDs
   internally from each team/site pair;
-- every team-built generator uses the common convex curve: 25% at $60/MWh,
-  50% at $100/MWh, and 25% at $160/MWh;
+- every team-built generator uses the common convex curve: 25% at $80/MWh,
+  50% at $150/MWh, and 25% at $250/MWh;
 - team-built generators and storage serve only their owning team;
 - one episode corresponds to one released half-year;
 - the time step is one hour;
 - January--June and July--December are separate episode configurations;
 - the existing evaluator remains authoritative for final classroom scores.
 
-The active scoring coefficients are IT value of $1500/MWh; site cost of
-$20m/MW; generator capital cost of $1.3m/MW; storage capital costs of
-$350k/MW plus $200k/MWh (a four-hour total of $1.15m/MW); and no storage
-operating cost.
+The active scoring coefficients (from
+`data/teaching/dispatch_scoring_rules_{jan_jun,jul_dec}_v1.json`) are IT value
+of $6,500/MWh; site cost of $25M/MW of connection capacity; generator capital
+cost of $1.5M/MW; storage capital costs of $400k/MW plus $250k/MWh (a
+four-hour total of $1.4M/MW); no storage operating cost; and an invalid score
+of 0. In the classroom game, capital cost is charged once, in the submission
+where an asset is first built (Submission 1 assets carried into Submission 2
+are not charged again).
 
 ## 2. Scope and non-goals
 

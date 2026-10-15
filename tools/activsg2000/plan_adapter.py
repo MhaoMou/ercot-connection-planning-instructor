@@ -13,6 +13,7 @@ from ercot_game.models import ConnectionPlan, GeneratorPlan, StoragePlan, TeamPl
 from ercot_game.csv_submission import TEAM_GENERATOR_COST_CURVE
 
 from .dcopf import (
+    DCOPFBendersDiagnostics,
     DCOPFInfeasible,
     DCOPFUnresolved,
     DCOPFResult,
@@ -62,6 +63,7 @@ class BatchDispatchResult:
     periods: tuple[BatchPeriodResult, ...]
     service_fraction_by_team: dict[str, float] | None = None
     final_storage_soc_mwh_by_team: dict[str, dict[str, float]] | None = None
+    solver_diagnostics: DCOPFBendersDiagnostics | None = None
 
     @property
     def final_soc_mwh_by_team(self) -> dict[str, dict[str, float]]:
@@ -385,6 +387,7 @@ def evaluate_plans_with_prepared_dcopf(
     workers: int = 1,
     stop_on_infeasible: bool = False,
     storage_solver: str = "benders",
+    storage_solver_backend: str = "auto",
     storage_wall_time_limit_seconds: float | None = 1500.0,
     storage_max_iterations: int = 200,
 ) -> BatchDispatchResult:
@@ -415,6 +418,8 @@ def evaluate_plans_with_prepared_dcopf(
         raise ValueError("workers must be a positive integer")
     if storage_solver not in {"benders", "monolithic"}:
         raise ValueError("storage_solver must be 'benders' or 'monolithic'")
+    if storage_solver_backend not in {"auto", "highs", "gurobi"}:
+        raise ValueError("storage_solver_backend must be 'auto', 'highs', or 'gurobi'")
     if not isinstance(storage_max_iterations, int) or storage_max_iterations <= 0:
         raise ValueError("storage_max_iterations must be a positive integer")
     if storage_wall_time_limit_seconds is not None and (
@@ -443,6 +448,7 @@ def evaluate_plans_with_prepared_dcopf(
             time_step_hours=1.0,
             workers=workers,
             storage_solver=storage_solver,
+            storage_solver_backend=storage_solver_backend,
             storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
             storage_max_iterations=storage_max_iterations,
         )
@@ -587,6 +593,7 @@ def _evaluate_batch_with_central_storage(
     time_step_hours: float,
     workers: int = 1,
     storage_solver: str = "benders",
+    storage_solver_backend: str = "auto",
     storage_wall_time_limit_seconds: float | None = 1500.0,
     storage_max_iterations: int = 200,
 ) -> BatchDispatchResult:
@@ -595,13 +602,17 @@ def _evaluate_batch_with_central_storage(
     Storage-bearing batches use exact Benders by default; ``monolithic`` is
     retained only as an explicit small-fixture reference route.
     """
-    base_demand_by_team: dict[str, tuple[dict[str, float], ...]] = {
-        plan.team_id: tuple(
-            _connection_load_by_bus(ordered_connections_by_team[plan.team_id], period_index)
-            for period_index in period_indices
-        )
-        for plan in ordered_plans
-    }
+    base_demand_by_team: dict[str, tuple[dict[str, float], ...]] = {}
+    for plan in ordered_plans:
+        connections = ordered_connections_by_team[plan.team_id]
+        if all(not connection.profile for connection in connections):
+            constant_demand = _connection_load_by_bus(connections, period_indices[0])
+            base_demand_by_team[plan.team_id] = (constant_demand,) * len(period_indices)
+        else:
+            base_demand_by_team[plan.team_id] = tuple(
+                _connection_load_by_bus(connections, period_index)
+                for period_index in period_indices
+            )
     aggregate_demand_by_period = tuple(
         {
             bus_id: sum(
@@ -616,19 +627,36 @@ def _evaluate_batch_with_central_storage(
         }
         for period_offset in range(len(period_indices))
     )
-    candidates_by_period = tuple(
-        tuple(
+    constant_generators = all(
+        all(not connection.profile for connection in ordered_connections_by_team[plan.team_id])
+        for plan in ordered_plans
+    )
+    if constant_generators:
+        constant_candidates = tuple(
             candidate
             for plan in ordered_plans
             for candidate in _student_generators(
                 tuple(sorted(plan.generators, key=lambda item: item.generator_id)),
                 connection_by_team[plan.team_id],
-                base_demand_by_team[plan.team_id][period_offset],
+                base_demand_by_team[plan.team_id][0],
                 id_prefix=(plan.team_id,),
             )
         )
-        for period_offset in range(len(period_indices))
-    )
+        candidates_by_period = (constant_candidates,) * len(period_indices)
+    else:
+        candidates_by_period = tuple(
+            tuple(
+                candidate
+                for plan in ordered_plans
+                for candidate in _student_generators(
+                    tuple(sorted(plan.generators, key=lambda item: item.generator_id)),
+                    connection_by_team[plan.team_id],
+                    base_demand_by_team[plan.team_id][period_offset],
+                    id_prefix=(plan.team_id,),
+                )
+            )
+            for period_offset in range(len(period_indices))
+        )
 
     storage_records: list[tuple[str, str, str, str, float, float, float]] = []
     used_solver_storage_ids: set[str] = set()
@@ -682,6 +710,7 @@ def _evaluate_batch_with_central_storage(
         horizon_kwargs.update(
             max_iterations=storage_max_iterations,
             parallel_workers=workers,
+            solver_backend=storage_solver_backend,
             wall_time_limit_seconds=storage_wall_time_limit_seconds,
         )
     horizon_result = solve_horizon(**horizon_kwargs)
@@ -774,6 +803,7 @@ def _evaluate_batch_with_central_storage(
         team_ids=team_ids,
         periods=tuple(periods),
         final_storage_soc_mwh_by_team=final_storage_soc_mwh_by_team,
+        solver_diagnostics=horizon_result.diagnostics,
     )
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -48,7 +49,8 @@ def generator_availability(profile: dict[str, Any], hour_index: int, *, year: in
     return max(0.05, min(1.0, weather))
 
 
-def load_profile_inputs(package_root: str | Path) -> tuple[dict[str, float], dict[str, dict[str, Any]], list[dict[str, str]]]:
+@lru_cache(maxsize=8)
+def _load_profile_inputs_cached(package_root: str) -> tuple[dict[str, float], dict[str, dict[str, Any]], tuple[dict[str, str], ...]]:
     root = Path(package_root)
     data_root = root / "network" if (root / "network").is_dir() else root
     buses = {row["bus_id"]: float(row["base_load_mw"]) for row in _read_csv(data_root / "bus_load_base.csv")}
@@ -58,10 +60,27 @@ def load_profile_inputs(package_root: str | Path) -> tuple[dict[str, float], dic
         profile_path = data_root / "profile_parameters.json"
     payload = json.loads(profile_path.read_text(encoding="utf-8"))
     profiles = {row["generator_id"]: row for row in payload["generators"]}
-    return buses, profiles, list(catalog.values())
+    return buses, profiles, tuple(catalog.values())
 
 
-def hourly_state(package_root: str | Path, *, year: int, calendar_block: str, period_index: int) -> tuple[dict[str, float], dict[str, float]]:
+def load_profile_inputs(package_root: str | Path) -> tuple[dict[str, float], dict[str, dict[str, Any]], tuple[dict[str, str], ...]]:
+    """Load static profile inputs once per package root.
+
+    Scenario evaluation asks for one state per hour.  The source tables are
+    immutable during a run, so caching them avoids reparsing the same CSV and
+    JSON files thousands of times without changing any generated values.
+    """
+    return _load_profile_inputs_cached(str(Path(package_root).resolve()))
+
+
+def clear_profile_input_cache() -> None:
+    """Clear cached scenario profile inputs after deliberate file replacement."""
+    _load_profile_inputs_cached.cache_clear()
+    _hourly_state_cached.cache_clear()
+
+
+@lru_cache(maxsize=16384)
+def _hourly_state_cached(package_root: str, year: int, calendar_block: str, period_index: int) -> tuple[dict[str, float], dict[str, float]]:
     """Materialize one bus-demand and generator-availability state."""
     base_load, profiles, catalog = load_profile_inputs(package_root)
     horizon = 4368 if calendar_block == "jan_jun" and year % 4 == 0 else 4344 if calendar_block == "jan_jun" else 4416
@@ -76,3 +95,8 @@ def hourly_state(package_root: str | Path, *, year: int, calendar_block: str, pe
         if int(row["status"]) == 1
     }
     return demand, availability
+
+
+def hourly_state(package_root: str | Path, *, year: int, calendar_block: str, period_index: int) -> tuple[dict[str, float], dict[str, float]]:
+    """Materialize one deterministic state, reusing cached profile inputs."""
+    return _hourly_state_cached(str(Path(package_root).resolve()), year, calendar_block, period_index)

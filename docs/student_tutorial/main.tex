@@ -434,10 +434,10 @@ has not used these tools much.
 \begin{itemize}[leftmargin=*]
   \item \textbf{Chat assistants} (ChatGPT, Claude, Gemini in a browser) are best
     for explaining concepts, writing short scripts, and decoding error
-    messages. They only see what you paste in.
+    messages. They only see what you paste in. Most of them can be used for free. However, without subscriptions, we may be limited to only the use of basic models.
   \item \textbf{Coding assistants} (Claude Code, Codex, Copilot in your editor)
-    can read the repository and run commands for you. They are faster once you
-    are comfortable, but check what they change.
+    can read the GitHub repository and run commands for you. They are faster once you
+    are comfortable, but check what they change. Most of them require subscriptions.
 \end{itemize}
 If you are new to this, start with a chat assistant and copy code into your
 own files. Each tool has an official getting-started guide:
@@ -1090,6 +1090,14 @@ Nash equilibrium & A set of plans in which no team gains by changing its own. & 
 
 \clearpage
 \appendix
+% Group the appendices under one heading, in the text and in the contents.
+\addcontentsline{toc}{part}{Appendices}
+\addtocontents{toc}{\protect\setlength{\cftsecindent}{1.5em}\protect\setlength{\cftsubsecindent}{3.8em}}
+\begin{center}
+{\LARGE\bfseries Appendices}
+\end{center}
+\vspace{0.5em}
+
 \section{Hosting capacity in detail}\label{app:hc}
 
 The hosting-capacity idea comes from distribution planning, where it measures
@@ -1259,17 +1267,16 @@ prints a table sorted from largest to smallest. Use
 
 
 % ---------------------------------------------------------------------------
-\clearpage
 \section{The evaluator in full}\label{app:model}
 
-This appendix writes out the problem the official evaluator solves for one
-half-year. \Cref{sec:model} gives the short version.
+This appendix writes out the problem the evaluator solves for one
+half-year.
 
 \paragraph{Sets and data.} Buses $n$, branches $\ell$ from $o(\ell)$ to
 $r(\ell)$ with susceptance $b_\ell$ and thermal limit $F_\ell$, existing
 generators $g$ with limits $[p_g^{\min}, p_g^{\max}]$ and marginal cost $c_g$,
 base load $d_{n,t}$, fixed DC-line injections $s_{n,t}$, and hours
-$t = 1, \dots, H$. Team $i$ has sites $s$ at buses $k(s)$ with capacities
+$t = 1, \dots, T$. Team $i$ has sites $s$ at buses $k(s)$ with capacities
 $C_s, G_s, P_s, B_s$ and service fraction $\alpha_i$ ($\alpha_i = 1$ unless
 the fair projection is needed).
 
@@ -1283,7 +1290,7 @@ charge $e_{s,t}$.
 \paragraph{Problem.} The evaluator minimizes the total generation cost over the
 half-year,
 \[
-  \min \sum_{t=1}^{H}\Big( \sum_g c_g\, p_{g,t} + \sum_s \sum_{m=1}^{3} c^m q^m_{s,t} \Big),
+  \min \sum_{t=1}^{T}\Big( \sum_g c_g\, p_{g,t} + \sum_s \sum_{m=1}^{3} c^m q^m_{s,t} \Big),
 \]
 subject to, for every hour $t$:
 \begin{align*}
@@ -1292,18 +1299,17 @@ subject to, for every hour $t$:
     = \sum_{\ell:\,o(\ell)=n} f_{\ell,t} - \sum_{\ell:\,r(\ell)=n} f_{\ell,t} && \forall n,\\
   & f_{\ell,t} = b_\ell(\theta_{o(\ell),t} - \theta_{r(\ell),t}),\quad |f_{\ell,t}| \le F_\ell,\quad \theta_{\mathrm{ref},t} = 0 && \forall \ell,\\
   & p_g^{\min} \le p_{g,t} \le p_g^{\max},\qquad 0 \le q^m_{s,t} \le w^m G_s && \forall g, s, m,\\
-  & e_{s,t} = e_{s,t-1} - u_{s,t},\quad 0 \le e_{s,t} \le B_s,\quad |u_{s,t}| \le P_s,\quad u_{s,t} \le e_{s,t-1} && \forall s,\\
+  & e_{s,t} = e_{s,t-1} - u_{s,t},\quad 0 \le e_{s,t} \le B_s,\quad |u_{s,t}| \le P_s,\quad u_{s,t} \le e_{s,t-1}, \quad e_{s,0} = 0.5 B_s, \quad e_{s,T} \ge 0.5 B_s && \forall s,\\
   & \sum_{s \in \text{team } i,\ k(s)=n} u_{s,t} \le \sum_{s \in \text{team } i,\ k(s)=n} \alpha_i C_s && \forall i, n,
 \end{align*}
-with $e_{s,0} = 0.5B_s$ for a new battery (or the state of charge carried over
-from Submission 1) and $e_{s,H} \ge 0.5B_s$. The last constraint keeps a
-team's batteries from discharging more than that team's own load at a bus.
+where the last constraint keeps a
+team's batteries from discharging more than that team's load at a bus.
 Storage couples the hours, so this is one linear program over the whole
-half-year; the instructor solves it exactly with a decomposition method. The
+half-year. The grid operator (instructor) solves it exactly. The
 preview drops storage, which makes every hour independent (\cref{sec:preview}).
 
 \paragraph{Prices and score.} The LMP $\lambda_{n,t}$ is the dual variable of
-the balance constraint at bus $n$, clipped at zero. Team $i$'s grid purchase at
+the balance constraint at bus $n$ (i.e., the first constraint above), clipped at zero. Team $i$'s grid purchase at
 bus $n$ is the part of its load that its own generation and batteries do not
 cover, $\pi_{i,n,t} = \max\{0,\ \sum_{s} (\alpha_i C_s - \sum_m q^m_{s,t} - u_{s,t})\}$,
 summed over its sites at $n$. Then
@@ -1329,7 +1335,7 @@ cannot block anyone else.
   \item \textbf{Most total service.} Find service fractions
     $\alpha_i \in [10^{-6}, 1]$ that make the joint dispatch feasible in every
     hour and maximize the total served load $\sum_i \alpha_i \hat d_i$. Call the
-    maximum $L^*$.
+    maximum $L^* := \max_{d_i, \forall i} \sum_i \alpha_i \hat d_i$.
   \item \textbf{Proportional fairness.} Among the fractions whose total is
     within $\max(10^{-6}, 10^{-6}L^*)$ of $L^*$, choose the ones that maximize
     $\sum_i \log(\alpha_i \hat d_i)$.
@@ -1352,8 +1358,8 @@ uses less of the bottleneck is served in full.
 
 A \emph{game} has players (the teams), strategies (each team's plan), and
 payoffs (each team's score), where every payoff depends on everyone's
-strategies. Write $u_i(x_i, x_{-i})$ for team $i$'s payoff when it plays $x_i$
-and the others play $x_{-i}$.
+strategies. Write $u_i(x_i, x_{-i})$ for team $i$'s payoff when it plays strategy $x_i$
+and the others play strategies $x_{-i}$, which is defined to be the collection of strategies of teams other than team $i$. Below are some concepts in game theory:
 
 \begin{itemize}[leftmargin=*]
   \item A \textbf{best response} to $x_{-i}$ is a plan $x_i$ that maximizes
@@ -1383,7 +1389,7 @@ ideas~\cite{polak2007gametheory}.
 % ---------------------------------------------------------------------------
 \section{Where the numbers come from}\label{app:numbers}
 
-The coefficients are instructional values, informed by public sources and
+The numbers are instructional, informed by public sources and
 rounded. They are not tariffs, forecasts, or ERCOT rules.
 
 \begin{center}
@@ -1407,7 +1413,7 @@ Network & ACTIVSg2000 & Public synthetic Texas grid~\cite{activsg2000}; the scen
 % ---------------------------------------------------------------------------
 \section{Working as a team}\label{app:team}
 
-\paragraph{Use a private Git repository.} Commit your CSVs, scripts, and run
+\paragraph{How to collaborate: use a private Git repository.} Commit your CSVs, scripts, and run
 log so everyone works from the same files and you can always return to the
 exact plan you submitted. Keep the repository private: your plan is your
 competitive information.
@@ -1449,6 +1455,7 @@ hosting capacity, one writes and checks CSVs, and one runs previews and keeps
 the log. Review the final CSV together before you submit.
 
 
+\addtocontents{toc}{\protect\setlength{\cftsecindent}{0em}\protect\setlength{\cftsubsecindent}{1.5em}}
 \bibliographystyle{plain}
 \bibliography{references}
 

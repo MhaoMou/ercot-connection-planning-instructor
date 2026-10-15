@@ -108,6 +108,7 @@ class DCOPFBendersDiagnostics:
     """Instructor-facing diagnostics for an exact Benders horizon solve."""
 
     route: str = "benders"
+    solver_backend: str = "highs"
     iterations: int = 0
     recourse_solves: int = 0
     optimality_cuts: int = 0
@@ -116,6 +117,11 @@ class DCOPFBendersDiagnostics:
     upper_bound: float | None = None
     relative_gap: float | None = None
     elapsed_seconds: float = 0.0
+    preparation_seconds: float = 0.0
+    initial_recourse_seconds: float = 0.0
+    candidate_recourse_seconds: float = 0.0
+    finalization_seconds: float = 0.0
+    recourse_cache_hits: int = 0
 
 
 class DCOPFInfeasible(ValueError):
@@ -590,24 +596,31 @@ class ReusableDCOPFModel:
 
     def solve(
         self,
-        buses: tuple[Bus, ...],
+        buses: tuple[Bus, ...] | None,
         fixed_injection_mw_by_bus: Mapping[str, float] | None = None,
         *,
         return_result: bool = True,
         return_summary: bool = False,
+        demand_mw_by_bus: Mapping[str, float] | None = None,
     ) -> DCOPFResult | DCOPFRecourseSummary | str:
-        if tuple(bus.bus_id for bus in buses) != self._bus_order:
-            raise ValueError("topology inputs must match the reusable model")
-        if any(not math.isfinite(bus.demand_mw) or bus.demand_mw < 0 for bus in buses):
+        if demand_mw_by_bus is None:
+            if buses is None or tuple(bus.bus_id for bus in buses) != self._bus_order:
+                raise ValueError("topology inputs must match the reusable model")
+            demand_values = {bus.bus_id: float(bus.demand_mw) for bus in buses}
+        else:
+            demand_values = dict(demand_mw_by_bus)
+            if set(demand_values) != set(self._bus_order):
+                raise ValueError("demand must reference exactly the reusable model buses")
+        if any(not math.isfinite(value) or value < 0 for value in demand_values.values()):
             raise ValueError("invalid demand in reusable DCOPF solve")
         injections = dict(fixed_injection_mw_by_bus or {})
         if set(injections) - set(self._bus_order):
             raise ValueError("fixed injection references an unknown bus")
         if any(not math.isfinite(value) for value in injections.values()):
             raise ValueError("fixed injections must be finite")
-        for bus in buses:
-            rhs = bus.demand_mw - injections.get(bus.bus_id, 0.0)
-            self._highs.changeRowBounds(self._balance_row_indices[bus.bus_id], rhs, rhs)
+        for bus_id in self._bus_order:
+            rhs = demand_values[bus_id] - injections.get(bus_id, 0.0)
+            self._highs.changeRowBounds(self._balance_row_indices[bus_id], rhs, rhs)
 
         self._highs.run()
         model_status = self._highs.getModelStatus()
@@ -665,6 +678,261 @@ class ReusableDCOPFModel:
             flow_mw_by_branch=flows,
             balance_dual_by_bus=balance_duals,
         )
+
+
+class GurobiReusableDCOPFModel:
+    """Optional Gurobi equivalent of :class:`ReusableDCOPFModel`.
+
+    The class is imported only when explicitly selected.  It mirrors the
+    HiGHS reusable-model contract so the exact Benders decomposition can be
+    benchmarked without changing its mathematical formulation.
+    """
+
+    def __init__(
+        self,
+        *,
+        buses: tuple[Bus, ...],
+        generators: tuple[Generator, ...],
+        branches: tuple[Branch, ...],
+        base_mva: float = 1.0,
+        enable_injection_probes: bool = False,
+        injection_probe_bus_id: str | None = None,
+        solver_threads: int = 1,
+    ) -> None:
+        try:
+            import gurobipy as gp
+        except ImportError as exc:
+            raise RuntimeError("Gurobi backend requires the optional 'gurobipy' package") from exc
+        if not math.isfinite(base_mva) or base_mva <= 0:
+            raise ValueError("base_mva must be finite and positive")
+        if not isinstance(solver_threads, int) or isinstance(solver_threads, bool) or solver_threads <= 0:
+            raise ValueError("solver_threads must be a positive integer")
+        self._gp = gp
+        self._buses, self._reference = _validate(buses, generators, branches)
+        self._bus_order = tuple(bus.bus_id for bus in buses)
+        if injection_probe_bus_id is not None and injection_probe_bus_id not in self._bus_order:
+            raise ValueError(f"unknown injection probe bus: {injection_probe_bus_id}")
+        if injection_probe_bus_id is not None:
+            enable_injection_probes = True
+        self._generators = tuple(generators)
+        self._branches = tuple(branches)
+        self._base_mva = base_mva
+        self._angle_scale = 1000.0
+        self._model = gp.Model("ercot_dcopf_reusable")
+        self._model.Params.OutputFlag = 0
+        self._model.Params.Threads = solver_threads
+        self._generator_columns = {
+            generator.generator_id: self._model.addVar(
+                lb=generator.p_min_mw,
+                ub=generator.p_max_mw,
+                obj=generator.marginal_cost_per_mwh,
+                name=f"gen:{generator.generator_id}",
+            )
+            for generator in self._generators
+        }
+        self._angle_columns = {self._reference: None}
+        for bus_id in self._bus_order:
+            if bus_id != self._reference:
+                self._angle_columns[bus_id] = self._model.addVar(
+                    lb=-gp.GRB.INFINITY,
+                    ub=gp.GRB.INFINITY,
+                    obj=0.0,
+                    name=f"theta:{bus_id}",
+                )
+        self._injection_probe_columns = {}
+        if enable_injection_probes:
+            for bus_id in self._bus_order:
+                if injection_probe_bus_id is None or bus_id == injection_probe_bus_id:
+                    self._injection_probe_columns[bus_id] = self._model.addVar(
+                        lb=0.0, ub=0.0, obj=0.0, name=f"injection-probe:{bus_id}"
+                    )
+        generators_by_bus, branches_by_bus = _cached_network_index(self._branches, self._generators)
+        self._balance_rows = {}
+        for bus_id in self._bus_order:
+            expression = gp.LinExpr()
+            for generator in generators_by_bus.get(bus_id, ()):
+                expression += self._generator_columns[generator.generator_id]
+            probe = self._injection_probe_columns.get(bus_id)
+            if probe is not None:
+                expression += probe
+            for branch in branches_by_bus.get(bus_id, ()):
+                susceptance = branch.susceptance_pu * self._base_mva
+                if branch.from_bus_id == bus_id:
+                    if branch.from_bus_id != self._reference:
+                        expression += -susceptance / self._angle_scale * self._angle_columns[branch.from_bus_id]
+                    if branch.to_bus_id != self._reference:
+                        expression += susceptance / self._angle_scale * self._angle_columns[branch.to_bus_id]
+                elif branch.to_bus_id == bus_id:
+                    if branch.to_bus_id != self._reference:
+                        expression += -susceptance / self._angle_scale * self._angle_columns[branch.to_bus_id]
+                    if branch.from_bus_id != self._reference:
+                        expression += susceptance / self._angle_scale * self._angle_columns[branch.from_bus_id]
+            self._balance_rows[bus_id] = self._model.addConstr(expression == 0.0, name=f"balance:{bus_id}")
+        for branch in self._branches:
+            expression = gp.LinExpr()
+            susceptance = branch.susceptance_pu * self._base_mva
+            if branch.from_bus_id != self._reference:
+                expression += susceptance / self._angle_scale * self._angle_columns[branch.from_bus_id]
+            if branch.to_bus_id != self._reference:
+                expression += -susceptance / self._angle_scale * self._angle_columns[branch.to_bus_id]
+            self._model.addConstr(expression <= branch.thermal_limit_mw, name=f"line-upper:{branch.branch_id}")
+            self._model.addConstr(expression >= -branch.thermal_limit_mw, name=f"line-lower:{branch.branch_id}")
+        self._model.update()
+        self._base_objective = gp.LinExpr()
+        for generator in self._generators:
+            self._base_objective += (
+                generator.marginal_cost_per_mwh
+                * self._generator_columns[generator.generator_id]
+            )
+        self._model.setObjective(self._base_objective, gp.GRB.MINIMIZE)
+
+    def set_time_limit_seconds(self, seconds: float) -> None:
+        if not _is_finite_real(seconds) or seconds < 0:
+            raise ValueError("solver time limit must be finite and non-negative")
+        self._model.Params.TimeLimit = float(seconds)
+
+    def _set_rhs(
+        self,
+        buses: tuple[Bus, ...] | None,
+        fixed_injection_mw_by_bus: Mapping[str, float] | None,
+        demand_mw_by_bus: Mapping[str, float] | None = None,
+    ) -> None:
+        if demand_mw_by_bus is None:
+            if buses is None or tuple(bus.bus_id for bus in buses) != self._bus_order:
+                raise ValueError("topology inputs must match the reusable model")
+            demand_values = {bus.bus_id: float(bus.demand_mw) for bus in buses}
+        else:
+            demand_values = dict(demand_mw_by_bus)
+            if set(demand_values) != set(self._bus_order):
+                raise ValueError("demand must reference exactly the reusable model buses")
+        if any(not math.isfinite(value) or value < 0 for value in demand_values.values()):
+            raise ValueError("invalid demand in reusable DCOPF solve")
+        injections = dict(fixed_injection_mw_by_bus or {})
+        if set(injections) - set(self._bus_order) or any(not _is_finite_real(value) for value in injections.values()):
+            raise ValueError("fixed injections must be finite and reference known buses")
+        for bus_id in self._bus_order:
+            self._balance_rows[bus_id].RHS = demand_values[bus_id] - injections.get(bus_id, 0.0)
+
+    def _optimize(self) -> None:
+        self._model.optimize()
+        status = self._model.Status
+        if status == self._gp.GRB.INFEASIBLE:
+            raise DCOPFInfeasible(f"DCOPF physically infeasible: {status}")
+        if status != self._gp.GRB.OPTIMAL:
+            raise DCOPFUnresolved(f"DCOPF solver unresolved: {status}")
+
+    def feasible_injection_interval(
+        self,
+        buses: tuple[Bus, ...],
+        bus_id: str,
+        *,
+        lower_bound: float,
+        upper_bound: float,
+        fixed_injection_mw_by_bus: Mapping[str, float] | None = None,
+    ) -> tuple[float, float]:
+        self._set_rhs(buses, fixed_injection_mw_by_bus)
+        probe = self._injection_probe_columns.get(bus_id)
+        if probe is None:
+            raise ValueError("injection probes were not enabled for this reusable model")
+        probe.LB = lower_bound
+        probe.UB = upper_bound
+        try:
+            self._model.setObjective(self._base_objective + probe, self._gp.GRB.MINIMIZE)
+            self._optimize()
+            minimum = float(probe.X)
+            self._model.setObjective(self._base_objective - probe, self._gp.GRB.MINIMIZE)
+            self._optimize()
+            maximum = float(probe.X)
+        finally:
+            self._model.setObjective(self._base_objective, self._gp.GRB.MINIMIZE)
+            probe.LB = 0.0
+            probe.UB = 0.0
+        return minimum, maximum
+
+    def solve(
+        self,
+        buses: tuple[Bus, ...] | None,
+        fixed_injection_mw_by_bus: Mapping[str, float] | None = None,
+        *,
+        return_result: bool = True,
+        return_summary: bool = False,
+        demand_mw_by_bus: Mapping[str, float] | None = None,
+    ) -> DCOPFResult | DCOPFRecourseSummary | str:
+        self._set_rhs(buses, fixed_injection_mw_by_bus, demand_mw_by_bus)
+        self._model.setObjective(self._base_objective, self._gp.GRB.MINIMIZE)
+        self._optimize()
+        if not return_result and not return_summary:
+            return "optimal"
+        if return_summary:
+            return DCOPFRecourseSummary(
+                status="optimal",
+                objective_cost=round(float(self._model.ObjVal), 10),
+                balance_dual_by_bus={bus_id: round(float(row.Pi), 10) for bus_id, row in self._balance_rows.items()},
+            )
+        generation = {
+            generator_id: round(float(variable.X), 10)
+            for generator_id, variable in self._generator_columns.items()
+        }
+        raw_angles = {self._reference: 0.0}
+        raw_angles.update({bus_id: float(variable.X) / self._angle_scale for bus_id, variable in self._angle_columns.items() if bus_id != self._reference})
+        angles = {bus_id: round(angle, 10) for bus_id, angle in raw_angles.items()}
+        flows = {
+            branch.branch_id: round(branch.susceptance_pu * self._base_mva * (raw_angles[branch.from_bus_id] - raw_angles[branch.to_bus_id]), 10)
+            for branch in self._branches
+        }
+        return DCOPFResult(
+            status="optimal",
+            objective_cost=round(float(self._model.ObjVal), 10),
+            generation_mw=generation,
+            angle_by_bus=angles,
+            flow_mw_by_branch=flows,
+            balance_dual_by_bus={bus_id: round(float(row.Pi), 10) for bus_id, row in self._balance_rows.items()},
+        )
+
+
+def gurobi_is_available() -> bool:
+    """Return whether the optional Gurobi package and license can start.
+
+    The probe uses a quiet, short-lived environment and never creates a model.
+    This keeps ``auto`` safe on machines where Gurobi is not installed or its
+    license is unavailable, while avoiding a solver fallback after a partial
+    evaluation has already started.
+    """
+    try:
+        import gurobipy as gp
+    except ImportError:
+        return False
+    environment = None
+    try:
+        environment = gp.Env(empty=True)
+        environment.setParam("OutputFlag", 0)
+        environment.start()
+        return True
+    except Exception:
+        return False
+    finally:
+        if environment is not None:
+            try:
+                environment.dispose()
+            except Exception:
+                pass
+
+
+def resolve_solver_backend(solver_backend: str) -> str:
+    """Resolve ``auto`` to Gurobi when licensed, otherwise HiGHS."""
+    if solver_backend not in {"auto", "highs", "gurobi"}:
+        raise ValueError("solver_backend must be 'auto', 'highs', or 'gurobi'")
+    if solver_backend == "auto":
+        return "gurobi" if gurobi_is_available() else "highs"
+    return solver_backend
+
+
+def _reusable_dcopf_model(*, solver_backend: str, **kwargs):
+    if solver_backend == "highs":
+        return ReusableDCOPFModel(**kwargs)
+    if solver_backend == "gurobi":
+        return GurobiReusableDCOPFModel(**kwargs)
+    raise ValueError("solver_backend must be 'highs' or 'gurobi'")
 
 
 def solve_dcopf(
@@ -1453,6 +1721,7 @@ def solve_dcopf_horizon(
 def solve_dcopf_horizon_benders(
     *,
     periods: Sequence[tuple[tuple[Bus, ...], tuple[Generator, ...], tuple[Branch, ...]]],
+    demand_mw_by_period: Sequence[Mapping[str, float]] | None = None,
     storage_assets: Sequence[StorageDispatchAsset] = (),
     fixed_injection_mw_by_period: Sequence[Mapping[str, float]] | None = None,
     owner_load_mw_by_team: Mapping[str, Sequence[Mapping[str, float]]] | None = None,
@@ -1463,6 +1732,7 @@ def solve_dcopf_horizon_benders(
     return_result: bool = True,
     parallel_workers: int = 1,
     solver_threads: int = 1,
+    solver_backend: str = "highs",
     wall_time_limit_seconds: float | None = None,
     tighten_feasible_bounds: bool = False,
 ) -> DCOPFHorizonResult | str:
@@ -1485,9 +1755,11 @@ def solve_dcopf_horizon_benders(
     indefinitely.
     """
     storage_assets = tuple(storage_assets)
+    solver_backend = resolve_solver_backend(solver_backend)
     if len(storage_assets) > 1:
         return _solve_dcopf_horizon_benders_multi(
             periods=periods,
+            demand_mw_by_period=demand_mw_by_period,
             storage_assets=storage_assets,
             fixed_injection_mw_by_period=fixed_injection_mw_by_period,
             owner_load_mw_by_team=owner_load_mw_by_team,
@@ -1498,6 +1770,7 @@ def solve_dcopf_horizon_benders(
             return_result=return_result,
             parallel_workers=parallel_workers,
             solver_threads=solver_threads,
+            solver_backend=solver_backend,
             wall_time_limit_seconds=wall_time_limit_seconds,
             tighten_feasible_bounds=tighten_feasible_bounds,
         )
@@ -1525,6 +1798,20 @@ def solve_dcopf_horizon_benders(
         raise ValueError("time_step_hours must be finite and positive")
 
     horizon = len(period_data)
+    if demand_mw_by_period is None:
+        demand_values = tuple(
+            {bus.bus_id: float(bus.demand_mw) for bus in period[0]}
+            for period in period_data
+        )
+    else:
+        demand_values = tuple(dict(values) for values in demand_mw_by_period)
+        if len(demand_values) != horizon:
+            raise ValueError("demand must match the number of periods")
+    def period_buses(period_index: int) -> tuple[Bus, ...]:
+        return tuple(
+            Bus(bus.bus_id, demand_values[period_index][bus.bus_id], reference=bus.reference)
+            for bus in period_data[period_index][0]
+        )
     reference_bus_order = tuple(bus.bus_id for bus in period_data[0][0])
     reference_generators = tuple(period_data[0][1])
     reference_branches = tuple(period_data[0][2])
@@ -1539,6 +1826,10 @@ def solve_dcopf_horizon_benders(
                 "Benders requires fixed generators and branches across periods; "
                 f"period {period_index} changes the network topology"
             )
+        if set(demand_values[period_index]) != set(reference_bus_order):
+            raise ValueError("demand must reference exactly the fixed bus topology")
+        if any(not _is_finite_real(value) or value < 0 for value in demand_values[period_index].values()):
+            raise ValueError("demand must be finite and non-negative")
     fixed = tuple(fixed_injection_mw_by_period or ({},) * horizon)
     if len(fixed) != horizon:
         raise ValueError("fixed injections must match the number of periods")
@@ -1597,16 +1888,17 @@ def solve_dcopf_horizon_benders(
     # 4,000+ hours and exhausted ordinary Colab runtimes.
     worker_state = threading.local()
 
-    def recourse_model(period_index: int) -> ReusableDCOPFModel:
+    def recourse_model(period_index: int):
         model = getattr(worker_state, "model", None)
         if model is None:
             buses, generators, branches = period_data[0]
-            model = ReusableDCOPFModel(
+            model = _reusable_dcopf_model(
                 buses=tuple(buses), generators=tuple(generators),
                 branches=tuple(branches), base_mva=base_mva,
                 enable_injection_probes=True,
                 injection_probe_bus_id=storage.bus_id,
                 solver_threads=solver_threads,
+                solver_backend=solver_backend,
             )
             worker_state.model = model
         return model
@@ -1620,8 +1912,9 @@ def solve_dcopf_horizon_benders(
             model.set_time_limit_seconds(max(0.001, deadline - time.perf_counter()))
         try:
             result = model.solve(
-                tuple(period_data[period_index][0]),
+                None,
                 fixed_injection_mw_by_bus=injections,
+                demand_mw_by_bus=demand_values[period_index],
             )
         except DCOPFUnresolved as exc:
             if deadline is not None and (
@@ -1643,10 +1936,11 @@ def solve_dcopf_horizon_benders(
             model.set_time_limit_seconds(max(0.001, deadline - time.perf_counter()))
         try:
             result = model.solve(
-                tuple(period_data[period_index][0]),
+                None,
                 fixed_injection_mw_by_bus=injections,
                 return_result=False,
                 return_summary=True,
+                demand_mw_by_bus=demand_values[period_index],
             )
         except DCOPFUnresolved as exc:
             if deadline is not None and (
@@ -1673,7 +1967,7 @@ def solve_dcopf_horizon_benders(
             model.set_time_limit_seconds(max(0.001, deadline - time.perf_counter()))
         try:
             return model.feasible_injection_interval(
-                tuple(period_data[period_index][0]),
+                period_buses(period_index),
                 storage.bus_id,
                 lower_bound=-storage.power_mw,
                 upper_bound=owner_discharge_limit(period_index),
@@ -1824,6 +2118,7 @@ def solve_dcopf_horizon_benders(
 def _solve_dcopf_horizon_benders_multi(
     *,
     periods: Sequence[tuple[tuple[Bus, ...], tuple[Generator, ...], tuple[Branch, ...]]],
+    demand_mw_by_period: Sequence[Mapping[str, float]] | None,
     storage_assets: Sequence[StorageDispatchAsset],
     fixed_injection_mw_by_period: Sequence[Mapping[str, float]] | None,
     owner_load_mw_by_team: Mapping[str, Sequence[Mapping[str, float]]] | None,
@@ -1834,6 +2129,7 @@ def _solve_dcopf_horizon_benders_multi(
     return_result: bool,
     parallel_workers: int,
     solver_threads: int,
+    solver_backend: str,
     wall_time_limit_seconds: float | None,
     tighten_feasible_bounds: bool,
 ) -> DCOPFHorizonResult | str:
@@ -1855,6 +2151,8 @@ def _solve_dcopf_horizon_benders_multi(
         raise ValueError("parallel_workers must be a positive integer")
     if not isinstance(solver_threads, int) or isinstance(solver_threads, bool) or solver_threads <= 0:
         raise ValueError("solver_threads must be a positive integer")
+    if solver_backend not in {"highs", "gurobi"}:
+        raise ValueError("solver_backend must be 'highs' or 'gurobi'")
     if not _is_finite_real(tolerance) or tolerance <= 0:
         raise ValueError("tolerance must be finite and positive")
     if not period_data:
@@ -1863,6 +2161,16 @@ def _solve_dcopf_horizon_benders_multi(
         raise ValueError("time_step_hours must be finite and positive")
     if not _is_finite_real(base_mva) or base_mva <= 0:
         raise ValueError("base_mva must be finite and positive")
+    horizon = len(period_data)
+    if demand_mw_by_period is None:
+        demand_values = tuple(
+            {bus.bus_id: float(bus.demand_mw) for bus in buses}
+            for buses, _generators, _branches in period_data
+        )
+    else:
+        demand_values = tuple(dict(values) for values in demand_mw_by_period)
+        if len(demand_values) != horizon:
+            raise ValueError("demand must match the number of periods")
     if wall_time_limit_seconds is not None and (
         not _is_finite_real(wall_time_limit_seconds) or wall_time_limit_seconds < 0
     ):
@@ -1880,7 +2188,6 @@ def _solve_dcopf_horizon_benders_multi(
     ):
         raise ValueError("invalid storage dimensions or initial SOC")
 
-    horizon = len(period_data)
     fixed = tuple(fixed_injection_mw_by_period or ({},) * horizon)
     if len(fixed) != horizon or any(not isinstance(item, Mapping) for item in fixed):
         raise ValueError("fixed injections must match the number of periods")
@@ -1940,10 +2247,10 @@ def _solve_dcopf_horizon_benders_multi(
             executor.shutdown(wait=True)
             executor = None
 
-    def recourse_model() -> ReusableDCOPFModel:
+    def recourse_model():
         model = getattr(worker_state, "model", None)
         if model is None:
-            model = ReusableDCOPFModel(
+            model = _reusable_dcopf_model(
                 buses=tuple(period_data[0][0]),
                 generators=tuple(period_data[0][1]),
                 branches=tuple(period_data[0][2]),
@@ -1953,17 +2260,27 @@ def _solve_dcopf_horizon_benders_multi(
                 # fixed at zero during ordinary recourse solves.
                 enable_injection_probes=True,
                 solver_threads=solver_threads,
+                solver_backend=solver_backend,
             )
             worker_state.model = model
         return model
 
     recourse_solves = 0
     recourse_counter_lock = threading.Lock()
+    recourse_cache: dict[tuple[int, tuple[float, ...]], DCOPFRecourseSummary | DCOPFResult] = {}
+    recourse_cache_lock = threading.Lock()
+    recourse_cache_hits = 0
 
     def count_recourse_solve() -> None:
         nonlocal recourse_solves
         with recourse_counter_lock:
             recourse_solves += 1
+
+    def period_buses(period_index: int) -> tuple[Bus, ...]:
+        return tuple(
+            Bus(bus.bus_id, demand_values[period_index][bus.bus_id], reference=bus.reference)
+            for bus in period_data[period_index][0]
+        )
 
     def solve_summary(period_index: int, point: Mapping[str, float]) -> DCOPFRecourseSummary:
         check_deadline(f"recourse period {period_index}")
@@ -1974,10 +2291,11 @@ def _solve_dcopf_horizon_benders_multi(
         if deadline is not None:
             model.set_time_limit_seconds(max(0.001, deadline - time.perf_counter()))
         summary = model.solve(
-            tuple(period_data[period_index][0]),
+            None,
             fixed_injection_mw_by_bus=injections,
             return_result=False,
             return_summary=True,
+            demand_mw_by_bus=demand_values[period_index],
         )
         count_recourse_solve()
         assert isinstance(summary, DCOPFRecourseSummary)
@@ -1991,7 +2309,11 @@ def _solve_dcopf_horizon_benders_multi(
         model = recourse_model()
         if deadline is not None:
             model.set_time_limit_seconds(max(0.001, deadline - time.perf_counter()))
-        result = model.solve(tuple(period_data[period_index][0]), fixed_injection_mw_by_bus=injections)
+        result = model.solve(
+            None,
+            fixed_injection_mw_by_bus=injections,
+            demand_mw_by_bus=demand_values[period_index],
+        )
         count_recourse_solve()
         assert isinstance(result, DCOPFResult)
         return result
@@ -2002,7 +2324,7 @@ def _solve_dcopf_horizon_benders_multi(
         if deadline is not None:
             model.set_time_limit_seconds(max(0.001, deadline - time.perf_counter()))
         return model.feasible_injection_interval(
-            tuple(period_data[period_index][0]),
+            period_buses(period_index),
             asset.bus_id,
             lower_bound=-asset.power_mw,
             upper_bound=min(
@@ -2108,13 +2430,19 @@ def _solve_dcopf_horizon_benders_multi(
 
     zero_point = {asset.storage_id: 0.0 for asset in assets}
     try:
+        initial_started = time.perf_counter()
         initial_results = map_periods(lambda index: solve_summary(index, zero_point))
+        initial_recourse_seconds = time.perf_counter() - initial_started
         for index, summary in enumerate(initial_results):
             add_cut(index, zero_point, summary)
+            if not return_result:
+                with recourse_cache_lock:
+                    recourse_cache[(index, tuple(0.0 for _ in assets))] = summary
 
         iterations = 0
         lower_bound = -math.inf
         upper_bound = math.inf
+        candidate_recourse_seconds = 0.0
         while iterations < max_iterations:
             check_deadline("master solve")
             iterations += 1
@@ -2136,12 +2464,25 @@ def _solve_dcopf_horizon_benders_multi(
             }
             def solve_candidate(index: int):
                 candidate = {asset.storage_id: point[asset.storage_id][index] for asset in assets}
+                cache_key = (index, tuple(float(candidate[asset.storage_id]) for asset in assets))
+                nonlocal recourse_cache_hits
+                with recourse_cache_lock:
+                    cached = recourse_cache.get(cache_key)
+                if cached is not None:
+                    with recourse_cache_lock:
+                        recourse_cache_hits += 1
+                    return cached
                 try:
-                    return solve_full(index, candidate) if return_result else solve_summary(index, candidate)
+                    result = solve_full(index, candidate) if return_result else solve_summary(index, candidate)
+                    with recourse_cache_lock:
+                        recourse_cache[cache_key] = result
+                    return result
                 except DCOPFInfeasible as exc:
                     return exc
 
+            candidate_started = time.perf_counter()
             candidate_results = map_periods(solve_candidate)
+            candidate_recourse_seconds += time.perf_counter() - candidate_started
             infeasible_periods = [
                 index for index, candidate in enumerate(candidate_results)
                 if isinstance(candidate, DCOPFInfeasible)
@@ -2209,14 +2550,17 @@ def _solve_dcopf_horizon_benders_multi(
                         discharge[asset.storage_id] = max(power, 0.0)
                     period_results.append(replace(result, storage_charge_mw=charge, storage_discharge_mw=discharge, storage_soc_mwh=soc))
                 final_soc = {asset.storage_id: period_results[-1].storage_soc_mwh[asset.storage_id] for asset in assets}
+                finalization_started = time.perf_counter()
                 elapsed = time.perf_counter() - started_at
                 gap = max(0.0, (upper_bound - lower_bound) / max(1.0, abs(upper_bound)))
+                finalization_seconds = time.perf_counter() - finalization_started
                 return DCOPFHorizonResult(
                     status="optimal",
                     periods=tuple(period_results),
                     final_soc_mwh_by_storage=final_soc,
                     diagnostics=DCOPFBendersDiagnostics(
                         iterations=iterations,
+                        solver_backend=solver_backend,
                         recourse_solves=recourse_solves,
                         optimality_cuts=optimality_cuts,
                         feasibility_cuts=feasibility_cuts,
@@ -2224,6 +2568,10 @@ def _solve_dcopf_horizon_benders_multi(
                         upper_bound=upper_bound,
                         relative_gap=gap,
                         elapsed_seconds=elapsed,
+                        initial_recourse_seconds=initial_recourse_seconds,
+                        candidate_recourse_seconds=candidate_recourse_seconds,
+                        finalization_seconds=finalization_seconds,
+                        recourse_cache_hits=recourse_cache_hits,
                     ),
                 )
             for index, summary in enumerate(summaries):
@@ -2240,13 +2588,15 @@ def _prepared_period_inputs(
     period_index: int,
     additional_demand_mw_by_bus: Mapping[str, float] | None = None,
     additional_generators: Sequence[Generator] = (),
+    validate_artifact: bool = True,
 ) -> tuple[tuple[Bus, ...], tuple[Generator, ...], tuple[Branch, ...], dict[str, float]]:
     """Build one prepared period without solving it."""
     if artifact.scenario_year is not None:
         from ercot_game.scenario_profiles import hourly_state
         from ercot_game.scenario_package import require_validated_block
 
-        require_validated_block(artifact_dir)
+        if validate_artifact:
+            require_validated_block(artifact_dir)
         demand_values, availability = hourly_state(
             artifact_dir,
             year=artifact.scenario_year,
@@ -2308,6 +2658,52 @@ def _prepared_period_inputs(
     return buses, source_generators + tuple(additional_generators), branches, fixed_injections
 
 
+def _prepared_compact_horizon_inputs(
+    artifact_dir: str | Path,
+    artifact: PreparedArtifact,
+    *,
+    period_indices: tuple[int, ...],
+    additional_demand_by_period: Sequence[Mapping[str, float]],
+    additional_generators_by_period: Sequence[Sequence[Generator]],
+) -> tuple[
+    tuple[tuple[Bus, ...], tuple[Generator, ...], tuple[Branch, ...]],
+    tuple[Mapping[str, float], ...],
+    tuple[Mapping[str, float], ...],
+] | None:
+    """Prepare one static network plus compact hourly demand mappings.
+
+    The exact Benders route only needs hourly demand and fixed injections to
+    change.  This helper deliberately falls back when generator topology or
+    limits vary between periods, preserving the older fully materialized
+    representation for unsupported artifacts.
+    """
+    static_period = None
+    demand_by_period: list[Mapping[str, float]] = []
+    fixed_by_period: list[Mapping[str, float]] = []
+    for offset, period_index in enumerate(period_indices):
+        buses, generators, branches, fixed = _prepared_period_inputs(
+            artifact_dir,
+            artifact,
+            period_index=period_index,
+            additional_demand_mw_by_bus=additional_demand_by_period[offset],
+            additional_generators=additional_generators_by_period[offset],
+            validate_artifact=False,
+        )
+        if static_period is None:
+            static_period = (buses, generators, branches)
+        elif generators != static_period[1] or branches != static_period[2]:
+            return None
+        demand_by_period.append({bus.bus_id: bus.demand_mw for bus in buses})
+        fixed_by_period.append(fixed)
+    if static_period is None:
+        return None
+    static_buses = tuple(
+        Bus(bus.bus_id, 0.0, reference=bus.reference)
+        for bus in static_period[0]
+    )
+    return (static_buses, static_period[1], static_period[2]), tuple(demand_by_period), tuple(fixed_by_period)
+
+
 def solve_prepared_period(
     artifact_dir: str | Path,
     *,
@@ -2363,14 +2759,20 @@ def solve_prepared_horizon(
         if len(generators_by_period) != period_count:
             raise ValueError("additional generators must match the number of periods")
 
-    artifact = load_prepared_artifact(str(Path(artifact_dir).resolve()))
+    artifact_root = str(Path(artifact_dir).resolve())
+    artifact = load_prepared_artifact(artifact_root)
+    if artifact.scenario_year is not None:
+        from ercot_game.scenario_package import require_validated_block
+
+        require_validated_block(artifact_root)
     prepared_periods = tuple(
         _prepared_period_inputs(
-            artifact_dir,
+            artifact_root,
             artifact,
             period_index=period_index,
             additional_demand_mw_by_bus=demands[offset],
             additional_generators=generators_by_period[offset],
+            validate_artifact=False,
         )
         for offset, period_index in enumerate(period_indices)
     )
@@ -2396,6 +2798,7 @@ def solve_prepared_horizon_benders(
     max_iterations: int = 200,
     parallel_workers: int = 1,
     solver_threads: int = 1,
+    solver_backend: str = "highs",
     wall_time_limit_seconds: float | None = None,
     tighten_feasible_bounds: bool = False,
 ) -> DCOPFHorizonResult | str:
@@ -2410,27 +2813,60 @@ def solve_prepared_horizon_benders(
         raise ValueError("additional demand must match the number of periods")
     if len(generators_by_period) != period_count:
         raise ValueError("additional generators must match the number of periods")
-    artifact = load_prepared_artifact(str(Path(artifact_dir).resolve()))
-    prepared_periods = tuple(
-        _prepared_period_inputs(
-            artifact_dir,
-            artifact,
-            period_index=period_index,
-            additional_demand_mw_by_bus=demands[offset],
-            additional_generators=generators_by_period[offset],
-        )
-        for offset, period_index in enumerate(period_indices)
+    artifact_root = str(Path(artifact_dir).resolve())
+    artifact = load_prepared_artifact(artifact_root)
+    if artifact.scenario_year is not None:
+        from ercot_game.scenario_package import require_validated_block
+
+        require_validated_block(artifact_root)
+    preparation_started = time.perf_counter()
+    compact = _prepared_compact_horizon_inputs(
+        artifact_root,
+        artifact,
+        period_indices=period_indices,
+        additional_demand_by_period=demands,
+        additional_generators_by_period=generators_by_period,
     )
-    return solve_dcopf_horizon_benders(
-        periods=tuple((buses, generators, branches) for buses, generators, branches, _ in prepared_periods),
+    if compact is None:
+        prepared_periods = tuple(
+            _prepared_period_inputs(
+                artifact_root,
+                artifact,
+                period_index=period_index,
+                additional_demand_mw_by_bus=demands[offset],
+                additional_generators=generators_by_period[offset],
+                validate_artifact=False,
+            )
+            for offset, period_index in enumerate(period_indices)
+        )
+        compact_periods = tuple((buses, generators, branches) for buses, generators, branches, _ in prepared_periods)
+        compact_demands = None
+        compact_fixed = tuple(fixed for _, _, _, fixed in prepared_periods)
+    else:
+        static_period, compact_demands, compact_fixed = compact
+        compact_periods = (static_period,) * len(period_indices)
+    preparation_seconds = time.perf_counter() - preparation_started
+    result = solve_dcopf_horizon_benders(
+        periods=compact_periods,
+        demand_mw_by_period=compact_demands,
         storage_assets=storage_assets,
-        fixed_injection_mw_by_period=tuple(fixed for _, _, _, fixed in prepared_periods),
+        fixed_injection_mw_by_period=compact_fixed,
         owner_load_mw_by_team=owner_load_mw_by_team,
         time_step_hours=time_step_hours,
         base_mva=100.0,
         max_iterations=max_iterations,
         parallel_workers=parallel_workers,
         solver_threads=solver_threads,
+        solver_backend=solver_backend,
         wall_time_limit_seconds=wall_time_limit_seconds,
         tighten_feasible_bounds=tighten_feasible_bounds,
     )
+    if isinstance(result, DCOPFHorizonResult) and result.diagnostics is not None:
+        result = replace(
+            result,
+            diagnostics=replace(
+                result.diagnostics,
+                preparation_seconds=preparation_seconds,
+            ),
+        )
+    return result

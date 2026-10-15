@@ -16,6 +16,7 @@ from .adapter import (
     compare_plan_parity,
     evaluate_plan_state,
 )
+from .production_evaluator import ProductionEvaluatorConfig, make_production_evaluator
 from .env import ConnectionPlanningEnv
 from .hourly_env import HOURLY_ENVIRONMENT_VERSION, HourlyOperationEnv
 from .parallel_env import ParallelConnectionPlanningEnv
@@ -59,6 +60,8 @@ __all__ = [
     "compare_csv_parity",
     "compare_plan_parity",
     "evaluate_plan_state",
+    "ProductionEvaluatorConfig",
+    "make_production_evaluator",
     "ConnectionPlanningEnv",
     "HourlyOperationEnv",
     "HOURLY_ENVIRONMENT_VERSION",

@@ -47,6 +47,8 @@ PYTHONPATH=src python3 -m ercot_game.batch_cli run \
   --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
   --horizon 4368 \
   --workers 4 \
+  --solver-backend auto \
+  --output-mode compact \
   --submission-number 2 \
   --output-dir work/eight_team_round_results
 ```

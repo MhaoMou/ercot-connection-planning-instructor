@@ -226,6 +226,24 @@ def test_valid_run_uses_mocked_dispatch_and_writes_metadata(tmp_path, monkeypatc
     assert payload["evaluator_version"]
 
 
+def test_compact_output_omits_full_dispatch_payload(tmp_path, monkeypatch, capsys):
+    submissions_dir, artifact_dir, rules_path, region_map_path = _write_inputs(tmp_path)
+    _write_submission(submissions_dir / "team-a.csv", "team-a")
+    output_dir = tmp_path / "compact-output"
+    monkeypatch.setattr(batch_evaluation, "evaluate_plans_with_prepared_dcopf", _fake_dispatch)
+
+    assert main(
+        _run_args(submissions_dir, artifact_dir, rules_path, region_map_path, output_dir)
+        + ["--output-mode", "compact"]
+    ) == 0
+
+    payload = json.loads((output_dir / "evaluation.json").read_text(encoding="utf-8"))
+    assert payload["evaluation_metadata"]["output_mode"] == "compact"
+    assert payload["periods"] == []
+    assert not (output_dir / "dispatch").exists()
+    assert (output_dir / "leaderboard.csv").is_file()
+
+
 def test_cli_source_period_offset_is_forwarded_and_recorded(tmp_path, monkeypatch, capsys):
     submissions_dir, artifact_dir, rules_path, region_map_path = _write_inputs(tmp_path)
     _write_submission(submissions_dir / "team-a.csv", "team-a")
