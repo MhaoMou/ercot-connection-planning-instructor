@@ -2918,6 +2918,21 @@ def _prepared_period_inputs(
             raise ValueError(f"period_index out of range: {period_index}")
         demand_row = artifact.demand_rows[period_index]
         availability = {}
+    bus_ids = tuple(row["bus_id"] for row in artifact.buses_raw)
+    expected_bus_ids = set(bus_ids)
+    missing_bus_ids = expected_bus_ids - set(demand_row)
+    if missing_bus_ids:
+        raise ValueError(
+            "prepared demand is missing bus data: "
+            + ", ".join(sorted(missing_bus_ids))
+        )
+    ignored_demand_fields = {"period", "timestamp", "hour", "datetime"}
+    unknown_bus_ids = set(demand_row) - expected_bus_ids - ignored_demand_fields
+    if unknown_bus_ids:
+        raise ValueError(
+            "prepared demand references unknown bus: "
+            + ", ".join(sorted(unknown_bus_ids))
+        )
     submitted_demand = additional_demand_mw_by_bus or {}
     buses = tuple(
         Bus(
@@ -2965,6 +2980,39 @@ def _prepared_period_inputs(
         if receiving_bus in bus_ids:
             fixed_injections[receiving_bus] = fixed_injections.get(receiving_bus, 0.0) + float(row["Pt"])
     return buses, source_generators + tuple(additional_generators), branches, fixed_injections
+
+
+def prepared_period_inputs(
+    artifact_dir: str | Path,
+    artifact: PreparedArtifact,
+    *,
+    period_index: int,
+    validate_artifact: bool = True,
+) -> tuple[tuple[Bus, ...], tuple[Generator, ...], tuple[Branch, ...], Mapping[str, float]]:
+    """Return the validated normalized inputs for one prepared period.
+
+    The conversion remains owned by :func:`_prepared_period_inputs`; this
+    public adapter only enforces the prepared-block validation contract before
+    delegating to it.  Keeping the artifact directory in the signature is
+    necessary for scenario profiles and block-manifest validation.
+    """
+    if not isinstance(period_index, int) or isinstance(period_index, bool):
+        raise ValueError("period_index must be an integer")
+    if period_index < 0:
+        raise ValueError(f"period_index out of range: {period_index}")
+    if validate_artifact:
+        from ercot_game.scenario_package import require_validated_block
+
+        require_validated_block(artifact_dir)
+    try:
+        return _prepared_period_inputs(
+            artifact_dir,
+            artifact,
+            period_index=period_index,
+            validate_artifact=False,
+        )
+    except IndexError as exc:
+        raise ValueError(f"period_index out of range: {period_index}") from exc
 
 
 def _prepared_compact_horizon_inputs(

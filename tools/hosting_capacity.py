@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import hashlib
+from functools import lru_cache
 import math
+from pathlib import Path
 import time
 from collections.abc import Mapping, Sequence
 from numbers import Real
 from types import MappingProxyType
-from typing import Literal
+from typing import Callable, Literal
 
 import tools.activsg2000.dcopf as dcopf
 from tools.activsg2000.dcopf import Branch, Bus, Generator
@@ -159,6 +162,133 @@ def validate_period(period: HostingCapacityPeriod) -> HostingCapacityPeriod:
         fixed_injection_mw_by_bus=MappingProxyType(normalized_injections),
         source_metadata=MappingProxyType(dict(metadata)),
     )
+
+
+def _period_at_index(periods: tuple[HostingCapacityPeriod, ...], period_index: int) -> HostingCapacityPeriod:
+    if not isinstance(period_index, int) or isinstance(period_index, bool):
+        raise ValueError("period_index must be an integer")
+    if not 0 <= period_index < len(periods):
+        raise ValueError(f"period_index out of range: {period_index}")
+    return periods[period_index]
+
+
+def _plain_period(period: HostingCapacityPeriod) -> HostingCapacityPeriod:
+    """Return a pickle-friendly copy of a normalized period."""
+    return HostingCapacityPeriod(
+        period_index=period.period_index,
+        buses=tuple(period.buses),
+        generators=tuple(period.generators),
+        branches=tuple(period.branches),
+        fixed_injection_mw_by_bus=dict(period.fixed_injection_mw_by_bus),
+        source_metadata=dict(period.source_metadata),
+    )
+
+
+@dataclass(frozen=True)
+class _StaticPeriodProvider:
+    periods: tuple[HostingCapacityPeriod, ...]
+
+    def __post_init__(self) -> None:
+        normalized = tuple(validate_period(period) for period in self.periods)
+        if not normalized:
+            raise ValueError("periods must contain at least one HostingCapacityPeriod")
+        object.__setattr__(self, "periods", normalized)
+
+    def __call__(self, period_index: int) -> HostingCapacityPeriod:
+        return _period_at_index(self.periods, period_index)
+
+    def __getstate__(self) -> dict[str, object]:
+        return {"periods": tuple(_plain_period(period) for period in self.periods)}
+
+    def __setstate__(self, state: Mapping[str, object]) -> None:
+        object.__setattr__(
+            self,
+            "periods",
+            tuple(validate_period(period) for period in state["periods"]),
+        )
+
+
+@lru_cache(maxsize=4)
+def _load_cached_artifact(artifact_dir: str) -> dcopf.PreparedArtifact:
+    """Load one prepared artifact once in each process that uses a provider."""
+    return dcopf.load_prepared_artifact(artifact_dir)
+
+
+def _artifact_path_identity(artifact_dir: Path) -> str:
+    digest = hashlib.sha256(str(artifact_dir).encode("utf-8")).hexdigest()[:12]
+    return f"{artifact_dir.name}:{digest}"
+
+
+def _manifest_scenario_metadata(manifest: Mapping[str, object]) -> tuple[int | None, str | None]:
+    block = manifest.get("block")
+    if not isinstance(block, str) or "-" not in block:
+        return None, None
+    year_text, calendar_block = block.split("-", 1)
+    try:
+        year = int(year_text)
+    except ValueError:
+        return None, None
+    return year, calendar_block
+
+
+@dataclass(frozen=True)
+class _PreparedArtifactPeriodProvider:
+    artifact_dir: str
+    scenario_year: int | None = None
+    scenario_block: str | None = None
+
+    def __call__(self, period_index: int) -> HostingCapacityPeriod:
+        artifact = _load_cached_artifact(self.artifact_dir)
+        buses, generators, branches, fixed_injections = dcopf.prepared_period_inputs(
+            self.artifact_dir,
+            artifact,
+            period_index=period_index,
+        )
+        period = HostingCapacityPeriod(
+            period_index=period_index,
+            buses=buses,
+            generators=generators,
+            branches=branches,
+            fixed_injection_mw_by_bus=fixed_injections,
+            source_metadata={
+                "source": "prepared_artifact",
+                "artifact_path_identity": _artifact_path_identity(Path(self.artifact_dir)),
+                "artifact_dir": Path(self.artifact_dir).name,
+                "scenario_year": self.scenario_year if self.scenario_year is not None else artifact.scenario_year,
+                "scenario_block": self.scenario_block if self.scenario_block is not None else artifact.scenario_block,
+                "period_index": period_index,
+            },
+        )
+        return validate_period(period)
+
+
+def static_period_provider(period: HostingCapacityPeriod) -> Callable[[int], HostingCapacityPeriod]:
+    """Build a pickleable provider for one normalized static period."""
+    return _StaticPeriodProvider((period,))
+
+
+def prepared_artifact_period_provider(artifact_dir: str | Path) -> Callable[[int], HostingCapacityPeriod]:
+    """Build a lazily materialized provider for a validated prepared block."""
+    root = Path(artifact_dir).resolve()
+    from ercot_game.scenario_package import require_validated_block
+
+    manifest = require_validated_block(root)
+    artifact = dcopf.load_prepared_artifact(root)
+    manifest_year, manifest_block = _manifest_scenario_metadata(manifest)
+    return _PreparedArtifactPeriodProvider(
+        str(root),
+        scenario_year=artifact.scenario_year if artifact.scenario_year is not None else manifest_year,
+        scenario_block=artifact.scenario_block if artifact.scenario_block is not None else manifest_block,
+    )
+
+
+def ieee14_period_provider(
+    periods: Sequence[HostingCapacityPeriod] | None = None,
+) -> Callable[[int], HostingCapacityPeriod]:
+    """Build a static provider from caller-supplied normalized IEEE-14 periods."""
+    if periods is None:
+        raise ValueError("provide at least one normalized IEEE-14 period; no dataset is bundled")
+    return _StaticPeriodProvider(tuple(periods))
 
 
 def solve_hosting_capacity_at_bus(
