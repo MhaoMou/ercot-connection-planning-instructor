@@ -450,6 +450,35 @@ def test_matrix_driver_recomputes_incomplete_checkpoint(tmp_path, monkeypatch):
     assert calls == [0]
 
 
+def test_matrix_driver_recomputes_checkpoint_with_nonboolean_complete_marker(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_period_solver(period, bus_ids, *, solver_backend, solver_threads):
+        calls.append(period.period_index)
+        return _fake_matrix_result(period, bus_ids)
+
+    monkeypatch.setattr("tools.hosting_capacity._solve_matrix_period", fake_period_solver)
+    checkpoint_dir = tmp_path / "checkpoints"
+    compute_hosting_capacity_matrix(
+        _TwoPeriodProvider(),
+        period_indices=[0],
+        bus_ids=["b1", "b2"],
+        solver_backend="highs",
+        checkpoint_dir=checkpoint_dir,
+    )
+    calls.clear()
+    _tamper_checkpoint(checkpoint_dir / "period_0.npz", complete=np.asarray("false"))
+
+    compute_hosting_capacity_matrix(
+        _TwoPeriodProvider(),
+        period_indices=[0],
+        bus_ids=["b1", "b2"],
+        solver_backend="highs",
+        checkpoint_dir=checkpoint_dir,
+    )
+    assert calls == [0]
+
+
 def test_matrix_driver_sanitizes_checkpoint_diagnostics(tmp_path, monkeypatch):
     diagnostic = "solver failed at /private/tmp/secret"
 

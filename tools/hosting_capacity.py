@@ -896,7 +896,8 @@ def _load_period_checkpoint(
             saved_identity = json.loads(str(np.asarray(checkpoint["identity"]).item()))
             if saved_period != period_index or saved_identity != _json_safe(identity):
                 raise _CheckpointIdentityMismatch("checkpoint identity mismatch")
-            if not bool(np.asarray(checkpoint["complete"]).item()):
+            complete_marker = np.asarray(checkpoint["complete"])
+            if complete_marker.shape != () or complete_marker.item() is not True:
                 raise ValueError("checkpoint is not complete")
             result = {
                 "capacity_mw": np.asarray(checkpoint["capacity_mw"], dtype=float),
