@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
     "highspy>=1.8,<2",
     "openpyxl>=3.1,<4",
+    "numpy>=1.24,<3",
 ]
 
 [project.optional-dependencies]
@@ -30,6 +31,7 @@ ercot-game-check-csv = "ercot_game.csv_validator:main"
 ercot-game-preview = "ercot_game.student_preview:main"
 ercot-game-grid-map = "ercot_game.grid_map:main"
 ercot-game-compare-baselines = "rl_gym.reporting:main"
+ercot-game-hosting-capacity = "ercot_game.hosting_capacity_cli:main"
 
 # The package contains the canonical CSV evaluator and Zenodo DCOPF adapter.
 [tool.setuptools]
