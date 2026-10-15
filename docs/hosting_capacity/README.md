@@ -92,9 +92,13 @@ Every point has one of these closed statuses:
   result; and
 - `interrupted`: the solve was interrupted, for example by `Ctrl-C`.
 
-For a non-`optimal` point, the capacity and objective entries are `NaN` in the
-NumPy outputs and the capacity is blank in the optional long-form CSV. The
-status remains visible, and diagnostics are retained in metadata when present.
+For a non-`optimal` point, the capacity entry is `NaN` in
+`hosting_capacity_mw.npy`, while the status remains visible in
+`hosting_capacity_status.npy`. The in-memory objective value is also `NaN`,
+and the capacity is blank in the optional long-form CSV. Objective values are
+not published as a separate NumPy output; they remain in the in-memory result
+and in per-period checkpoint `.npz` data. Diagnostics are retained in metadata
+when present.
 An interrupted or otherwise partial run leaves pending matrix cells with an
 empty status until they are solved; metadata reports `complete: false` and
 separates completed, failed, and pending counts.
@@ -118,6 +122,10 @@ lists under `ordering.period_indices`, `ordering.bus_ids`, and
 `ordering.array_axes: ["period_index", "bus_id"]`; do not infer bus order from
 the filesystem or from solver completion order.
 
+The published NumPy surface is intentionally limited to capacity and status;
+there is no `hosting_capacity_objective.npy`. Objective values are retained
+only in the in-memory result and checkpoint `.npz` files.
+
 ## 8. Checkpoint identity and safe resume
 
 When checkpointing is enabled, the default directory is
@@ -140,7 +148,9 @@ artifact/source and formulation, and rerun the same period, bus, backend, and
 solver-thread request. Valid completed-period checkpoints are loaded and only
 pending periods are solved; outputs are republished after each completed period.
 An identity mismatch is rejected rather than silently reused. Malformed or
-incomplete checkpoint files are ignored and recomputed. Do not copy checkpoints
+incomplete contents in a well-named checkpoint are ignored and recomputed.
+Invalid checkpoint filenames are rejected as request-identity errors, as are
+well-formed filenames for periods outside the request. Do not copy checkpoints
 between artifacts, horizons, bus selections, or backend/thread configurations.
 
 ## 9. IEEE-14 example
@@ -166,7 +176,7 @@ the first 24 periods of the 2028 January--June block:
 
 ```bash
 ercot-game-hosting-capacity \
-  --artifact-dir data/processed/2028/jan_jun \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
   --horizon 24 \
   --period-count 24 \
   --solver-backend highs \
@@ -184,7 +194,7 @@ The following is the planned 2028 January--June full-horizon command:
 
 ```bash
 ercot-game-hosting-capacity \
-  --artifact-dir data/processed/2028/jan_jun \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
   --horizon 4368 \
   --solver-backend auto \
   --workers 4 \
@@ -201,10 +211,19 @@ does not make the workload small.
 ## 12. Benchmark interpretation
 
 Use `tools/benchmarks/benchmark_hosting_capacity.py` with a caller-selected
-output directory for staged measurements. Report measured wall time and peak
-RSS, together with backend/version, worker and solver-thread counts, mean/P50/P95
-point solve time, and completed/failed point counts. A failed, interrupted, or
-dependency-limited stage is an explicit result, not a timing estimate.
+output directory for staged measurements. Read the requested/resolved backend
+and backend version from each stage's `hosting_capacity_metadata.json`, under
+`backend.requested`, `backend.resolved`, and `backend.version`. The
+`benchmark_hosting_capacity.jsonl` rows contain the stage label, resolved
+backend convenience field, worker and solver-thread counts, the timing fields
+`wall_time_s`, `peak_rss_mb`, `model_build_time_s`, `mean_point_time_s`,
+`p50_point_time_s`, and `p95_point_time_s`, plus the count fields
+`completed_points` and `failed_points`.
+
+Dependency-limited or validation-failed stages must be reported as unavailable,
+with unavailable timing fields; do not treat setup time, partial output, or a
+failure elapsed time as a benchmark timing. Failed or interrupted stages are
+also explicit results rather than timing estimates.
 
 The IEEE-14 case measures plumbing and solver correctness on one tiny period; do
 not extrapolate its wall time or memory to ACTIVSg2000 production runs. Interpret
