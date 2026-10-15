@@ -383,13 +383,16 @@ def _tamper_checkpoint(checkpoint_path, **changes):
         ("optimal", 1.0, math.nan),
     ),
 )
-def test_matrix_driver_rejects_malformed_checkpoint_points(
+def test_matrix_driver_recomputes_malformed_checkpoint_points(
     tmp_path, monkeypatch, status, capacity, objective
 ):
-    monkeypatch.setattr(
-        "tools.hosting_capacity._solve_matrix_period",
-        lambda period, bus_ids, *, solver_backend, solver_threads: _fake_matrix_result(period, bus_ids),
-    )
+    calls = []
+
+    def fake_period_solver(period, bus_ids, *, solver_backend, solver_threads):
+        calls.append(period.period_index)
+        return _fake_matrix_result(period, bus_ids)
+
+    monkeypatch.setattr("tools.hosting_capacity._solve_matrix_period", fake_period_solver)
     checkpoint_dir = tmp_path / "checkpoints"
     compute_hosting_capacity_matrix(
         _TwoPeriodProvider(),
@@ -398,6 +401,7 @@ def test_matrix_driver_rejects_malformed_checkpoint_points(
         solver_backend="highs",
         checkpoint_dir=checkpoint_dir,
     )
+    calls.clear()
     checkpoint_path = checkpoint_dir / "period_0.npz"
     _tamper_checkpoint(
         checkpoint_path,
@@ -406,14 +410,103 @@ def test_matrix_driver_rejects_malformed_checkpoint_points(
         objective_value=np.asarray([objective, 2.0]),
     )
 
-    with pytest.raises(ValueError, match="checkpoint"):
-        compute_hosting_capacity_matrix(
-            _TwoPeriodProvider(),
-            period_indices=[0],
-            bus_ids=["b1", "b2"],
-            solver_backend="highs",
-            checkpoint_dir=checkpoint_dir,
-        )
+    result = compute_hosting_capacity_matrix(
+        _TwoPeriodProvider(),
+        period_indices=[0],
+        bus_ids=["b1", "b2"],
+        solver_backend="highs",
+        checkpoint_dir=checkpoint_dir,
+    )
+    assert calls == [0]
+    assert result.status.tolist() == [["optimal", "optimal"]]
+
+
+def test_matrix_driver_recomputes_incomplete_checkpoint(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_period_solver(period, bus_ids, *, solver_backend, solver_threads):
+        calls.append(period.period_index)
+        return _fake_matrix_result(period, bus_ids)
+
+    monkeypatch.setattr("tools.hosting_capacity._solve_matrix_period", fake_period_solver)
+    checkpoint_dir = tmp_path / "checkpoints"
+    compute_hosting_capacity_matrix(
+        _TwoPeriodProvider(),
+        period_indices=[0],
+        bus_ids=["b1", "b2"],
+        solver_backend="highs",
+        checkpoint_dir=checkpoint_dir,
+    )
+    calls.clear()
+    _tamper_checkpoint(checkpoint_dir / "period_0.npz", complete=np.asarray(False))
+
+    compute_hosting_capacity_matrix(
+        _TwoPeriodProvider(),
+        period_indices=[0],
+        bus_ids=["b1", "b2"],
+        solver_backend="highs",
+        checkpoint_dir=checkpoint_dir,
+    )
+    assert calls == [0]
+
+
+def test_matrix_driver_sanitizes_checkpoint_diagnostics(tmp_path, monkeypatch):
+    diagnostic = "solver failed at /private/tmp/secret"
+
+    def fake_period_solver(period, bus_ids, *, solver_backend, solver_threads):
+        result = _fake_matrix_result(period, bus_ids)
+        result["diagnostic"] = np.asarray([diagnostic, ""], dtype="<U512")
+        return result
+
+    monkeypatch.setattr("tools.hosting_capacity._solve_matrix_period", fake_period_solver)
+    checkpoint_dir = tmp_path / "checkpoints"
+    compute_hosting_capacity_matrix(
+        _TwoPeriodProvider(),
+        period_indices=[0],
+        bus_ids=["b1", "b2"],
+        solver_backend="highs",
+        checkpoint_dir=checkpoint_dir,
+    )
+
+    with np.load(checkpoint_dir / "period_0.npz", allow_pickle=False) as checkpoint:
+        persisted_diagnostic = str(checkpoint["diagnostic"][0])
+    assert "/private/tmp/secret" not in persisted_diagnostic
+    assert "solver failed at <local-path>" == persisted_diagnostic
+
+
+@pytest.mark.parametrize("solve_time", (math.nan, math.inf, -1.0))
+def test_matrix_driver_recomputes_checkpoint_with_invalid_solve_time(
+    tmp_path, monkeypatch, solve_time
+):
+    calls = []
+
+    def fake_period_solver(period, bus_ids, *, solver_backend, solver_threads):
+        calls.append(period.period_index)
+        return _fake_matrix_result(period, bus_ids)
+
+    monkeypatch.setattr("tools.hosting_capacity._solve_matrix_period", fake_period_solver)
+    checkpoint_dir = tmp_path / "checkpoints"
+    compute_hosting_capacity_matrix(
+        _TwoPeriodProvider(),
+        period_indices=[0],
+        bus_ids=["b1", "b2"],
+        solver_backend="highs",
+        checkpoint_dir=checkpoint_dir,
+    )
+    calls.clear()
+    _tamper_checkpoint(
+        checkpoint_dir / "period_0.npz",
+        solve_time_s=np.asarray([solve_time, 1.0]),
+    )
+
+    compute_hosting_capacity_matrix(
+        _TwoPeriodProvider(),
+        period_indices=[0],
+        bus_ids=["b1", "b2"],
+        solver_backend="highs",
+        checkpoint_dir=checkpoint_dir,
+    )
+    assert calls == [0]
 
 
 def test_matrix_period_worker_rejects_provider_identity_drift(monkeypatch):
@@ -667,7 +760,9 @@ def test_matrix_driver_rejects_provider_period_index_mismatch(monkeypatch):
 
 
 def test_matrix_driver_rejects_unpickleable_provider_before_pool_creation():
-    provider = lambda period_index: _tiny_period(period_index=period_index)
+    def provider(period_index):
+        return _tiny_period(period_index=period_index)
+
     with pytest.raises(ValueError, match="period_provider must be pickleable when workers > 1"):
         compute_hosting_capacity_matrix(provider, period_indices=[0], workers=2)
 
@@ -690,7 +785,7 @@ def test_matrix_driver_spawn_workers_match_single_worker_without_cross_process_s
             solver_backend="highs",
             workers=2,
         )
-    except (OSError, RuntimeError) as error:
+    except OSError as error:
         pytest.skip(f"spawn process execution unavailable in this environment: {error}")
 
     np.testing.assert_allclose(parallel.capacity_mw, single.capacity_mw)

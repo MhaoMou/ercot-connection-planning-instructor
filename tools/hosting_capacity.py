@@ -127,8 +127,8 @@ def validate_period(period: HostingCapacityPeriod) -> HostingCapacityPeriod:
     if not buses:
         raise ValueError("period must contain at least one bus")
     bus_ids = _unique_ids(buses, "bus", "bus_id")
-    generator_ids = _unique_ids(generators, "generator", "generator_id")
-    branch_ids = _unique_ids(branches, "branch", "branch_id")
+    _unique_ids(generators, "generator", "generator_id")
+    _unique_ids(branches, "branch", "branch_id")
 
     references = [bus for bus in buses if bus.reference]
     if len(references) > 1:
@@ -856,6 +856,10 @@ def _checkpoint_path(checkpoint_dir: Path, period_index: int) -> Path:
     return checkpoint_dir / f"period_{period_index}.npz"
 
 
+class _CheckpointIdentityMismatch(ValueError):
+    """Signal that a checkpoint belongs to a different matrix request."""
+
+
 def _write_period_checkpoint(
     path: Path,
     *,
@@ -871,7 +875,10 @@ def _write_period_checkpoint(
         status=result["status"],
         objective_value=result["objective_value"],
         solve_time_s=result["solve_time_s"],
-        diagnostic=result["diagnostic"],
+        diagnostic=np.asarray(
+            [_sanitize_local_paths_in_text(str(value)) for value in result["diagnostic"]],
+            dtype="<U512",
+        ),
         complete=np.asarray(True),
     )
 
@@ -888,7 +895,7 @@ def _load_period_checkpoint(
             saved_period = int(np.asarray(checkpoint["period_index"]).item())
             saved_identity = json.loads(str(np.asarray(checkpoint["identity"]).item()))
             if saved_period != period_index or saved_identity != _json_safe(identity):
-                raise ValueError("checkpoint identity mismatch")
+                raise _CheckpointIdentityMismatch("checkpoint identity mismatch")
             if not bool(np.asarray(checkpoint["complete"]).item()):
                 raise ValueError("checkpoint is not complete")
             result = {
@@ -904,6 +911,9 @@ def _load_period_checkpoint(
         raise ValueError(f"invalid checkpoint: {path.name}") from error
     if any(array.shape != (bus_count,) for array in result.values()):
         raise ValueError("checkpoint shape mismatch")
+    for raw_solve_time in result["solve_time_s"]:
+        if not _finite_real(raw_solve_time) or float(raw_solve_time) < 0:
+            raise ValueError("checkpoint contains invalid solve time")
     for position, raw_status in enumerate(result["status"]):
         status = str(raw_status)
         capacity = result["capacity_mw"][position]
@@ -1142,12 +1152,17 @@ def compute_hosting_capacity_matrix(
                 raise ValueError(f"invalid checkpoint name: {path.name}") from error
             if checkpoint_period_index not in normalized_periods:
                 raise ValueError("checkpoint identity mismatch")
-            period_result = _load_period_checkpoint(
-                path,
-                period_index=checkpoint_period_index,
-                identity=identity,
-                bus_count=len(selected_bus_ids),
-            )
+            try:
+                period_result = _load_period_checkpoint(
+                    path,
+                    period_index=checkpoint_period_index,
+                    identity=identity,
+                    bus_count=len(selected_bus_ids),
+                )
+            except _CheckpointIdentityMismatch:
+                raise
+            except ValueError:
+                continue
             row_index = selected_indices.index(checkpoint_period_index)
             for name, matrix in (
                 ("capacity_mw", capacity_mw),
