@@ -362,10 +362,58 @@ def test_matrix_driver_partial_outputs_count_pending_points_separately(tmp_path,
     assert metadata["counts"]["pending_count"] == 2
     rows = (tmp_path / "hosting_capacity_summary.csv").read_text(encoding="utf-8").splitlines()
     assert rows[0] == (
-        "period_index,completed_count,optimal_count,failed_count,pending_count,"
-        "min_hosting_capacity_mw,median_hosting_capacity_mw,max_hosting_capacity_mw"
+        "period_index,optimal_count,failed_count,min_hosting_capacity_mw,"
+        "median_hosting_capacity_mw,max_hosting_capacity_mw"
     )
-    assert rows[2].startswith("1,0,0,0,2,nan,nan,nan")
+    assert rows[2].startswith("1,0,0,nan,nan,nan")
+
+
+def _tamper_checkpoint(checkpoint_path, **changes):
+    with np.load(checkpoint_path, allow_pickle=False) as checkpoint:
+        arrays = {name: checkpoint[name] for name in checkpoint.files}
+    arrays.update(changes)
+    np.savez_compressed(checkpoint_path, **arrays)
+
+
+@pytest.mark.parametrize(
+    ("status", "capacity", "objective"),
+    (
+        ("unknown_status", 1.0, 1.0),
+        ("optimal", math.nan, 1.0),
+        ("optimal", 1.0, math.nan),
+    ),
+)
+def test_matrix_driver_rejects_malformed_checkpoint_points(
+    tmp_path, monkeypatch, status, capacity, objective
+):
+    monkeypatch.setattr(
+        "tools.hosting_capacity._solve_matrix_period",
+        lambda period, bus_ids, *, solver_backend, solver_threads: _fake_matrix_result(period, bus_ids),
+    )
+    checkpoint_dir = tmp_path / "checkpoints"
+    compute_hosting_capacity_matrix(
+        _TwoPeriodProvider(),
+        period_indices=[0],
+        bus_ids=["b1", "b2"],
+        solver_backend="highs",
+        checkpoint_dir=checkpoint_dir,
+    )
+    checkpoint_path = checkpoint_dir / "period_0.npz"
+    _tamper_checkpoint(
+        checkpoint_path,
+        status=np.asarray([status, "optimal"], dtype="<U32"),
+        capacity_mw=np.asarray([capacity, 2.0]),
+        objective_value=np.asarray([objective, 2.0]),
+    )
+
+    with pytest.raises(ValueError, match="checkpoint"):
+        compute_hosting_capacity_matrix(
+            _TwoPeriodProvider(),
+            period_indices=[0],
+            bus_ids=["b1", "b2"],
+            solver_backend="highs",
+            checkpoint_dir=checkpoint_dir,
+        )
 
 
 def test_matrix_period_worker_rejects_provider_identity_drift(monkeypatch):
@@ -455,8 +503,8 @@ def test_matrix_driver_writes_exact_summary_header_and_required_metadata(tmp_pat
 
     summary_header = (output_dir / "hosting_capacity_summary.csv").read_text(encoding="utf-8").splitlines()[0]
     assert summary_header == (
-        "period_index,completed_count,optimal_count,failed_count,pending_count,"
-        "min_hosting_capacity_mw,median_hosting_capacity_mw,max_hosting_capacity_mw"
+        "period_index,optimal_count,failed_count,min_hosting_capacity_mw,"
+        "median_hosting_capacity_mw,max_hosting_capacity_mw"
     )
     metadata_text = (output_dir / "hosting_capacity_metadata.json").read_text(encoding="utf-8")
     metadata = json.loads(metadata_text)

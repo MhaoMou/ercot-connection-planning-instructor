@@ -880,6 +880,17 @@ def _load_period_checkpoint(
         raise ValueError(f"invalid checkpoint: {path.name}") from error
     if any(array.shape != (bus_count,) for array in result.values()):
         raise ValueError("checkpoint shape mismatch")
+    for position, raw_status in enumerate(result["status"]):
+        status = str(raw_status)
+        capacity = result["capacity_mw"][position]
+        objective = result["objective_value"][position]
+        if status not in HOSTING_CAPACITY_STATUSES:
+            raise ValueError(f"checkpoint contains unknown status: {status!r}")
+        if status == "optimal":
+            if not _valid_optimal_value(capacity) or not _valid_optimal_value(objective):
+                raise ValueError("checkpoint optimal point has invalid values")
+        elif not (np.isnan(capacity) and np.isnan(objective)):
+            raise ValueError("checkpoint non-optimal point must contain NaN values")
     return result
 
 
@@ -979,10 +990,8 @@ def _write_matrix_outputs(
             handle,
             fieldnames=(
                 "period_index",
-                "completed_count",
                 "optimal_count",
                 "failed_count",
-                "pending_count",
                 "min_hosting_capacity_mw",
                 "median_hosting_capacity_mw",
                 "max_hosting_capacity_mw",
@@ -993,15 +1002,12 @@ def _write_matrix_outputs(
             completed = status[row_index] != ""
             optimal = status[row_index] == "optimal"
             failed = completed & ~optimal
-            pending = ~completed
             values = capacity_mw[row_index][optimal]
             writer.writerow(
                 {
                     "period_index": period_index,
-                    "completed_count": int(np.count_nonzero(completed)),
                     "optimal_count": int(np.count_nonzero(optimal)),
                     "failed_count": int(np.count_nonzero(failed)),
-                    "pending_count": int(np.count_nonzero(pending)),
                     "min_hosting_capacity_mw": float(np.min(values)) if values.size else math.nan,
                     "median_hosting_capacity_mw": float(np.median(values)) if values.size else math.nan,
                     "max_hosting_capacity_mw": float(np.max(values)) if values.size else math.nan,
