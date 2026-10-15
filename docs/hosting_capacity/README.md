@@ -62,11 +62,11 @@ separate processes; each worker constructs its own solver model, and no solver
 object crosses a process boundary. Candidate buses within one period are not
 parallelized.
 
-HiGHS is the portable default backend. The CLI accepts `highs`, `gurobi`, or
-`auto`; `auto` selects licensed Gurobi when it is available and otherwise
-resolves to HiGHS. Gurobi is optional and is never imported at module import
-time. `workers > 1` cannot be combined with `--solver-threads > 1`, avoiding
-uncontrolled nested parallelism.
+The default `auto` selection prefers licensed Gurobi and falls back to portable
+HiGHS when Gurobi is unavailable. The CLI accepts `highs`, `gurobi`, or `auto`;
+Gurobi is optional and is never imported at module import time. `workers > 1`
+cannot be combined with `--solver-threads > 1`, avoiding uncontrolled nested
+parallelism.
 
 The first release is exact relative to the supplied LP formulation and the
 selected solver's tolerances. Reusing one LP structure is an implementation
@@ -220,10 +220,11 @@ backend convenience field, worker and solver-thread counts, the timing fields
 `p50_point_time_s`, and `p95_point_time_s`, plus the count fields
 `completed_points` and `failed_points`.
 
-Dependency-limited or validation-failed stages must be reported as unavailable,
-with unavailable timing fields; do not treat setup time, partial output, or a
-failure elapsed time as a benchmark timing. Failed or interrupted stages are
-also explicit results rather than timing estimates.
+Solver/backend failures can produce a timed stage row, with failed points
+recorded in `failed_points`; the row still includes the timing fields. Artifact
+validation or other setup errors exit nonzero before the affected stage begins,
+so no stage row is written for that stage. Do not treat setup time, partial
+output, or any pre-stage failure elapsed time as a benchmark timing.
 
 The IEEE-14 case measures plumbing and solver correctness on one tiny period; do
 not extrapolate its wall time or memory to ACTIVSg2000 production runs. Interpret
