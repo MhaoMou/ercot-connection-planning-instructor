@@ -44,6 +44,17 @@ def test_validate_period_preserves_bus_order_and_normalizes_empty_injections():
         period.period_index = 1
 
 
+def test_validate_period_defaults_first_bus_as_reference():
+    period = validate_period(
+        _tiny_period(
+            buses=[Bus("b1", 0.0), Bus("b2", 5.0)],
+        )
+    )
+
+    assert period.buses[0].reference is True
+    assert period.buses[1].reference is False
+
+
 def test_statuses_are_exact_and_point_serializes_without_binding_resources():
     assert HOSTING_CAPACITY_STATUSES == frozenset(
         {

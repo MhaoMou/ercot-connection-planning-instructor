@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 from collections.abc import Mapping, Sequence
 from numbers import Real
@@ -97,13 +97,17 @@ def validate_period(period: HostingCapacityPeriod) -> HostingCapacityPeriod:
     buses = tuple(period.buses)
     generators = tuple(period.generators)
     branches = tuple(period.branches)
+    if not buses:
+        raise ValueError("period must contain at least one bus")
     bus_ids = _unique_ids(buses, "bus", "bus_id")
     generator_ids = _unique_ids(generators, "generator", "generator_id")
     branch_ids = _unique_ids(branches, "branch", "branch_id")
 
     references = [bus for bus in buses if bus.reference]
-    if len(references) != 1:
-        raise ValueError("period must contain exactly one reference bus")
+    if len(references) > 1:
+        raise ValueError("at most one reference bus is allowed")
+    if not references:
+        buses = tuple(replace(bus, reference=index == 0) for index, bus in enumerate(buses))
     for bus in buses:
         if not _finite_real(bus.demand_mw) or bus.demand_mw < 0:
             raise ValueError(f"bus demand must be finite and nonnegative: {bus.bus_id}")
