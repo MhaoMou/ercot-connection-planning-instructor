@@ -544,6 +544,40 @@ def test_matrix_driver_writes_exact_summary_header_and_required_metadata(tmp_pat
     assert str(tmp_path) not in metadata_text
 
 
+def test_matrix_driver_sanitizes_embedded_paths_in_all_metadata_strings(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "tools.hosting_capacity._solve_matrix_period",
+        lambda period, bus_ids, *, solver_backend, solver_threads: _fake_matrix_result(period, bus_ids),
+    )
+    provider = _TwoPeriodProvider()
+    period = provider.periods[0]
+    provider.periods = (
+        HostingCapacityPeriod(
+            **{
+                **period.__dict__,
+                "source_metadata": {
+                    "source": "test",
+                    "note": "loaded from /workspace/project/input",
+                },
+            }
+        ),
+        provider.periods[1],
+    )
+    output_dir = tmp_path / "outputs"
+
+    compute_hosting_capacity_matrix(
+        provider,
+        period_indices=[0],
+        bus_ids=["b1", "b2"],
+        solver_backend="highs",
+        output_dir=output_dir,
+    )
+
+    metadata_text = (output_dir / "hosting_capacity_metadata.json").read_text(encoding="utf-8")
+    assert "/workspace/project/input" not in metadata_text
+    assert "loaded from <local-path>" in metadata_text
+
+
 def test_matrix_driver_checkpoint_identity_includes_normalized_period_inputs(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "tools.hosting_capacity._solve_matrix_period",

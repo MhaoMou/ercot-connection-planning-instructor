@@ -508,9 +508,7 @@ def _json_safe(value: object, *, key: str = "") -> object:
     if isinstance(value, np.generic):
         return _json_safe(value.item(), key=key)
     if isinstance(value, str):
-        if os.path.isabs(value) or "path" in key.lower() or key.lower().endswith("_dir"):
-            return Path(value).name
-        return value
+        return _sanitize_local_paths_in_text(value)
     if value is None or isinstance(value, (bool, int, float)):
         return value
     return repr(value)
@@ -521,12 +519,12 @@ def _canonical_json(value: object) -> str:
 
 
 _LOCAL_PATH_IN_DIAGNOSTIC = re.compile(
-    r"(?<![A-Za-z0-9])/(?:private|Users|home|tmp|var|opt|usr|etc|Volumes|Applications|System|Library)"
+    r"(?<![A-Za-z0-9])/(?:private|Users|home|tmp|var|opt|usr|etc|workspace|Volumes|Applications|System|Library)"
     r"(?:/[^\s\"'<>:,;)\]}]+)*"
 )
 
 
-def _sanitize_diagnostic(value: str) -> str:
+def _sanitize_local_paths_in_text(value: str) -> str:
     return _LOCAL_PATH_IN_DIAGNOSTIC.sub("<local-path>", value)
 
 
@@ -536,7 +534,7 @@ def _metadata_for_persistence(metadata: Mapping[str, object]) -> dict[str, objec
     if isinstance(diagnostics, Mapping):
         persisted["diagnostics"] = {
             str(period_index): {
-                str(bus_id): _sanitize_diagnostic(str(diagnostic))
+                str(bus_id): _sanitize_local_paths_in_text(str(diagnostic))
                 for bus_id, diagnostic in period_diagnostics.items()
             }
             for period_index, period_diagnostics in diagnostics.items()
