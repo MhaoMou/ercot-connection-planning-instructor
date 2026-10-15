@@ -942,7 +942,7 @@ def _matrix_metadata(
     diagnostic_records: dict[str, dict[str, str]] = {}
     for row_index, period_index in enumerate(period_indices):
         row_diagnostics = {
-            bus_id: str(diagnostics[row_index, bus_index])
+            bus_id: _sanitize_local_paths_in_text(str(diagnostics[row_index, bus_index]))
             for bus_index, bus_id in enumerate(bus_ids)
             if str(diagnostics[row_index, bus_index])
         }

@@ -476,7 +476,9 @@ def test_matrix_driver_sanitizes_absolute_paths_in_persisted_diagnostics(tmp_pat
         output_dir=output_dir,
     )
 
-    assert result.metadata["diagnostics"]["0"]["b1"] == diagnostic
+    assert result.metadata["diagnostics"]["0"]["b1"] == (
+        "backend failed at <local-path> and <local-path>"
+    )
     persisted = (output_dir / "hosting_capacity_metadata.json").read_text(encoding="utf-8")
     assert "/private/tmp/secret" not in persisted
     assert "/Users/example" not in persisted
@@ -937,7 +939,7 @@ def test_solve_hosting_capacity_at_bus_preserves_backend_diagnostic_without_seri
             pass
 
         def max_additional_demand(self, *args, **kwargs):
-            raise RuntimeError("backend exploded")
+            raise RuntimeError("backend exploded at /private/tmp/secret")
 
     monkeypatch.setattr(dcopf, "resolve_solver_backend", lambda backend: "highs")
     monkeypatch.setattr(dcopf, "ReusableDCOPFModel", FakeModel)
@@ -949,6 +951,7 @@ def test_solve_hosting_capacity_at_bus_preserves_backend_diagnostic_without_seri
     assert "solver execution failed" in point.diagnostic
     assert "RuntimeError" in point.diagnostic
     assert "backend exploded" in point.diagnostic
+    assert "/private/tmp/secret" in point.diagnostic
     assert "diagnostic" not in point.to_record()
 
 
