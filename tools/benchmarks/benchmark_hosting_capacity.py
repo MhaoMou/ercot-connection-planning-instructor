@@ -17,11 +17,25 @@ for _path in (_REPO_ROOT, _REPO_ROOT / "src"):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
-from ercot_game.hosting_capacity_cli import (
+
+def _load_project_dependencies():
+    from ercot_game.hosting_capacity_cli import artifact_horizon, ieee14_provider
+    from tools.hosting_capacity import compute_hosting_capacity_matrix, prepared_artifact_period_provider
+
+    return (
+        artifact_horizon,
+        ieee14_provider,
+        compute_hosting_capacity_matrix,
+        prepared_artifact_period_provider,
+    )
+
+
+(
     artifact_horizon,
     ieee14_provider,
-)
-from tools.hosting_capacity import compute_hosting_capacity_matrix, prepared_artifact_period_provider
+    compute_hosting_capacity_matrix,
+    prepared_artifact_period_provider,
+) = _load_project_dependencies()
 
 try:
     import resource
@@ -37,7 +51,9 @@ class BenchmarkStage:
     source: str = "artifact"
 
 
-def stage_specs(*, has_artifact: bool, full_horizon: bool) -> tuple[BenchmarkStage, ...]:
+def stage_specs(
+    *, has_artifact: bool, full_horizon: bool, period_count: int = 1
+) -> tuple[BenchmarkStage, ...]:
     ieee14_stage = BenchmarkStage("ieee14-1", 1, source="ieee14")
     if not has_artifact:
         return (ieee14_stage,)
@@ -47,6 +63,8 @@ def stage_specs(*, has_artifact: bool, full_horizon: bool) -> tuple[BenchmarkSta
         BenchmarkStage("activsg2000-24", 24),
         BenchmarkStage("activsg2000-168", 168),
     )
+    if period_count not in {1, 24, 168}:
+        stages += (BenchmarkStage(f"activsg2000-custom-{period_count}", period_count),)
     if full_horizon:
         stages += (BenchmarkStage("activsg2000-full", 0, full_horizon=True),)
     return stages
@@ -124,9 +142,10 @@ def _run_stage(
     stage_dir = output_root / stage.name
     checkpoint_dir = stage_dir / "checkpoints"
     stage_dir.mkdir(parents=True, exist_ok=True)
-    model_started = time.perf_counter()
-    provider(0)
-    model_build_time_s = time.perf_counter() - model_started
+    # Matrix model construction happens inside the private period solver.  It
+    # is not separately instrumented, so do not mislabel provider materialization
+    # time as model_build_time_s.
+    model_build_time_s = None
     started = time.perf_counter()
     result = compute_hosting_capacity_matrix(
         provider,
@@ -149,7 +168,7 @@ def _run_stage(
         "solver_threads": solver_threads,
         "wall_time_s": round(wall_time_s, 6),
         "peak_rss_mb": _peak_rss_mb(),
-        "model_build_time_s": round(model_build_time_s, 6),
+        "model_build_time_s": model_build_time_s,
         "mean_point_time_s": round(statistics.fmean(point_times), 6) if point_times else None,
         "p50_point_time_s": round(_percentile(point_times, 50), 6) if point_times else None,
         "p95_point_time_s": round(_percentile(point_times, 95), 6) if point_times else None,
@@ -166,6 +185,8 @@ def main(argv: list[str] | None = None) -> int:
     output_root = args.output_dir.resolve()
     try:
         output_root.mkdir(parents=True, exist_ok=True)
+        result_path = output_root / "benchmark_hosting_capacity.jsonl"
+        result_path.write_text("", encoding="utf-8")
         ieee14_provider_instance = ieee14_provider()
         if args.ieee14:
             provider = ieee14_provider_instance
@@ -178,13 +199,17 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError(f"artifact directory does not exist or is not a directory: {artifact_dir}")
             provider = prepared_artifact_period_provider(artifact_dir)
             horizon = artifact_horizon(artifact_dir)
-        stages = stage_specs(has_artifact=not args.ieee14, full_horizon=args.full_horizon)
-        results = []
-        for stage in stages:
-            stage_provider = ieee14_provider_instance if stage.source == "ieee14" else provider
-            stage_horizon = 1 if stage.source == "ieee14" else horizon
-            results.append(
-                _run_stage(
+        stages = stage_specs(
+            has_artifact=not args.ieee14,
+            full_horizon=args.full_horizon,
+            period_count=args.period_count,
+        )
+        failed_points = False
+        with result_path.open("a", encoding="utf-8") as handle:
+            for stage in stages:
+                stage_provider = ieee14_provider_instance if stage.source == "ieee14" else provider
+                stage_horizon = 1 if stage.source == "ieee14" else horizon
+                row = _run_stage(
                     stage=stage,
                     provider=stage_provider,
                     horizon=stage_horizon,
@@ -193,13 +218,10 @@ def main(argv: list[str] | None = None) -> int:
                     workers=args.workers,
                     solver_threads=args.solver_threads,
                 )
-            )
-        result_path = output_root / "benchmark_hosting_capacity.jsonl"
-        result_path.write_text(
-            "".join(json.dumps(row, sort_keys=True) + "\n" for row in results),
-            encoding="utf-8",
-        )
-        return 1 if any(row["failed_points"] for row in results) else 0
+                handle.write(json.dumps(row, sort_keys=True) + "\n")
+                handle.flush()
+                failed_points = failed_points or bool(row["failed_points"])
+        return 1 if failed_points else 0
     except KeyboardInterrupt:
         print("benchmark interrupted; completed stage outputs and checkpoints were preserved", file=sys.stderr)
         return 130

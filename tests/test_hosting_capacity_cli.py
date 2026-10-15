@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 from types import SimpleNamespace
+import tomllib
 
 import numpy as np
 import pytest
@@ -30,6 +31,39 @@ def test_hosting_capacity_module_help_works_from_source_checkout():
 
     assert completed.returncode == 0, completed.stderr
     assert "Compute exact one-bus hosting capacity" in completed.stdout
+
+
+def test_source_checkout_shim_preserves_installed_package_api():
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import ercot_game; "
+                "assert ercot_game.__version__ == '0.3.0'; "
+                "assert 'ConnectionPlan' in ercot_game.__all__; "
+                "assert ercot_game.ConnectionPlan.__module__ == 'ercot_game.models'"
+            ),
+        ],
+        cwd=REPO_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_pyproject_declares_only_existing_setuptools_packages():
+    payload = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    package_dirs = payload["tool"]["setuptools"]["package-dir"]
+
+    assert "tools.zenodo_texas" not in payload["tool"]["setuptools"]["packages"]
+    assert "tools.zenodo_texas" not in package_dirs
+    for package_dir in package_dirs.values():
+        assert (REPO_ROOT / package_dir).is_dir()
 
 
 def test_hosting_capacity_benchmark_help_works_from_another_cwd(tmp_path):
@@ -237,8 +271,14 @@ def test_hosting_capacity_cli_interrupt_recovers_all_bus_checkpoint_counts(
     from ercot_game import hosting_capacity_cli
 
     buses = tuple(SimpleNamespace(bus_id=f"b{index}") for index in range(4))
-    provider = lambda period_index: SimpleNamespace(buses=buses)
-    monkeypatch.setattr(hosting_capacity_cli, "provider_for_args", lambda args: (provider, 2))
+
+    def provider(period_index):
+        return SimpleNamespace(buses=buses)
+
+    def fake_provider_for_args(args):
+        return provider, 2
+
+    monkeypatch.setattr(hosting_capacity_cli, "provider_for_args", fake_provider_for_args)
     checkpoint_dir = tmp_path / "checkpoints"
 
     def interrupted_compute(_provider, **kwargs):
@@ -283,8 +323,14 @@ def test_hosting_capacity_cli_interrupt_counts_unique_selected_buses(
     from ercot_game import hosting_capacity_cli
 
     buses = tuple(SimpleNamespace(bus_id=f"b{index}") for index in range(4))
-    provider = lambda period_index: SimpleNamespace(buses=buses)
-    monkeypatch.setattr(hosting_capacity_cli, "provider_for_args", lambda args: (provider, 1))
+
+    def provider(period_index):
+        return SimpleNamespace(buses=buses)
+
+    def fake_provider_for_args(args):
+        return provider, 1
+
+    monkeypatch.setattr(hosting_capacity_cli, "provider_for_args", fake_provider_for_args)
     checkpoint_dir = tmp_path / "checkpoints"
 
     def interrupted_compute(_provider, **kwargs):
@@ -340,19 +386,45 @@ def test_benchmark_stages_do_not_include_full_horizon_without_flag():
     ]
 
 
+def test_artifact_benchmark_adds_a_named_custom_period_stage():
+    from tools.benchmarks.benchmark_hosting_capacity import stage_specs
+
+    stages = stage_specs(has_artifact=True, full_horizon=False, period_count=7)
+
+    assert [stage.name for stage in stages] == [
+        "ieee14-1",
+        "activsg2000-1",
+        "activsg2000-24",
+        "activsg2000-168",
+        "activsg2000-custom-7",
+    ]
+    assert stages[-1].period_count == 7
+
+
 def test_artifact_benchmark_emits_complete_staged_sequence(tmp_path, monkeypatch):
     from tools.benchmarks import benchmark_hosting_capacity
 
     period_counts = []
     (tmp_path / "artifact").mkdir()
-    provider = lambda period_index: SimpleNamespace()
+    def provider(period_index):
+        return SimpleNamespace()
+
+    def fake_ieee14_provider():
+        return provider
+
+    def fake_artifact_provider(_artifact_dir):
+        return provider
+
+    def fake_horizon(_artifact_dir):
+        return 365
+
     monkeypatch.setattr(
         benchmark_hosting_capacity,
         "prepared_artifact_period_provider",
-        lambda _artifact_dir: provider,
+        fake_artifact_provider,
     )
-    monkeypatch.setattr(benchmark_hosting_capacity, "ieee14_provider", lambda: provider)
-    monkeypatch.setattr(benchmark_hosting_capacity, "artifact_horizon", lambda _artifact_dir: 365)
+    monkeypatch.setattr(benchmark_hosting_capacity, "ieee14_provider", fake_ieee14_provider)
+    monkeypatch.setattr(benchmark_hosting_capacity, "artifact_horizon", fake_horizon)
 
     def fake_compute(_provider, **kwargs):
         period_count = len(kwargs["period_indices"])
@@ -398,4 +470,122 @@ def test_artifact_benchmark_emits_complete_staged_sequence(tmp_path, monkeypatch
         "activsg2000-full",
     ]
     assert period_counts == [1, 1, 24, 168, 365]
+    assert all(row["model_build_time_s"] is None for row in rows)
+
+
+def test_artifact_benchmark_uses_requested_custom_period_stage(tmp_path, monkeypatch):
+    from tools.benchmarks import benchmark_hosting_capacity
+
+    period_counts = []
+    artifact_dir = tmp_path / "artifact"
+    artifact_dir.mkdir()
+
+    def provider(period_index):
+        return SimpleNamespace()
+
+    def fake_artifact_provider(_artifact_dir):
+        return provider
+
+    def fake_ieee14_provider():
+        return provider
+
+    def fake_horizon(_artifact_dir):
+        return 365
+
+    def fake_compute(_provider, **kwargs):
+        period_count = len(kwargs["period_indices"])
+        period_counts.append(period_count)
+        return HostingCapacityMatrix(
+            period_indices=tuple(range(period_count)),
+            bus_ids=("b1",),
+            capacity_mw=np.ones((period_count, 1)),
+            status=np.full((period_count, 1), "optimal"),
+            objective_value=np.ones((period_count, 1)),
+            solve_time_s=np.ones((period_count, 1)),
+            metadata={"resolved_solver_backend": "highs"},
+        )
+
+    monkeypatch.setattr(benchmark_hosting_capacity, "prepared_artifact_period_provider", fake_artifact_provider)
+    monkeypatch.setattr(benchmark_hosting_capacity, "ieee14_provider", fake_ieee14_provider)
+    monkeypatch.setattr(benchmark_hosting_capacity, "artifact_horizon", fake_horizon)
+    monkeypatch.setattr(benchmark_hosting_capacity, "compute_hosting_capacity_matrix", fake_compute)
+
+    return_code = benchmark_hosting_capacity.main(
+        [
+            "--artifact-dir",
+            str(artifact_dir),
+            "--period-count",
+            "7",
+            "--output-dir",
+            str(tmp_path / "output"),
+        ]
+    )
+
+    assert return_code == 0
+    assert period_counts == [1, 1, 24, 168, 7]
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "output" / "benchmark_hosting_capacity.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert rows[-1]["stage"] == "activsg2000-custom-7"
+
+
+def test_benchmark_writes_rows_incrementally_and_replaces_stale_results(tmp_path, monkeypatch):
+    from tools.benchmarks import benchmark_hosting_capacity
+
+    artifact_dir = tmp_path / "artifact"
+    artifact_dir.mkdir()
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    result_path = output_dir / "benchmark_hosting_capacity.jsonl"
+    result_path.write_text("stale\n", encoding="utf-8")
+
+    def provider(period_index):
+        return SimpleNamespace()
+
+    def fake_artifact_provider(_artifact_dir):
+        return provider
+
+    def fake_ieee14_provider():
+        return provider
+
+    def fake_horizon(_artifact_dir):
+        return 365
+
+    completed_stages = []
+
+    def fake_run_stage(**kwargs):
+        completed_stages.append(kwargs["stage"].name)
+        if kwargs["stage"].name == "activsg2000-24":
+            raise KeyboardInterrupt
+        return {
+            "stage": kwargs["stage"].name,
+            "backend": "highs",
+            "workers": 1,
+            "solver_threads": 1,
+            "wall_time_s": 0.1,
+            "peak_rss_mb": None,
+            "model_build_time_s": None,
+            "mean_point_time_s": 0.1,
+            "p50_point_time_s": 0.1,
+            "p95_point_time_s": 0.1,
+            "completed_points": 1,
+            "failed_points": 0,
+        }
+
+    monkeypatch.setattr(benchmark_hosting_capacity, "prepared_artifact_period_provider", fake_artifact_provider)
+    monkeypatch.setattr(benchmark_hosting_capacity, "ieee14_provider", fake_ieee14_provider)
+    monkeypatch.setattr(benchmark_hosting_capacity, "artifact_horizon", fake_horizon)
+    monkeypatch.setattr(benchmark_hosting_capacity, "_run_stage", fake_run_stage)
+
+    return_code = benchmark_hosting_capacity.main(
+        ["--artifact-dir", str(artifact_dir), "--output-dir", str(output_dir)]
+    )
+
+    assert return_code == 130
+    assert completed_stages == ["ieee14-1", "activsg2000-1", "activsg2000-24"]
+    rows = [json.loads(line) for line in result_path.read_text(encoding="utf-8").splitlines()]
+    assert [row["stage"] for row in rows] == ["ieee14-1", "activsg2000-1"]
 

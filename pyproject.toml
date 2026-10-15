@@ -40,14 +40,12 @@ packages = [
     "rl_gym",
     "tools",
     "tools.activsg2000",
-    "tools.zenodo_texas",
 ]
 
 [tool.setuptools.package-dir]
 ercot_game = "src/ercot_game"
 tools = "tools"
 "tools.activsg2000" = "tools/activsg2000"
-"tools.zenodo_texas" = "tools/zenodo_texas"
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]
