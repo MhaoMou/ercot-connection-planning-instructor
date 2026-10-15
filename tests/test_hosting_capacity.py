@@ -273,6 +273,47 @@ def test_solve_hosting_capacity_at_bus_maps_backend_statuses(monkeypatch, failur
     assert point.objective_value is None
 
 
+def test_solve_hosting_capacity_at_bus_preserves_backend_diagnostic_without_serializing_it(monkeypatch):
+    class FakeModel:
+        def __init__(self, **kwargs):
+            pass
+
+        def max_additional_demand(self, *args, **kwargs):
+            raise RuntimeError("backend exploded")
+
+    monkeypatch.setattr(dcopf, "resolve_solver_backend", lambda backend: "highs")
+    monkeypatch.setattr(dcopf, "ReusableDCOPFModel", FakeModel)
+
+    point = solve_hosting_capacity_at_bus(_tiny_period(), "b2", solver_backend="auto")
+
+    assert point.status == "solver_error"
+    assert point.diagnostic is not None
+    assert "solver execution failed" in point.diagnostic
+    assert "RuntimeError" in point.diagnostic
+    assert "backend exploded" in point.diagnostic
+    assert "diagnostic" not in point.to_record()
+
+
+def test_solve_hosting_capacity_at_bus_maps_unhashable_backend_status(monkeypatch):
+    class FakeModel:
+        def __init__(self, **kwargs):
+            pass
+
+        def max_additional_demand(self, *args, **kwargs):
+            return math.nan, ["malformed"]
+
+    monkeypatch.setattr(dcopf, "resolve_solver_backend", lambda backend: "highs")
+    monkeypatch.setattr(dcopf, "ReusableDCOPFModel", FakeModel)
+
+    point = solve_hosting_capacity_at_bus(_tiny_period(), "b2", solver_backend="auto")
+
+    assert point.status == "solver_error"
+    assert point.hosting_capacity_mw is None
+    assert point.diagnostic is not None
+    assert "malformed backend status" in point.diagnostic
+    assert "malformed" in point.diagnostic
+
+
 @pytest.mark.skipif(importlib.util.find_spec("highspy") is None, reason="highspy is not installed")
 def test_hosting_capacity_boundary_uses_public_task2_model_api():
     period = _tiny_period()

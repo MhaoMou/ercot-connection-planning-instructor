@@ -56,9 +56,10 @@ class HostingCapacityPoint:
     objective_value: float | None
     solve_time_s: float | None
     binding_resources: Sequence[str]
+    diagnostic: str | None = None
 
     def __post_init__(self) -> None:
-        if self.status not in HOSTING_CAPACITY_STATUSES:
+        if not isinstance(self.status, str) or self.status not in HOSTING_CAPACITY_STATUSES:
             raise ValueError(f"unknown hosting-capacity status: {self.status!r}")
         object.__setattr__(self, "binding_resources", tuple(self.binding_resources))
 
@@ -177,6 +178,11 @@ def solve_hosting_capacity_at_bus(
     """
     started = time.perf_counter()
 
+    def exception_diagnostic(stage: str, error: BaseException) -> str:
+        detail = str(error)
+        suffix = f": {detail}" if detail else ""
+        return f"{stage}: {type(error).__name__}{suffix}"
+
     def elapsed() -> float:
         return max(0.0, time.perf_counter() - started)
 
@@ -192,6 +198,7 @@ def solve_hosting_capacity_at_bus(
         *,
         capacity: float | None = None,
         objective_value: float | None = None,
+        diagnostic: str | None = None,
     ) -> HostingCapacityPoint:
         return HostingCapacityPoint(
             period_index=period_index,
@@ -201,14 +208,15 @@ def solve_hosting_capacity_at_bus(
             objective_value=objective_value,
             solve_time_s=elapsed(),
             binding_resources=(),
+            diagnostic=diagnostic,
         )
 
     try:
         normalized_period = validate_period(period)
-    except KeyboardInterrupt:
-        return point("interrupted")
-    except Exception:
-        return point("invalid_input")
+    except KeyboardInterrupt as error:
+        return point("interrupted", diagnostic=exception_diagnostic("period validation interrupted", error))
+    except Exception as error:
+        return point("invalid_input", diagnostic=exception_diagnostic("period validation failed", error))
 
     period_index = normalized_period.period_index
     bus_ids = {bus.bus_id for bus in normalized_period.buses}
@@ -227,12 +235,12 @@ def solve_hosting_capacity_at_bus(
 
     try:
         resolved_backend = dcopf.resolve_solver_backend(solver_backend)
-    except KeyboardInterrupt:
-        return point("interrupted")
-    except (TypeError, ValueError):
-        return point("invalid_input")
-    except Exception:
-        return point("solver_error")
+    except KeyboardInterrupt as error:
+        return point("interrupted", diagnostic=exception_diagnostic("backend resolution interrupted", error))
+    except (TypeError, ValueError) as error:
+        return point("invalid_input", diagnostic=exception_diagnostic("backend resolution failed", error))
+    except Exception as error:
+        return point("solver_error", diagnostic=exception_diagnostic("backend resolution failed", error))
 
     try:
         if resolved_backend == "highs":
@@ -254,13 +262,16 @@ def solve_hosting_capacity_at_bus(
                 solver_threads=solver_threads,
             )
         else:
-            return point("solver_error")
-    except KeyboardInterrupt:
-        return point("interrupted")
-    except (TypeError, ValueError):
-        return point("invalid_input")
-    except Exception:
-        return point("solver_error")
+            return point(
+                "solver_error",
+                diagnostic=f"backend construction returned unsupported backend: {resolved_backend!r}",
+            )
+    except KeyboardInterrupt as error:
+        return point("interrupted", diagnostic=exception_diagnostic("backend construction interrupted", error))
+    except (TypeError, ValueError) as error:
+        return point("invalid_input", diagnostic=exception_diagnostic("backend construction failed", error))
+    except Exception as error:
+        return point("solver_error", diagnostic=exception_diagnostic("backend construction failed", error))
 
     try:
         capacity, status = model.max_additional_demand(
@@ -269,21 +280,23 @@ def solve_hosting_capacity_at_bus(
             upper_bound_mw=upper_bound_mw,
             fixed_injection_mw_by_bus=normalized_period.fixed_injection_mw_by_bus,
         )
-    except KeyboardInterrupt:
-        return point("interrupted")
-    except (InterruptedError, TimeoutError):
-        return point("interrupted")
-    except (ArithmeticError, FloatingPointError, OverflowError):
-        return point("numerical_failure")
-    except Exception:
-        return point("solver_error")
+    except KeyboardInterrupt as error:
+        return point("interrupted", diagnostic=exception_diagnostic("solver execution interrupted", error))
+    except (InterruptedError, TimeoutError) as error:
+        return point("interrupted", diagnostic=exception_diagnostic("solver execution interrupted", error))
+    except (ArithmeticError, FloatingPointError, OverflowError) as error:
+        return point("numerical_failure", diagnostic=exception_diagnostic("solver execution failed", error))
+    except Exception as error:
+        return point("solver_error", diagnostic=exception_diagnostic("solver execution failed", error))
 
+    if not isinstance(status, str):
+        return point("solver_error", diagnostic=f"malformed backend status: {status!r}")
     if status not in HOSTING_CAPACITY_STATUSES:
-        return point("solver_error")
+        return point("solver_error", diagnostic=f"unsupported backend status: {status!r}")
     if status != "optimal":
         return point(status)  # type: ignore[arg-type]
     if not _finite_real(capacity) or capacity < 0:
-        return point("numerical_failure")
+        return point("numerical_failure", diagnostic=f"invalid optimal capacity returned by backend: {capacity!r}")
 
     capacity = float(capacity)
     return point("optimal", capacity=capacity, objective_value=capacity)
