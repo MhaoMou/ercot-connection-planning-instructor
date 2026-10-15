@@ -1,8 +1,9 @@
 from dataclasses import FrozenInstanceError
+import inspect
 
 import pytest
 
-from tools.activsg2000.dcopf import Branch, Bus, Generator
+from tools.activsg2000.dcopf import Branch, Bus, Generator, ReusableDCOPFModel
 from tools.hosting_capacity import (
     HOSTING_CAPACITY_STATUSES,
     HostingCapacityPeriod,
@@ -98,3 +99,14 @@ def test_validate_period_rejects_duplicate_bus_ids():
 def test_validate_period_rejects_unknown_injection_bus():
     with pytest.raises(ValueError, match="fixed injection.*unknown bus.*missing"):
         validate_period(_tiny_period(fixed_injection_mw_by_bus={"missing": 1.0}))
+
+
+def test_reusable_model_exposes_candidate_demand_probe_contract():
+    constructor_parameters = inspect.signature(ReusableDCOPFModel).parameters
+    method_parameters = inspect.signature(ReusableDCOPFModel.max_additional_demand).parameters
+
+    assert "candidate_demand_bus_id" in constructor_parameters
+    assert "enable_candidate_demand_probes" in constructor_parameters
+    assert tuple(method_parameters)[:3] == ("self", "buses", "bus_id")
+    assert method_parameters["upper_bound_mw"].default is None
+    assert method_parameters["fixed_injection_mw_by_bus"].default is None

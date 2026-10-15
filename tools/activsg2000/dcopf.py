@@ -416,6 +416,8 @@ class ReusableDCOPFModel:
         base_mva: float = 1.0,
         enable_injection_probes: bool = False,
         injection_probe_bus_id: str | None = None,
+        enable_candidate_demand_probes: bool = False,
+        candidate_demand_bus_id: str | None = None,
         solver_threads: int = 1,
     ) -> None:
         if not math.isfinite(base_mva) or base_mva <= 0:
@@ -428,6 +430,10 @@ class ReusableDCOPFModel:
             raise ValueError(f"unknown injection probe bus: {injection_probe_bus_id}")
         if injection_probe_bus_id is not None:
             enable_injection_probes = True
+        if candidate_demand_bus_id is not None and candidate_demand_bus_id not in self._bus_order:
+            raise ValueError(f"unknown candidate demand bus: {candidate_demand_bus_id}")
+        if candidate_demand_bus_id is not None:
+            enable_candidate_demand_probes = True
         self._generators = tuple(generators)
         self._branches = tuple(branches)
         self._base_mva = base_mva
@@ -447,6 +453,7 @@ class ReusableDCOPFModel:
         self._angle_columns: dict[str, object] = {self._reference: None}
         self._balance_row_indices: dict[str, int] = {}
         self._injection_probe_columns: dict[str, object] = {}
+        self._candidate_demand_columns: dict[str, object] = {}
 
         for generator in self._generators:
             self._generator_columns[generator.generator_id] = self._highs.addVariable(
@@ -463,6 +470,20 @@ class ReusableDCOPFModel:
                     obj=0.0,
                     name=f"theta:{bus_id}",
                 )
+        candidate_bus_ids = ()
+        if enable_candidate_demand_probes:
+            candidate_bus_ids = (
+                (candidate_demand_bus_id,)
+                if candidate_demand_bus_id is not None
+                else self._bus_order
+            )
+        for bus_id in candidate_bus_ids:
+            self._candidate_demand_columns[bus_id] = self._highs.addVariable(
+                lb=0.0,
+                ub=0.0,
+                obj=0.0,
+                name=f"candidate-demand:{bus_id}",
+            )
 
         def add_coefficient(coefficients: dict[int, float], variable: object, value: float) -> None:
             index = int(variable.index)
@@ -478,6 +499,9 @@ class ReusableDCOPFModel:
                 )
                 self._injection_probe_columns[bus_id] = probe
                 add_coefficient(coefficients, probe, 1.0)
+            candidate = self._candidate_demand_columns.get(bus_id)
+            if candidate is not None:
+                add_coefficient(coefficients, candidate, -1.0)
             for generator in self._generators_by_bus.get(bus_id, ()):
                 add_coefficient(coefficients, self._generator_columns[generator.generator_id], 1.0)
             for branch in self._branches_by_bus.get(bus_id, ()):
@@ -515,6 +539,101 @@ class ReusableDCOPFModel:
                 list(coefficients),
                 list(coefficients.values()),
             )
+
+    def max_additional_demand(
+        self,
+        buses: tuple[Bus, ...],
+        bus_id: str,
+        *,
+        upper_bound_mw: float | None = None,
+        fixed_injection_mw_by_bus: Mapping[str, float] | None = None,
+    ) -> tuple[float, str]:
+        """Return the exact maximum additional load at one bus.
+
+        Candidate demand is represented by a dedicated nonnegative LP column
+        with coefficient ``-1`` in the selected balance equation.  The base
+        case is checked first, then the candidate column is maximized while
+        every other probe column remains fixed at zero.
+        """
+        if tuple(bus.bus_id for bus in buses) != self._bus_order:
+            raise ValueError("topology inputs must match the reusable model")
+        if bus_id not in self._balance_row_indices:
+            raise ValueError(f"unknown candidate demand bus: {bus_id}")
+        candidate = self._candidate_demand_columns.get(bus_id)
+        if candidate is None:
+            raise ValueError("candidate demand probes were not enabled for this reusable model")
+        if upper_bound_mw is not None and (
+            not _is_finite_real(upper_bound_mw) or upper_bound_mw < 0
+        ):
+            raise ValueError("upper_bound_mw must be finite and non-negative")
+        demand_values = {bus.bus_id: bus.demand_mw for bus in buses}
+        if any(not _is_finite_real(value) or value < 0 for value in demand_values.values()):
+            raise ValueError("invalid demand in reusable DCOPF solve")
+        if fixed_injection_mw_by_bus is not None and not isinstance(fixed_injection_mw_by_bus, Mapping):
+            raise ValueError("fixed injections must be a mapping")
+        injections = dict(fixed_injection_mw_by_bus or {})
+        if set(injections) - set(self._bus_order):
+            raise ValueError("fixed injection references an unknown bus")
+        if any(not _is_finite_real(value) for value in injections.values()):
+            raise ValueError("fixed injections must be finite")
+        for model_bus_id in self._bus_order:
+            rhs = demand_values[model_bus_id] - injections.get(model_bus_id, 0.0)
+            self._highs.changeRowBounds(self._balance_row_indices[model_bus_id], rhs, rhs)
+
+        candidate_indices = {
+            model_bus_id: int(variable.index)
+            for model_bus_id, variable in self._candidate_demand_columns.items()
+        }
+        generator_costs = {
+            int(variable.index): generator.marginal_cost_per_mwh
+            for generator in self._generators
+            for variable in (self._generator_columns[generator.generator_id],)
+        }
+        _Highs, HighsModelStatus, _HighsVarType, highs_inf = _highs()
+
+        def candidate_status(model_status: object, *, base_case: bool) -> str:
+            if model_status == HighsModelStatus.kOptimal:
+                return "optimal"
+            status_name = getattr(model_status, "name", str(model_status)).lower()
+            if "infeasible" in status_name:
+                return "infeasible_base_case" if base_case else "solver_error"
+            if "unbounded" in status_name:
+                return "unbounded"
+            if "numerical" in status_name:
+                return "numerical_failure"
+            return "solver_error"
+
+        try:
+            for index in candidate_indices.values():
+                self._highs.changeColBounds(index, 0.0, 0.0)
+                self._highs.changeColCost(index, 0.0)
+            self._highs.run()
+            base_status = self._highs.getModelStatus()
+            base_result = candidate_status(base_status, base_case=True)
+            if base_result != "optimal":
+                return math.nan, base_result
+
+            for index in generator_costs:
+                self._highs.changeColCost(index, 0.0)
+            candidate_index = candidate_indices[bus_id]
+            self._highs.changeColBounds(
+                candidate_index,
+                0.0,
+                highs_inf if upper_bound_mw is None else float(upper_bound_mw),
+            )
+            self._highs.changeColCost(candidate_index, -1.0)
+            self._highs.run()
+            probe_status = self._highs.getModelStatus()
+            result_status = candidate_status(probe_status, base_case=False)
+            if result_status != "optimal":
+                return math.nan, result_status
+            return float(self._highs.getSolution().col_value[candidate_index]), "optimal"
+        finally:
+            for index, cost in generator_costs.items():
+                self._highs.changeColCost(index, cost)
+            for index in candidate_indices.values():
+                self._highs.changeColCost(index, 0.0)
+                self._highs.changeColBounds(index, 0.0, 0.0)
 
     def feasible_injection_interval(
         self,
@@ -697,6 +816,8 @@ class GurobiReusableDCOPFModel:
         base_mva: float = 1.0,
         enable_injection_probes: bool = False,
         injection_probe_bus_id: str | None = None,
+        enable_candidate_demand_probes: bool = False,
+        candidate_demand_bus_id: str | None = None,
         solver_threads: int = 1,
     ) -> None:
         try:
@@ -714,6 +835,10 @@ class GurobiReusableDCOPFModel:
             raise ValueError(f"unknown injection probe bus: {injection_probe_bus_id}")
         if injection_probe_bus_id is not None:
             enable_injection_probes = True
+        if candidate_demand_bus_id is not None and candidate_demand_bus_id not in self._bus_order:
+            raise ValueError(f"unknown candidate demand bus: {candidate_demand_bus_id}")
+        if candidate_demand_bus_id is not None:
+            enable_candidate_demand_probes = True
         self._generators = tuple(generators)
         self._branches = tuple(branches)
         self._base_mva = base_mva
@@ -746,6 +871,22 @@ class GurobiReusableDCOPFModel:
                     self._injection_probe_columns[bus_id] = self._model.addVar(
                         lb=0.0, ub=0.0, obj=0.0, name=f"injection-probe:{bus_id}"
                     )
+        candidate_bus_ids = ()
+        if enable_candidate_demand_probes:
+            candidate_bus_ids = (
+                (candidate_demand_bus_id,)
+                if candidate_demand_bus_id is not None
+                else self._bus_order
+            )
+        self._candidate_demand_columns = {
+            bus_id: self._model.addVar(
+                lb=0.0,
+                ub=0.0,
+                obj=0.0,
+                name=f"candidate-demand:{bus_id}",
+            )
+            for bus_id in candidate_bus_ids
+        }
         generators_by_bus, branches_by_bus = _cached_network_index(self._branches, self._generators)
         self._balance_rows = {}
         for bus_id in self._bus_order:
@@ -755,6 +896,9 @@ class GurobiReusableDCOPFModel:
             probe = self._injection_probe_columns.get(bus_id)
             if probe is not None:
                 expression += probe
+            candidate = self._candidate_demand_columns.get(bus_id)
+            if candidate is not None:
+                expression += -candidate
             for branch in branches_by_bus.get(bus_id, ()):
                 susceptance = branch.susceptance_pu * self._base_mva
                 if branch.from_bus_id == bus_id:
@@ -785,6 +929,80 @@ class GurobiReusableDCOPFModel:
                 * self._generator_columns[generator.generator_id]
             )
         self._model.setObjective(self._base_objective, gp.GRB.MINIMIZE)
+
+    def max_additional_demand(
+        self,
+        buses: tuple[Bus, ...],
+        bus_id: str,
+        *,
+        upper_bound_mw: float | None = None,
+        fixed_injection_mw_by_bus: Mapping[str, float] | None = None,
+    ) -> tuple[float, str]:
+        """Return the exact maximum additional load at one bus."""
+        if tuple(bus.bus_id for bus in buses) != self._bus_order:
+            raise ValueError("topology inputs must match the reusable model")
+        if bus_id not in self._balance_rows:
+            raise ValueError(f"unknown candidate demand bus: {bus_id}")
+        candidate = self._candidate_demand_columns.get(bus_id)
+        if candidate is None:
+            raise ValueError("candidate demand probes were not enabled for this reusable model")
+        if upper_bound_mw is not None and (
+            not _is_finite_real(upper_bound_mw) or upper_bound_mw < 0
+        ):
+            raise ValueError("upper_bound_mw must be finite and non-negative")
+        if fixed_injection_mw_by_bus is not None and not isinstance(fixed_injection_mw_by_bus, Mapping):
+            raise ValueError("fixed injections must be a mapping")
+        demand_values = {bus.bus_id: bus.demand_mw for bus in buses}
+        if any(not _is_finite_real(value) or value < 0 for value in demand_values.values()):
+            raise ValueError("invalid demand in reusable DCOPF solve")
+        injections = dict(fixed_injection_mw_by_bus or {})
+        if set(injections) - set(self._bus_order):
+            raise ValueError("fixed injection references an unknown bus")
+        if any(not _is_finite_real(value) for value in injections.values()):
+            raise ValueError("fixed injections must be finite")
+
+        self._set_rhs(buses, injections)
+        original_objective = self._model.getObjective()
+        original_sense = self._model.ModelSense
+        candidate_bounds = tuple(
+            (variable, variable.LB, variable.UB)
+            for variable in self._candidate_demand_columns.values()
+        )
+
+        def status_for(code: int, *, base_case: bool) -> str:
+            if code == self._gp.GRB.OPTIMAL:
+                return "optimal"
+            if code == self._gp.GRB.INFEASIBLE:
+                return "infeasible_base_case" if base_case else "solver_error"
+            if code == self._gp.GRB.UNBOUNDED:
+                return "unbounded"
+            if code == getattr(self._gp.GRB, "NUMERIC", object()):
+                return "numerical_failure"
+            return "solver_error"
+
+        try:
+            for variable in self._candidate_demand_columns.values():
+                variable.LB = 0.0
+                variable.UB = 0.0
+            self._model.setObjective(original_objective, original_sense)
+            self._model.optimize()
+            base_status = status_for(self._model.Status, base_case=True)
+            if base_status != "optimal":
+                return math.nan, base_status
+
+            candidate.LB = 0.0
+            candidate.UB = self._gp.GRB.INFINITY if upper_bound_mw is None else float(upper_bound_mw)
+            self._model.setObjective(candidate, self._gp.GRB.MAXIMIZE)
+            self._model.optimize()
+            probe_status = status_for(self._model.Status, base_case=False)
+            if probe_status != "optimal":
+                return math.nan, probe_status
+            return float(candidate.X), "optimal"
+        finally:
+            self._model.setObjective(original_objective, original_sense)
+            for variable, lower_bound, upper_bound in candidate_bounds:
+                variable.LB = lower_bound
+                variable.UB = upper_bound
 
     def set_time_limit_seconds(self, seconds: float) -> None:
         if not _is_finite_real(seconds) or seconds < 0:
