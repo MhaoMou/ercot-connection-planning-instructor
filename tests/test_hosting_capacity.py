@@ -456,6 +456,32 @@ def test_matrix_driver_retains_period_diagnostics_for_construction_failure(monke
     assert diagnostics["0"]["b1"] == "backend construction failed: RuntimeError: backend exploded"
 
 
+def test_matrix_driver_sanitizes_absolute_paths_in_persisted_diagnostics(tmp_path, monkeypatch):
+    diagnostic = "backend failed at /private/tmp/secret and /Users/example"
+
+    def fake_period_solver(period, bus_ids, *, solver_backend, solver_threads):
+        result = _fake_matrix_result(period, bus_ids, statuses=["solver_error", "optimal"])
+        result["capacity_mw"][0] = np.nan
+        result["objective_value"][0] = np.nan
+        result["diagnostic"] = np.asarray([diagnostic, ""], dtype="<U512")
+        return result
+
+    monkeypatch.setattr("tools.hosting_capacity._solve_matrix_period", fake_period_solver)
+    output_dir = tmp_path / "outputs"
+    result = compute_hosting_capacity_matrix(
+        _TwoPeriodProvider(),
+        period_indices=[0],
+        bus_ids=["b1", "b2"],
+        solver_backend="highs",
+        output_dir=output_dir,
+    )
+
+    assert result.metadata["diagnostics"]["0"]["b1"] == diagnostic
+    persisted = (output_dir / "hosting_capacity_metadata.json").read_text(encoding="utf-8")
+    assert "/private/tmp/secret" not in persisted
+    assert "/Users/example" not in persisted
+
+
 @pytest.mark.parametrize("changed_component", ("generator_endpoint", "branch_endpoint"))
 def test_matrix_driver_rejects_structural_generator_or_branch_changes(changed_component):
     provider = _TwoPeriodProvider()

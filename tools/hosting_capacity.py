@@ -11,6 +11,7 @@ import multiprocessing
 import os
 from pathlib import Path
 import pickle
+import re
 import tempfile
 import time
 from collections.abc import Mapping, Sequence
@@ -519,6 +520,31 @@ def _canonical_json(value: object) -> str:
     return json.dumps(_json_safe(value), sort_keys=True, separators=(",", ":"))
 
 
+_LOCAL_PATH_IN_DIAGNOSTIC = re.compile(
+    r"(?<![A-Za-z0-9])/(?:private|Users|home|tmp|var|opt|usr|etc|Volumes|Applications|System|Library)"
+    r"(?:/[^\s\"'<>:,;)\]}]+)*"
+)
+
+
+def _sanitize_diagnostic(value: str) -> str:
+    return _LOCAL_PATH_IN_DIAGNOSTIC.sub("<local-path>", value)
+
+
+def _metadata_for_persistence(metadata: Mapping[str, object]) -> dict[str, object]:
+    persisted = dict(metadata)
+    diagnostics = metadata.get("diagnostics")
+    if isinstance(diagnostics, Mapping):
+        persisted["diagnostics"] = {
+            str(period_index): {
+                str(bus_id): _sanitize_diagnostic(str(diagnostic))
+                for bus_id, diagnostic in period_diagnostics.items()
+            }
+            for period_index, period_diagnostics in diagnostics.items()
+            if isinstance(period_diagnostics, Mapping)
+        }
+    return persisted
+
+
 def _normalized_period_inputs(period: HostingCapacityPeriod) -> dict[str, object]:
     return {
         "period_index": period.period_index,
@@ -981,7 +1007,12 @@ def _write_matrix_outputs(
     save_npy(output_dir / "hosting_capacity_status.npy", status)
     _atomic_write_bytes(
         output_dir / "hosting_capacity_metadata.json",
-        lambda handle: json.dump(_json_safe(metadata), handle, sort_keys=True, indent=2),
+        lambda handle: json.dump(
+            _json_safe(_metadata_for_persistence(metadata)),
+            handle,
+            sort_keys=True,
+            indent=2,
+        ),
         mode="w",
     )
 
