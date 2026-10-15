@@ -323,11 +323,13 @@ def test_benchmark_stages_do_not_include_full_horizon_without_flag():
     from tools.benchmarks.benchmark_hosting_capacity import stage_specs
 
     assert [stage.name for stage in stage_specs(has_artifact=True, full_horizon=False)] == [
+        "ieee14-1",
         "activsg2000-1",
         "activsg2000-24",
         "activsg2000-168",
     ]
     assert [stage.name for stage in stage_specs(has_artifact=True, full_horizon=True)] == [
+        "ieee14-1",
         "activsg2000-1",
         "activsg2000-24",
         "activsg2000-168",
@@ -349,6 +351,7 @@ def test_artifact_benchmark_emits_complete_staged_sequence(tmp_path, monkeypatch
         "prepared_artifact_period_provider",
         lambda _artifact_dir: provider,
     )
+    monkeypatch.setattr(benchmark_hosting_capacity, "ieee14_provider", lambda: provider)
     monkeypatch.setattr(benchmark_hosting_capacity, "artifact_horizon", lambda _artifact_dir: 365)
 
     def fake_compute(_provider, **kwargs):
@@ -388,10 +391,11 @@ def test_artifact_benchmark_emits_complete_staged_sequence(tmp_path, monkeypatch
         .splitlines()
     ]
     assert [row["stage"] for row in rows] == [
+        "ieee14-1",
         "activsg2000-1",
         "activsg2000-24",
         "activsg2000-168",
         "activsg2000-full",
     ]
-    assert period_counts == [1, 24, 168, 365]
+    assert period_counts == [1, 1, 24, 168, 365]
 

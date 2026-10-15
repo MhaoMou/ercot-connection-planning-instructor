@@ -34,12 +34,15 @@ class BenchmarkStage:
     name: str
     period_count: int
     full_horizon: bool = False
+    source: str = "artifact"
 
 
 def stage_specs(*, has_artifact: bool, full_horizon: bool) -> tuple[BenchmarkStage, ...]:
+    ieee14_stage = BenchmarkStage("ieee14-1", 1, source="ieee14")
     if not has_artifact:
-        return (BenchmarkStage("ieee14-1", 1),)
+        return (ieee14_stage,)
     stages = (
+        ieee14_stage,
         BenchmarkStage("activsg2000-1", 1),
         BenchmarkStage("activsg2000-24", 24),
         BenchmarkStage("activsg2000-168", 168),
@@ -163,8 +166,9 @@ def main(argv: list[str] | None = None) -> int:
     output_root = args.output_dir.resolve()
     try:
         output_root.mkdir(parents=True, exist_ok=True)
+        ieee14_provider_instance = ieee14_provider()
         if args.ieee14:
-            provider = ieee14_provider()
+            provider = ieee14_provider_instance
             horizon = 1
             if args.period_count != 1:
                 raise ValueError("IEEE-14 benchmark has exactly one period")
@@ -175,18 +179,21 @@ def main(argv: list[str] | None = None) -> int:
             provider = prepared_artifact_period_provider(artifact_dir)
             horizon = artifact_horizon(artifact_dir)
         stages = stage_specs(has_artifact=not args.ieee14, full_horizon=args.full_horizon)
-        results = [
-            _run_stage(
-                stage=stage,
-                provider=provider,
-                horizon=horizon,
-                output_root=output_root,
-                backend=args.solver_backend,
-                workers=args.workers,
-                solver_threads=args.solver_threads,
+        results = []
+        for stage in stages:
+            stage_provider = ieee14_provider_instance if stage.source == "ieee14" else provider
+            stage_horizon = 1 if stage.source == "ieee14" else horizon
+            results.append(
+                _run_stage(
+                    stage=stage,
+                    provider=stage_provider,
+                    horizon=stage_horizon,
+                    output_root=output_root,
+                    backend=args.solver_backend,
+                    workers=args.workers,
+                    solver_threads=args.solver_threads,
+                )
             )
-            for stage in stages
-        ]
         result_path = output_root / "benchmark_hosting_capacity.jsonl"
         result_path.write_text(
             "".join(json.dumps(row, sort_keys=True) + "\n" for row in results),
