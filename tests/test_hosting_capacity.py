@@ -3,6 +3,8 @@ import importlib.util
 import inspect
 import math
 
+import numpy as np
+
 import pytest
 
 import tools.activsg2000.dcopf as dcopf
@@ -15,6 +17,7 @@ from tools.activsg2000.dcopf import (
 )
 from tools.hosting_capacity import (
     HOSTING_CAPACITY_STATUSES,
+    compute_hosting_capacity_matrix,
     HostingCapacityPeriod,
     HostingCapacityPoint,
     solve_hosting_capacity_at_bus,
@@ -36,6 +39,244 @@ def _tiny_period(**overrides):
     }
     values.update(overrides)
     return HostingCapacityPeriod(**values)
+
+
+class _TwoPeriodProvider:
+    def __init__(self):
+        self.periods = (
+            _tiny_period(period_index=0),
+            _tiny_period(
+                period_index=1,
+                buses=(Bus("b1", 1.0, reference=True), Bus("b2", 6.0)),
+            ),
+        )
+
+    def __call__(self, period_index):
+        return self.periods[period_index]
+
+
+def _fake_matrix_result(period, bus_ids, *, values=None, statuses=None):
+    values = values or [float(period.period_index + index) for index, _ in enumerate(bus_ids)]
+    statuses = statuses or ["optimal"] * len(bus_ids)
+    return {
+        "capacity_mw": np.asarray(values, dtype=float),
+        "status": np.asarray(statuses, dtype=object),
+        "objective_value": np.asarray(values, dtype=float),
+        "solve_time_s": np.ones(len(bus_ids), dtype=float),
+    }
+
+
+def test_matrix_driver_returns_sorted_arrays_and_writes_outputs(tmp_path, monkeypatch):
+    def fake_period_solver(period, bus_ids, *, solver_backend, solver_threads):
+        return {
+            "capacity_mw": np.asarray([float(period.period_index + i) for i, _ in enumerate(bus_ids)]),
+            "status": np.asarray(["optimal"] * len(bus_ids), dtype=object),
+            "objective_value": np.asarray([float(period.period_index + i) for i, _ in enumerate(bus_ids)]),
+            "solve_time_s": np.asarray([0.1] * len(bus_ids)),
+        }
+
+    monkeypatch.setattr("tools.hosting_capacity._solve_matrix_period", fake_period_solver)
+
+    result = compute_hosting_capacity_matrix(
+        _TwoPeriodProvider(),
+        period_indices=[1, 0, 1],
+        bus_ids=["b2", "b1", "b2"],
+        solver_backend="highs",
+        checkpoint_dir=tmp_path / "checkpoints",
+        output_dir=tmp_path / "outputs",
+    )
+
+    assert result.period_indices == (0, 1)
+    assert result.bus_ids == ("b1", "b2")
+    assert result.capacity_mw.shape == (2, 2)
+    assert result.capacity_mw.tolist() == [[0.0, 1.0], [1.0, 2.0]]
+    assert (tmp_path / "outputs" / "hosting_capacity_mw.npy").exists()
+    assert (tmp_path / "outputs" / "hosting_capacity_status.npy").exists()
+    assert (tmp_path / "outputs" / "hosting_capacity_metadata.json").exists()
+    assert (tmp_path / "outputs" / "hosting_capacity_summary.csv").exists()
+
+
+def test_matrix_driver_resumes_completed_period_without_solving_it(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_period_solver(period, bus_ids, *, solver_backend, solver_threads):
+        calls.append(period.period_index)
+        return _fake_matrix_result(period, bus_ids)
+
+    monkeypatch.setattr("tools.hosting_capacity._solve_matrix_period", fake_period_solver)
+    provider = _TwoPeriodProvider()
+    checkpoint_dir = tmp_path / "checkpoints"
+    compute_hosting_capacity_matrix(
+        provider,
+        period_indices=[0, 1],
+        bus_ids=["b1", "b2"],
+        solver_backend="highs",
+        checkpoint_dir=checkpoint_dir,
+    )
+    assert calls == [0, 1]
+
+    calls.clear()
+    resumed = compute_hosting_capacity_matrix(
+        provider,
+        period_indices=[1, 0, 1],
+        bus_ids=["b2", "b1"],
+        solver_backend="highs",
+        checkpoint_dir=checkpoint_dir,
+    )
+    assert calls == []
+    assert resumed.capacity_mw.tolist() == [[0.0, 1.0], [1.0, 2.0]]
+
+
+def test_matrix_driver_keeps_prior_checkpoint_when_later_period_raises(tmp_path, monkeypatch):
+    def failing_period_solver(period, bus_ids, *, solver_backend, solver_threads):
+        if period.period_index == 1:
+            raise RuntimeError("later period failed")
+        return _fake_matrix_result(period, bus_ids)
+
+    monkeypatch.setattr("tools.hosting_capacity._solve_matrix_period", failing_period_solver)
+    checkpoint_dir = tmp_path / "checkpoints"
+    with pytest.raises(RuntimeError, match="later period failed"):
+        compute_hosting_capacity_matrix(
+            _TwoPeriodProvider(),
+            period_indices=[0, 1],
+            bus_ids=["b1", "b2"],
+            solver_backend="highs",
+            checkpoint_dir=checkpoint_dir,
+        )
+    assert (checkpoint_dir / "period_0.npz").exists()
+    assert not (checkpoint_dir / "period_1.npz").exists()
+
+
+def test_matrix_driver_rejects_checkpoint_identity_mismatch(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "tools.hosting_capacity._solve_matrix_period",
+        lambda period, bus_ids, *, solver_backend, solver_threads: _fake_matrix_result(period, bus_ids),
+    )
+    provider = _TwoPeriodProvider()
+    checkpoint_dir = tmp_path / "checkpoints"
+    compute_hosting_capacity_matrix(
+        provider,
+        period_indices=[0],
+        bus_ids=["b1", "b2"],
+        solver_backend="highs",
+        checkpoint_dir=checkpoint_dir,
+    )
+
+    with pytest.raises(ValueError, match="checkpoint identity mismatch"):
+        compute_hosting_capacity_matrix(
+            provider,
+            period_indices=[0],
+            bus_ids=["b1"],
+            solver_backend="highs",
+            checkpoint_dir=checkpoint_dir,
+        )
+
+
+def test_matrix_driver_preserves_nonoptimal_status_and_nan_values(monkeypatch):
+    def fake_period_solver(period, bus_ids, *, solver_backend, solver_threads):
+        return _fake_matrix_result(
+            period,
+            bus_ids,
+            values=[3.0, 99.0],
+            statuses=["optimal", "infeasible_base_case"],
+        )
+
+    monkeypatch.setattr("tools.hosting_capacity._solve_matrix_period", fake_period_solver)
+    result = compute_hosting_capacity_matrix(
+        _TwoPeriodProvider(),
+        period_indices=[0],
+        bus_ids=["b1", "b2"],
+        solver_backend="highs",
+    )
+
+    assert result.status.tolist() == [["optimal", "infeasible_base_case"]]
+    assert result.capacity_mw[0, 0] == pytest.approx(3.0)
+    assert np.isnan(result.capacity_mw[0, 1])
+    assert np.isnan(result.objective_value[0, 1])
+
+
+def test_matrix_driver_uses_one_reusable_model_for_all_candidate_buses(monkeypatch):
+    model_calls = []
+    probe_calls = []
+
+    class FakeModel:
+        def __init__(self, **kwargs):
+            model_calls.append(kwargs)
+
+        def max_additional_demand(self, buses, bus_id, *, fixed_injection_mw_by_bus):
+            probe_calls.append(bus_id)
+            return 4.0, "optimal"
+
+    monkeypatch.setattr(dcopf, "_reusable_dcopf_model", lambda **kwargs: FakeModel(**kwargs))
+    result = compute_hosting_capacity_matrix(
+        _TwoPeriodProvider(),
+        period_indices=[0],
+        bus_ids=["b2", "b1"],
+        solver_backend="highs",
+    )
+
+    assert len(model_calls) == 1
+    assert model_calls[0]["enable_candidate_demand_probes"] is True
+    assert model_calls[0]["candidate_demand_bus_id"] is None
+    assert probe_calls == ["b1", "b2"]
+    assert result.capacity_mw.tolist() == [[4.0, 4.0]]
+
+
+def test_matrix_driver_rejects_invalid_parallel_settings_and_topology(monkeypatch):
+    provider = _TwoPeriodProvider()
+    monkeypatch.setattr(
+        "tools.hosting_capacity._solve_matrix_period",
+        lambda period, bus_ids, *, solver_backend, solver_threads: _fake_matrix_result(period, bus_ids),
+    )
+    with pytest.raises(ValueError, match="workers must be at least 1"):
+        compute_hosting_capacity_matrix(provider, period_indices=[0], workers=0)
+    with pytest.raises(ValueError, match="solver_threads must be at least 1"):
+        compute_hosting_capacity_matrix(provider, period_indices=[0], solver_threads=0)
+    with pytest.raises(ValueError, match="workers > 1"):
+        compute_hosting_capacity_matrix(provider, period_indices=[0], workers=2, solver_threads=2)
+
+    mismatched = _TwoPeriodProvider()
+    mismatched.periods = (
+        mismatched.periods[0],
+        _tiny_period(
+            period_index=1,
+            buses=(Bus("b2", 6.0, reference=True), Bus("b1", 1.0)),
+        ),
+    )
+    with pytest.raises(ValueError, match="different bus order"):
+        compute_hosting_capacity_matrix(mismatched, period_indices=[0, 1])
+
+
+def test_matrix_driver_rejects_unpickleable_provider_before_pool_creation():
+    provider = lambda period_index: _tiny_period(period_index=period_index)
+    with pytest.raises(ValueError, match="period_provider must be pickleable when workers > 1"):
+        compute_hosting_capacity_matrix(provider, period_indices=[0], workers=2)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("highspy") is None, reason="highspy is not installed")
+def test_matrix_driver_spawn_workers_match_single_worker_without_cross_process_solver_objects():
+    provider = _TwoPeriodProvider()
+    single = compute_hosting_capacity_matrix(
+        provider,
+        period_indices=[0, 1],
+        bus_ids=["b1", "b2"],
+        solver_backend="highs",
+        workers=1,
+    )
+    try:
+        parallel = compute_hosting_capacity_matrix(
+            provider,
+            period_indices=[0, 1],
+            bus_ids=["b1", "b2"],
+            solver_backend="highs",
+            workers=2,
+        )
+    except (OSError, RuntimeError) as error:
+        pytest.skip(f"spawn process execution unavailable in this environment: {error}")
+
+    np.testing.assert_allclose(parallel.capacity_mw, single.capacity_mw)
+    np.testing.assert_allclose(parallel.objective_value, single.objective_value)
+    np.testing.assert_array_equal(parallel.status, single.status)
 
 
 def test_validate_period_preserves_bus_order_and_normalizes_empty_injections():

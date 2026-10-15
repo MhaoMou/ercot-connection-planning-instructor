@@ -3,14 +3,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import csv
 import hashlib
+import json
 import math
+import multiprocessing
+import os
 from pathlib import Path
+import pickle
+import tempfile
 import time
 from collections.abc import Mapping, Sequence
 from numbers import Real
 from types import MappingProxyType
 from typing import Callable, Literal
+
+import numpy as np
 
 import tools.activsg2000.dcopf as dcopf
 from tools.activsg2000.dcopf import Branch, Bus, Generator
@@ -74,6 +82,19 @@ class HostingCapacityPoint:
             "objective_value": self.objective_value,
             "solve_time_s": self.solve_time_s,
         }
+
+
+@dataclass(frozen=True)
+class HostingCapacityMatrix:
+    """Deterministic period-by-bus hosting-capacity results."""
+
+    period_indices: tuple[int, ...]
+    bus_ids: tuple[str, ...]
+    capacity_mw: np.ndarray
+    status: np.ndarray
+    objective_value: np.ndarray
+    solve_time_s: np.ndarray
+    metadata: Mapping[str, object]
 
 
 def _finite_real(value: object) -> bool:
@@ -402,3 +423,623 @@ def solve_hosting_capacity_at_bus(
 
     capacity = float(capacity)
     return point("optimal", capacity=capacity, objective_value=capacity)
+
+
+_HOSTING_CAPACITY_FORMULATION = "one_bus_additional_demand_v1"
+_HOSTING_CAPACITY_SCHEMA_VERSION = 1
+
+
+def _sorted_unique_ints(values: Sequence[int], *, kind: str) -> tuple[int, ...]:
+    if isinstance(values, (str, bytes)):
+        raise ValueError(f"{kind} must be a sequence of integers")
+    normalized: list[int] = []
+    for value in values:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{kind} must contain only integers")
+        normalized.append(value)
+    return tuple(sorted(set(normalized)))
+
+
+def _discover_period_indices(period_provider: Callable[[int], HostingCapacityPeriod]) -> tuple[int, ...]:
+    """Discover provider call indices without materializing solver objects."""
+    advertised = getattr(period_provider, "period_indices", None)
+    if advertised is not None:
+        values = advertised() if callable(advertised) else advertised
+        return _sorted_unique_ints(tuple(values), kind="period_indices")
+
+    periods = getattr(period_provider, "periods", None)
+    if periods is not None:
+        try:
+            return tuple(range(len(periods)))
+        except TypeError:
+            pass
+
+    period_count = getattr(period_provider, "period_count", None)
+    if period_count is not None:
+        if not isinstance(period_count, int) or isinstance(period_count, bool) or period_count < 0:
+            raise ValueError("period_count must be a nonnegative integer")
+        return tuple(range(period_count))
+
+    artifact_dir = getattr(period_provider, "artifact_dir", None)
+    if artifact_dir is not None:
+        manifest_path = Path(artifact_dir) / "manifest.json"
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            horizon = manifest.get("horizon")
+        except (OSError, TypeError, ValueError):
+            horizon = None
+        if isinstance(horizon, int) and not isinstance(horizon, bool) and horizon >= 0:
+            return tuple(range(horizon))
+
+    raise ValueError("period_indices must be provided when the provider cannot discover all periods")
+
+
+def _json_safe(value: object, *, key: str = "") -> object:
+    """Make metadata deterministic and remove absolute local paths."""
+    if isinstance(value, Mapping):
+        return {
+            str(name): _json_safe(item, key=str(name))
+            for name, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        }
+    if isinstance(value, (tuple, list)):
+        return [_json_safe(item, key=key) for item in value]
+    if isinstance(value, Path):
+        return value.name
+    if isinstance(value, np.generic):
+        return _json_safe(value.item(), key=key)
+    if isinstance(value, str):
+        if os.path.isabs(value) or "path" in key.lower() or key.lower().endswith("_dir"):
+            return Path(value).name
+        return value
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return repr(value)
+
+
+def _canonical_json(value: object) -> str:
+    return json.dumps(_json_safe(value), sort_keys=True, separators=(",", ":"))
+
+
+def _source_identity(periods: Sequence[HostingCapacityPeriod]) -> tuple[str, object, object]:
+    source_metadata = [_json_safe(period.source_metadata) for period in periods]
+    encoded = _canonical_json(source_metadata).encode("utf-8")
+    digest = hashlib.sha256(encoded).hexdigest()[:16]
+    scenario_identity: dict[str, object] = {}
+    for metadata in source_metadata:
+        if not isinstance(metadata, Mapping):
+            continue
+        for key, value in metadata.items():
+            lowered = str(key).lower()
+            if (
+                "scenario" in lowered
+                or "artifact" in lowered
+                or lowered in {"source", "year", "block", "package_version"}
+            ):
+                scenario_identity[str(key)] = value
+    return f"source:{digest}", source_metadata, scenario_identity
+
+
+def _solver_version(resolved_backend: str) -> str:
+    try:
+        if resolved_backend == "highs":
+            import highspy
+
+            return str(getattr(highspy, "__version__", "unknown"))
+        import gurobipy
+
+        return str(gurobipy.gurobi.version())
+    except Exception:
+        return "unavailable"
+
+
+def _new_period_arrays(bus_ids: tuple[str, ...]) -> dict[str, np.ndarray]:
+    count = len(bus_ids)
+    return {
+        "capacity_mw": np.full(count, np.nan, dtype=float),
+        "status": np.full(count, None, dtype=object),
+        "objective_value": np.full(count, np.nan, dtype=float),
+        "solve_time_s": np.full(count, np.nan, dtype=float),
+    }
+
+
+def _solve_matrix_period(
+    period: HostingCapacityPeriod,
+    bus_ids: tuple[str, ...],
+    *,
+    solver_backend: str,
+    solver_threads: int,
+) -> dict[str, np.ndarray]:
+    """Solve all candidate buses against one reusable model."""
+    normalized_period = validate_period(period)
+    results = _new_period_arrays(bus_ids)
+    started = time.perf_counter()
+    try:
+        model = dcopf._reusable_dcopf_model(
+            solver_backend=solver_backend,
+            buses=tuple(normalized_period.buses),
+            generators=tuple(normalized_period.generators),
+            branches=tuple(normalized_period.branches),
+            enable_candidate_demand_probes=True,
+            candidate_demand_bus_id=None,
+            solver_threads=solver_threads,
+        )
+    except (InterruptedError, TimeoutError):
+        results["status"][:] = "interrupted"
+        results["solve_time_s"][:] = max(0.0, time.perf_counter() - started)
+        return results
+    except KeyboardInterrupt:
+        raise
+    except Exception:
+        results["status"][:] = "solver_error"
+        results["solve_time_s"][:] = max(0.0, time.perf_counter() - started)
+        return results
+
+    for position, bus_id in enumerate(bus_ids):
+        point_started = time.perf_counter()
+        try:
+            capacity, status = model.max_additional_demand(
+                tuple(normalized_period.buses),
+                bus_id,
+                fixed_injection_mw_by_bus=normalized_period.fixed_injection_mw_by_bus,
+            )
+        except (InterruptedError, TimeoutError):
+            status = "interrupted"
+            capacity = math.nan
+        except KeyboardInterrupt:
+            raise
+        except (ArithmeticError, FloatingPointError, OverflowError):
+            status = "numerical_failure"
+            capacity = math.nan
+        except Exception:
+            status = "solver_error"
+            capacity = math.nan
+
+        if not isinstance(status, str) or status not in HOSTING_CAPACITY_STATUSES:
+            status = "solver_error"
+            capacity = math.nan
+        results["status"][position] = status
+        results["solve_time_s"][position] = max(0.0, time.perf_counter() - point_started)
+        if status == "optimal" and _finite_real(capacity) and float(capacity) >= 0:
+            results["capacity_mw"][position] = float(capacity)
+            results["objective_value"][position] = float(capacity)
+    return results
+
+
+def _matrix_period_worker(task: tuple[object, int, tuple[str, ...], str, int]) -> tuple[int, dict[str, np.ndarray]]:
+    """Spawn-safe worker; the provider and model are created in the child."""
+    period_provider, period_index, bus_ids, solver_backend, solver_threads = task
+    period = validate_period(period_provider(period_index))  # type: ignore[operator]
+    return period_index, _solve_matrix_period(
+        period,
+        bus_ids,
+        solver_backend=solver_backend,
+        solver_threads=solver_threads,
+    )
+
+
+def _coerce_period_result(
+    result: Mapping[str, object],
+    bus_ids: tuple[str, ...],
+) -> dict[str, np.ndarray]:
+    expected = len(bus_ids)
+    try:
+        capacities = np.asarray(result["capacity_mw"], dtype=float).reshape(-1)
+        statuses = np.asarray(result["status"], dtype=object).reshape(-1)
+        objectives = np.asarray(result["objective_value"], dtype=float).reshape(-1)
+        solve_times = np.asarray(result["solve_time_s"], dtype=float).reshape(-1)
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("period solver returned malformed arrays") from error
+    if any(array.size != expected for array in (capacities, statuses, objectives, solve_times)):
+        raise ValueError("period solver returned arrays with the wrong shape")
+    normalized = _new_period_arrays(bus_ids)
+    for position in range(expected):
+        status = statuses[position]
+        if not isinstance(status, str) or status not in HOSTING_CAPACITY_STATUSES:
+            status = "solver_error"
+        normalized["status"][position] = status
+        if _finite_real(solve_times[position]):
+            normalized["solve_time_s"][position] = float(solve_times[position])
+        if status == "optimal" and _finite_real(capacities[position]) and float(capacities[position]) >= 0:
+            normalized["capacity_mw"][position] = float(capacities[position])
+            if _finite_real(objectives[position]):
+                normalized["objective_value"][position] = float(objectives[position])
+            else:
+                normalized["objective_value"][position] = float(capacities[position])
+    return normalized
+
+
+def _atomic_save_npz(path: Path, **arrays: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb", prefix=f".{path.name}.", suffix=".tmp", dir=path.parent, delete=False
+        ) as handle:
+            temporary_path = Path(handle.name)
+            np.savez_compressed(handle, **arrays)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
+
+
+def _atomic_write_bytes(path: Path, writer: Callable[[object], None], mode: str = "wb") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(mode=mode, prefix=f".{path.name}.", suffix=".tmp", dir=path.parent, delete=False) as handle:
+            temporary_path = Path(handle.name)
+            writer(handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
+
+
+def _checkpoint_path(checkpoint_dir: Path, period_index: int) -> Path:
+    return checkpoint_dir / f"period_{period_index}.npz"
+
+
+def _write_period_checkpoint(
+    path: Path,
+    *,
+    period_index: int,
+    identity: Mapping[str, object],
+    result: Mapping[str, np.ndarray],
+) -> None:
+    _atomic_save_npz(
+        path,
+        period_index=np.asarray(period_index, dtype=np.int64),
+        identity=np.asarray(_canonical_json(identity)),
+        capacity_mw=result["capacity_mw"],
+        status=result["status"],
+        objective_value=result["objective_value"],
+        solve_time_s=result["solve_time_s"],
+        complete=np.asarray(True),
+    )
+
+
+def _load_period_checkpoint(
+    path: Path,
+    *,
+    period_index: int,
+    identity: Mapping[str, object],
+    bus_count: int,
+) -> dict[str, np.ndarray]:
+    try:
+        with np.load(path, allow_pickle=True) as checkpoint:
+            saved_period = int(np.asarray(checkpoint["period_index"]).item())
+            saved_identity = json.loads(str(np.asarray(checkpoint["identity"]).item()))
+            if saved_period != period_index or saved_identity != _json_safe(identity):
+                raise ValueError("checkpoint identity mismatch")
+            if not bool(np.asarray(checkpoint["complete"]).item()):
+                raise ValueError("checkpoint is not complete")
+            result = {
+                "capacity_mw": np.asarray(checkpoint["capacity_mw"], dtype=float),
+                "status": np.asarray(checkpoint["status"], dtype=object),
+                "objective_value": np.asarray(checkpoint["objective_value"], dtype=float),
+                "solve_time_s": np.asarray(checkpoint["solve_time_s"], dtype=float),
+            }
+    except ValueError:
+        raise
+    except Exception as error:
+        raise ValueError(f"invalid checkpoint: {path.name}") from error
+    if any(array.shape != (bus_count,) for array in result.values()):
+        raise ValueError("checkpoint shape mismatch")
+    return result
+
+
+def _matrix_metadata(
+    *,
+    identity: Mapping[str, object],
+    source_metadata: object,
+    scenario_identity: object,
+    resolved_backend: str,
+    solver_threads: int,
+    workers: int,
+    period_indices: tuple[int, ...],
+    bus_ids: tuple[str, ...],
+    capacity_mw: np.ndarray,
+    status: np.ndarray,
+    completed_periods: set[int],
+) -> dict[str, object]:
+    optimal_count = int(np.count_nonzero(status == "optimal"))
+    total_count = int(status.size)
+    return {
+        "schema_version": _HOSTING_CAPACITY_SCHEMA_VERSION,
+        "formulation": _HOSTING_CAPACITY_FORMULATION,
+        "identity": _json_safe(identity),
+        "source_identity": identity.get("source_identity"),
+        "scenario_artifact_identity": scenario_identity,
+        "source_metadata": source_metadata,
+        "solver_backend": resolved_backend,
+        "solver_threads": solver_threads,
+        "backend": {
+            "requested": identity.get("requested_solver_backend", resolved_backend),
+            "resolved": resolved_backend,
+            "version": _solver_version(resolved_backend),
+        },
+        "settings": {"solver_threads": solver_threads, "workers": workers},
+        "tolerances": {"capacity_mw": 1e-9},
+        "counts": {
+            "period_count": len(period_indices),
+            "bus_count": len(bus_ids),
+            "point_count": total_count,
+            "completed_period_count": len(completed_periods),
+            "optimal_count": optimal_count,
+            "failed_count": total_count - optimal_count,
+        },
+        "complete": len(completed_periods) == len(period_indices),
+        "warm_start_used": False,
+        "ordering": {
+            "period_indices": list(period_indices),
+            "bus_ids": list(bus_ids),
+            "array_axes": ["period_index", "bus_id"],
+        },
+    }
+
+
+def _write_matrix_outputs(
+    output_dir: Path,
+    *,
+    period_indices: tuple[int, ...],
+    bus_ids: tuple[str, ...],
+    capacity_mw: np.ndarray,
+    status: np.ndarray,
+    objective_value: np.ndarray,
+    solve_time_s: np.ndarray,
+    metadata: Mapping[str, object],
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    def save_npy(path: Path, array: np.ndarray) -> None:
+        _atomic_write_bytes(path, lambda handle: np.save(handle, array, allow_pickle=True))
+
+    save_npy(output_dir / "hosting_capacity_mw.npy", capacity_mw)
+    save_npy(output_dir / "hosting_capacity_status.npy", status)
+    _atomic_write_bytes(
+        output_dir / "hosting_capacity_metadata.json",
+        lambda handle: json.dump(_json_safe(metadata), handle, sort_keys=True, indent=2),
+        mode="w",
+    )
+
+    def write_summary(handle: object) -> None:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=(
+                "period_index",
+                "optimal_count",
+                "failed_count",
+                "min_hosting_capacity_mw",
+                "median_hosting_capacity_mw",
+                "max_hosting_capacity_mw",
+            ),
+        )
+        writer.writeheader()
+        for row_index, period_index in enumerate(period_indices):
+            optimal = status[row_index] == "optimal"
+            values = capacity_mw[row_index][optimal]
+            writer.writerow(
+                {
+                    "period_index": period_index,
+                    "optimal_count": int(np.count_nonzero(optimal)),
+                    "failed_count": len(bus_ids) - int(np.count_nonzero(optimal)),
+                    "min_hosting_capacity_mw": float(np.min(values)) if values.size else math.nan,
+                    "median_hosting_capacity_mw": float(np.median(values)) if values.size else math.nan,
+                    "max_hosting_capacity_mw": float(np.max(values)) if values.size else math.nan,
+                }
+            )
+
+    _atomic_write_bytes(output_dir / "hosting_capacity_summary.csv", write_summary, mode="w")
+
+
+def compute_hosting_capacity_matrix(
+    period_provider: Callable[[int], HostingCapacityPeriod],
+    *,
+    bus_ids: Sequence[str] | None = None,
+    period_indices: Sequence[int] | None = None,
+    solver_backend: str = "auto",
+    solver_threads: int = 1,
+    workers: int = 1,
+    checkpoint_dir: str | Path | None = None,
+    output_dir: str | Path | None = None,
+) -> HostingCapacityMatrix:
+    """Compute a deterministic period-by-bus hosting-capacity matrix."""
+    if not callable(period_provider):
+        raise ValueError("period_provider must be callable")
+    if not isinstance(solver_threads, int) or isinstance(solver_threads, bool) or solver_threads < 1:
+        raise ValueError("solver_threads must be at least 1")
+    if not isinstance(workers, int) or isinstance(workers, bool) or workers < 1:
+        raise ValueError("workers must be at least 1")
+    if workers > 1 and solver_threads > 1:
+        raise ValueError("workers > 1 cannot be combined with solver_threads > 1")
+    try:
+        resolved_backend = dcopf.resolve_solver_backend(solver_backend)
+    except (TypeError, ValueError) as error:
+        raise ValueError(str(error)) from error
+
+    selected_indices = (
+        _discover_period_indices(period_provider)
+        if period_indices is None
+        else _sorted_unique_ints(tuple(period_indices), kind="period_indices")
+    )
+    if not selected_indices:
+        raise ValueError("at least one period must be selected")
+
+    normalized_periods: dict[int, HostingCapacityPeriod] = {}
+    for period_index in selected_indices:
+        try:
+            period = validate_period(period_provider(period_index))
+        except KeyboardInterrupt:
+            raise
+        except Exception as error:
+            raise ValueError(f"invalid selected period {period_index}: {error}") from error
+        normalized_periods[period_index] = period
+
+    reference_bus_order = tuple(bus.bus_id for bus in normalized_periods[selected_indices[0]].buses)
+    for period_index in selected_indices[1:]:
+        candidate_order = tuple(bus.bus_id for bus in normalized_periods[period_index].buses)
+        if candidate_order != reference_bus_order:
+            raise ValueError(f"period {period_index} has a different bus order")
+
+    if bus_ids is None:
+        selected_bus_ids = tuple(sorted(reference_bus_order))
+    else:
+        if isinstance(bus_ids, (str, bytes)):
+            raise ValueError("bus_ids must be a sequence of strings")
+        requested_bus_ids = tuple(bus_ids)
+        if any(not isinstance(bus_id, str) or not bus_id for bus_id in requested_bus_ids):
+            raise ValueError("bus_ids must contain non-empty strings")
+        selected_bus_ids = tuple(sorted(set(requested_bus_ids)))
+        missing = sorted(set(selected_bus_ids) - set(reference_bus_order))
+        if missing:
+            raise ValueError(f"requested bus does not exist: {missing[0]}")
+
+    source_id, source_metadata, scenario_identity = _source_identity(
+        [normalized_periods[index] for index in selected_indices]
+    )
+    identity = {
+        "schema_version": _HOSTING_CAPACITY_SCHEMA_VERSION,
+        "formulation": _HOSTING_CAPACITY_FORMULATION,
+        "period_indices": list(selected_indices),
+        "bus_ids": list(selected_bus_ids),
+        "solver_backend": resolved_backend,
+        "solver_threads": solver_threads,
+        "source_identity": source_id,
+    }
+
+    if workers > 1:
+        try:
+            pickle.dumps(period_provider)
+        except Exception as error:
+            raise ValueError("period_provider must be pickleable when workers > 1") from error
+
+    checkpoint_root = Path(checkpoint_dir) if checkpoint_dir is not None else None
+    output_root = Path(output_dir) if output_dir is not None else None
+    capacity_mw = np.full((len(selected_indices), len(selected_bus_ids)), np.nan, dtype=float)
+    status = np.full((len(selected_indices), len(selected_bus_ids)), None, dtype=object)
+    objective_value = np.full_like(capacity_mw, np.nan)
+    solve_time_s = np.full_like(capacity_mw, np.nan)
+    completed_periods: set[int] = set()
+
+    if checkpoint_root is not None:
+        checkpoint_root.mkdir(parents=True, exist_ok=True)
+        for path in sorted(checkpoint_root.glob("period_*.npz")):
+            try:
+                checkpoint_period_index = int(path.stem.removeprefix("period_"))
+            except ValueError as error:
+                raise ValueError(f"invalid checkpoint name: {path.name}") from error
+            if checkpoint_period_index not in normalized_periods:
+                raise ValueError("checkpoint identity mismatch")
+            period_result = _load_period_checkpoint(
+                path,
+                period_index=checkpoint_period_index,
+                identity=identity,
+                bus_count=len(selected_bus_ids),
+            )
+            row_index = selected_indices.index(checkpoint_period_index)
+            for name, matrix in (
+                ("capacity_mw", capacity_mw),
+                ("status", status),
+                ("objective_value", objective_value),
+                ("solve_time_s", solve_time_s),
+            ):
+                matrix[row_index] = period_result[name]
+            completed_periods.add(checkpoint_period_index)
+
+    def publish() -> None:
+        metadata = _matrix_metadata(
+            identity=identity,
+            source_metadata=source_metadata,
+            scenario_identity=scenario_identity,
+            resolved_backend=resolved_backend,
+            solver_threads=solver_threads,
+            workers=workers,
+            period_indices=selected_indices,
+            bus_ids=selected_bus_ids,
+            capacity_mw=capacity_mw,
+            status=status,
+            completed_periods=completed_periods,
+        )
+        if output_root is not None:
+            _write_matrix_outputs(
+                output_root,
+                period_indices=selected_indices,
+                bus_ids=selected_bus_ids,
+                capacity_mw=capacity_mw,
+                status=status,
+                objective_value=objective_value,
+                solve_time_s=solve_time_s,
+                metadata=metadata,
+            )
+
+    pending = [index for index in selected_indices if index not in completed_periods]
+
+    def record_period(period_index: int, raw_result: Mapping[str, object]) -> None:
+        period_result = _coerce_period_result(raw_result, selected_bus_ids)
+        row_index = selected_indices.index(period_index)
+        for name, matrix in (
+            ("capacity_mw", capacity_mw),
+            ("status", status),
+            ("objective_value", objective_value),
+            ("solve_time_s", solve_time_s),
+        ):
+            matrix[row_index] = period_result[name]
+        completed_periods.add(period_index)
+        if checkpoint_root is not None:
+            _write_period_checkpoint(
+                _checkpoint_path(checkpoint_root, period_index),
+                period_index=period_index,
+                identity=identity,
+                result=period_result,
+            )
+        publish()
+
+    if workers == 1:
+        for period_index in pending:
+            record_period(
+                period_index,
+                _solve_matrix_period(
+                    normalized_periods[period_index],
+                    selected_bus_ids,
+                    solver_backend=resolved_backend,
+                    solver_threads=solver_threads,
+                ),
+            )
+    elif pending:
+        context = multiprocessing.get_context("spawn")
+        tasks = [
+            (period_provider, period_index, selected_bus_ids, resolved_backend, solver_threads)
+            for period_index in pending
+        ]
+        with context.Pool(processes=workers) as pool:
+            for period_index, raw_result in pool.imap_unordered(_matrix_period_worker, tasks):
+                record_period(period_index, raw_result)
+
+    publish()
+    metadata = _matrix_metadata(
+        identity=identity,
+        source_metadata=source_metadata,
+        scenario_identity=scenario_identity,
+        resolved_backend=resolved_backend,
+        solver_threads=solver_threads,
+        workers=workers,
+        period_indices=selected_indices,
+        bus_ids=selected_bus_ids,
+        capacity_mw=capacity_mw,
+        status=status,
+        completed_periods=completed_periods,
+    )
+    return HostingCapacityMatrix(
+        period_indices=selected_indices,
+        bus_ids=selected_bus_ids,
+        capacity_mw=capacity_mw,
+        status=status,
+        objective_value=objective_value,
+        solve_time_s=solve_time_s,
+        metadata=MappingProxyType(metadata),
+    )
