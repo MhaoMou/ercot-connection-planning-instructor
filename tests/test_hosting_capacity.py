@@ -247,6 +247,97 @@ def test_matrix_driver_rejects_invalid_parallel_settings_and_topology(monkeypatc
         compute_hosting_capacity_matrix(mismatched, period_indices=[0, 1])
 
 
+@pytest.mark.parametrize("changed_component", ("generator", "branch"))
+def test_matrix_driver_rejects_generator_or_branch_topology_changes(changed_component):
+    provider = _TwoPeriodProvider()
+    if changed_component == "generator":
+        changed_period = _tiny_period(
+            period_index=1,
+            generators=(Generator("g1", "b1", 0.0, 19.0, 10.0),),
+        )
+    else:
+        changed_period = _tiny_period(
+            period_index=1,
+            branches=(Branch("br1", "b1", "b2", 1.0, 99.0),),
+        )
+    provider.periods = (provider.periods[0], changed_period)
+
+    with pytest.raises(ValueError, match="fixed topology"):
+        compute_hosting_capacity_matrix(provider, period_indices=[0, 1])
+
+
+def test_matrix_driver_checkpoint_identity_includes_normalized_period_inputs(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "tools.hosting_capacity._solve_matrix_period",
+        lambda period, bus_ids, *, solver_backend, solver_threads: _fake_matrix_result(period, bus_ids),
+    )
+    provider = _TwoPeriodProvider()
+    checkpoint_dir = tmp_path / "checkpoints"
+    compute_hosting_capacity_matrix(
+        provider,
+        period_indices=[0],
+        bus_ids=["b1", "b2"],
+        solver_backend="highs",
+        checkpoint_dir=checkpoint_dir,
+    )
+
+    changed_load = _tiny_period(
+        period_index=0,
+        buses=(Bus("b1", 0.0, reference=True), Bus("b2", 6.0)),
+    )
+    provider.periods = (changed_load, provider.periods[1])
+    with pytest.raises(ValueError, match="checkpoint identity mismatch"):
+        compute_hosting_capacity_matrix(
+            provider,
+            period_indices=[0],
+            bus_ids=["b1", "b2"],
+            solver_backend="highs",
+            checkpoint_dir=checkpoint_dir,
+        )
+
+
+@pytest.mark.parametrize(
+    ("capacity", "objective"),
+    ((math.nan, 1.0), (-1.0, 1.0), (1.0, math.nan), (1.0, -1.0)),
+)
+def test_matrix_driver_rewrites_invalid_optimal_values_as_numerical_failure(
+    monkeypatch, capacity, objective
+):
+    def fake_period_solver(period, bus_ids, *, solver_backend, solver_threads):
+        return {
+            "capacity_mw": np.asarray([capacity, 2.0]),
+            "status": np.asarray(["optimal", "optimal"], dtype=object),
+            "objective_value": np.asarray([objective, 2.0]),
+            "solve_time_s": np.asarray([0.1, 0.1]),
+        }
+
+    monkeypatch.setattr("tools.hosting_capacity._solve_matrix_period", fake_period_solver)
+    result = compute_hosting_capacity_matrix(
+        _TwoPeriodProvider(),
+        period_indices=[0],
+        bus_ids=["b1", "b2"],
+        solver_backend="highs",
+    )
+
+    assert result.status[0, 0] == "numerical_failure"
+    assert np.isnan(result.capacity_mw[0, 0])
+    assert np.isnan(result.objective_value[0, 0])
+
+
+def test_matrix_driver_rejects_provider_period_index_mismatch(monkeypatch):
+    provider = _TwoPeriodProvider()
+    provider.periods = (provider.periods[0], _tiny_period(period_index=9))
+    calls = []
+    monkeypatch.setattr(
+        "tools.hosting_capacity._solve_matrix_period",
+        lambda *args, **kwargs: calls.append(args) or _fake_matrix_result(args[0], args[1]),
+    )
+
+    with pytest.raises(ValueError, match="period_index"):
+        compute_hosting_capacity_matrix(provider, period_indices=[1])
+    assert calls == []
+
+
 def test_matrix_driver_rejects_unpickleable_provider_before_pool_creation():
     provider = lambda period_index: _tiny_period(period_index=period_index)
     with pytest.raises(ValueError, match="period_provider must be pickleable when workers > 1"):

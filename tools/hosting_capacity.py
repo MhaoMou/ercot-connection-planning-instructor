@@ -474,6 +474,19 @@ def _discover_period_indices(period_provider: Callable[[int], HostingCapacityPer
     raise ValueError("period_indices must be provided when the provider cannot discover all periods")
 
 
+def _period_for_requested_index(
+    period_provider: Callable[[int], HostingCapacityPeriod],
+    requested_period_index: int,
+) -> HostingCapacityPeriod:
+    period = validate_period(period_provider(requested_period_index))
+    if period.period_index != requested_period_index:
+        raise ValueError(
+            "provider returned period_index "
+            f"{period.period_index} for requested period_index {requested_period_index}"
+        )
+    return period
+
+
 def _json_safe(value: object, *, key: str = "") -> object:
     """Make metadata deterministic and remove absolute local paths."""
     if isinstance(value, Mapping):
@@ -500,10 +513,104 @@ def _canonical_json(value: object) -> str:
     return json.dumps(_json_safe(value), sort_keys=True, separators=(",", ":"))
 
 
+def _normalized_period_inputs(period: HostingCapacityPeriod) -> dict[str, object]:
+    return {
+        "period_index": period.period_index,
+        "buses": [
+            {
+                "bus_id": bus.bus_id,
+                "demand_mw": float(bus.demand_mw),
+                "reference": bool(bus.reference),
+            }
+            for bus in period.buses
+        ],
+        "generators": [
+            {
+                "generator_id": generator.generator_id,
+                "bus_id": generator.bus_id,
+                "p_min_mw": float(generator.p_min_mw),
+                "p_max_mw": float(generator.p_max_mw),
+                "marginal_cost_per_mwh": float(generator.marginal_cost_per_mwh),
+            }
+            for generator in period.generators
+        ],
+        "branches": [
+            {
+                "branch_id": branch.branch_id,
+                "from_bus_id": branch.from_bus_id,
+                "to_bus_id": branch.to_bus_id,
+                "susceptance_pu": float(branch.susceptance_pu),
+                "thermal_limit_mw": float(branch.thermal_limit_mw),
+            }
+            for branch in period.branches
+        ],
+        "fixed_injection_mw_by_bus": [
+            [str(bus_id), float(value)]
+            for bus_id, value in sorted(period.fixed_injection_mw_by_bus.items())
+        ],
+    }
+
+
+def _fixed_topology_signature(period: HostingCapacityPeriod) -> dict[str, object]:
+    return {
+        "bus_order": [
+            {"bus_id": bus.bus_id, "reference": bool(bus.reference)}
+            for bus in period.buses
+        ],
+        "generators": sorted(
+            [
+                {
+                    "generator_id": generator.generator_id,
+                    "bus_id": generator.bus_id,
+                    "p_min_mw": float(generator.p_min_mw),
+                    "p_max_mw": float(generator.p_max_mw),
+                    "marginal_cost_per_mwh": float(generator.marginal_cost_per_mwh),
+                }
+                for generator in period.generators
+            ],
+            key=lambda item: str(item["generator_id"]),
+        ),
+        "branches": sorted(
+            [
+                {
+                    "branch_id": branch.branch_id,
+                    "from_bus_id": branch.from_bus_id,
+                    "to_bus_id": branch.to_bus_id,
+                    "susceptance_pu": float(branch.susceptance_pu),
+                    "thermal_limit_mw": float(branch.thermal_limit_mw),
+                }
+                for branch in period.branches
+            ],
+            key=lambda item: str(item["branch_id"]),
+        ),
+    }
+
+
+def _validate_fixed_topology(
+    periods: Mapping[int, HostingCapacityPeriod],
+    period_indices: tuple[int, ...],
+) -> None:
+    reference_period = periods[period_indices[0]]
+    reference_bus_order = tuple(bus.bus_id for bus in reference_period.buses)
+    reference_signature = _fixed_topology_signature(reference_period)
+    for period_index in period_indices[1:]:
+        period = periods[period_index]
+        candidate_bus_order = tuple(bus.bus_id for bus in period.buses)
+        if candidate_bus_order != reference_bus_order:
+            raise ValueError(f"period {period_index} has a different bus order")
+        if _fixed_topology_signature(period) != reference_signature:
+            raise ValueError(f"period {period_index} has a different fixed topology")
+
+
 def _source_identity(periods: Sequence[HostingCapacityPeriod]) -> tuple[str, object, object]:
     source_metadata = [_json_safe(period.source_metadata) for period in periods]
-    encoded = _canonical_json(source_metadata).encode("utf-8")
-    digest = hashlib.sha256(encoded).hexdigest()[:16]
+    period_inputs = [_normalized_period_inputs(period) for period in periods]
+    identity_payload = {
+        "period_inputs": period_inputs,
+        "source_metadata": source_metadata,
+    }
+    encoded = _canonical_json(identity_payload).encode("utf-8")
+    digest = hashlib.sha256(encoded).hexdigest()
     scenario_identity: dict[str, object] = {}
     for metadata in source_metadata:
         if not isinstance(metadata, Mapping):
@@ -540,6 +647,10 @@ def _new_period_arrays(bus_ids: tuple[str, ...]) -> dict[str, np.ndarray]:
         "objective_value": np.full(count, np.nan, dtype=float),
         "solve_time_s": np.full(count, np.nan, dtype=float),
     }
+
+
+def _valid_optimal_value(value: object) -> bool:
+    return _finite_real(value) and float(value) >= 0.0
 
 
 def _solve_matrix_period(
@@ -597,6 +708,9 @@ def _solve_matrix_period(
         if not isinstance(status, str) or status not in HOSTING_CAPACITY_STATUSES:
             status = "solver_error"
             capacity = math.nan
+        elif status == "optimal" and not _valid_optimal_value(capacity):
+            status = "numerical_failure"
+            capacity = math.nan
         results["status"][position] = status
         results["solve_time_s"][position] = max(0.0, time.perf_counter() - point_started)
         if status == "optimal" and _finite_real(capacity) and float(capacity) >= 0:
@@ -608,7 +722,7 @@ def _solve_matrix_period(
 def _matrix_period_worker(task: tuple[object, int, tuple[str, ...], str, int]) -> tuple[int, dict[str, np.ndarray]]:
     """Spawn-safe worker; the provider and model are created in the child."""
     period_provider, period_index, bus_ids, solver_backend, solver_threads = task
-    period = validate_period(period_provider(period_index))  # type: ignore[operator]
+    period = _period_for_requested_index(period_provider, period_index)  # type: ignore[arg-type]
     return period_index, _solve_matrix_period(
         period,
         bus_ids,
@@ -639,12 +753,15 @@ def _coerce_period_result(
         normalized["status"][position] = status
         if _finite_real(solve_times[position]):
             normalized["solve_time_s"][position] = float(solve_times[position])
-        if status == "optimal" and _finite_real(capacities[position]) and float(capacities[position]) >= 0:
+        if status == "optimal" and (
+            not _valid_optimal_value(capacities[position])
+            or not _valid_optimal_value(objectives[position])
+        ):
+            normalized["status"][position] = "numerical_failure"
+            continue
+        if status == "optimal":
             normalized["capacity_mw"][position] = float(capacities[position])
-            if _finite_real(objectives[position]):
-                normalized["objective_value"][position] = float(objectives[position])
-            else:
-                normalized["objective_value"][position] = float(capacities[position])
+            normalized["objective_value"][position] = float(objectives[position])
     return normalized
 
 
@@ -873,18 +990,15 @@ def compute_hosting_capacity_matrix(
     normalized_periods: dict[int, HostingCapacityPeriod] = {}
     for period_index in selected_indices:
         try:
-            period = validate_period(period_provider(period_index))
+            period = _period_for_requested_index(period_provider, period_index)
         except KeyboardInterrupt:
             raise
         except Exception as error:
             raise ValueError(f"invalid selected period {period_index}: {error}") from error
         normalized_periods[period_index] = period
 
+    _validate_fixed_topology(normalized_periods, selected_indices)
     reference_bus_order = tuple(bus.bus_id for bus in normalized_periods[selected_indices[0]].buses)
-    for period_index in selected_indices[1:]:
-        candidate_order = tuple(bus.bus_id for bus in normalized_periods[period_index].buses)
-        if candidate_order != reference_bus_order:
-            raise ValueError(f"period {period_index} has a different bus order")
 
     if bus_ids is None:
         selected_bus_ids = tuple(sorted(reference_bus_order))
