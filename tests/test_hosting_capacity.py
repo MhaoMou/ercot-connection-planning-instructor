@@ -1,6 +1,7 @@
 from dataclasses import FrozenInstanceError
 import importlib.util
 import inspect
+import json
 import math
 
 import numpy as np
@@ -247,23 +248,87 @@ def test_matrix_driver_rejects_invalid_parallel_settings_and_topology(monkeypatc
         compute_hosting_capacity_matrix(mismatched, period_indices=[0, 1])
 
 
-@pytest.mark.parametrize("changed_component", ("generator", "branch"))
-def test_matrix_driver_rejects_generator_or_branch_topology_changes(changed_component):
+def test_matrix_driver_accepts_period_varying_generator_and_branch_limits(monkeypatch):
     provider = _TwoPeriodProvider()
-    if changed_component == "generator":
+    provider.periods = (
+        provider.periods[0],
+        _tiny_period(
+            period_index=1,
+            buses=(Bus("b1", 1.0, reference=True), Bus("b2", 6.0)),
+            generators=(Generator("g1", "b1", 1.0, 30.0, 11.0),),
+            branches=(Branch("br1", "b1", "b2", 1.0, 80.0),),
+        ),
+    )
+    monkeypatch.setattr(
+        "tools.hosting_capacity._solve_matrix_period",
+        lambda period, bus_ids, *, solver_backend, solver_threads: _fake_matrix_result(period, bus_ids),
+    )
+
+    result = compute_hosting_capacity_matrix(provider, period_indices=[0, 1])
+
+    assert result.capacity_mw.shape == (2, 2)
+
+
+@pytest.mark.parametrize("changed_component", ("generator_endpoint", "branch_endpoint"))
+def test_matrix_driver_rejects_structural_generator_or_branch_changes(changed_component):
+    provider = _TwoPeriodProvider()
+    if changed_component == "generator_endpoint":
         changed_period = _tiny_period(
             period_index=1,
-            generators=(Generator("g1", "b1", 0.0, 19.0, 10.0),),
+            generators=(Generator("g1", "b2", 0.0, 20.0, 10.0),),
         )
     else:
         changed_period = _tiny_period(
             period_index=1,
-            branches=(Branch("br1", "b1", "b2", 1.0, 99.0),),
+            branches=(Branch("br1", "b2", "b1", 1.0, 100.0),),
         )
     provider.periods = (provider.periods[0], changed_period)
 
     with pytest.raises(ValueError, match="fixed topology"):
         compute_hosting_capacity_matrix(provider, period_indices=[0, 1])
+
+
+def test_matrix_driver_rejects_negative_period_before_provider_call():
+    calls = []
+
+    def provider(period_index):
+        calls.append(period_index)
+        return _tiny_period(period_index=period_index)
+
+    with pytest.raises(ValueError, match="nonnegative"):
+        compute_hosting_capacity_matrix(provider, period_indices=[-1])
+    assert calls == []
+
+
+def test_matrix_driver_writes_exact_summary_header_and_required_metadata(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "tools.hosting_capacity._solve_matrix_period",
+        lambda period, bus_ids, *, solver_backend, solver_threads: _fake_matrix_result(period, bus_ids),
+    )
+    output_dir = tmp_path / "outputs"
+    compute_hosting_capacity_matrix(
+        _TwoPeriodProvider(),
+        period_indices=[0, 1],
+        bus_ids=["b1", "b2"],
+        solver_backend="highs",
+        output_dir=output_dir,
+    )
+
+    summary_header = (output_dir / "hosting_capacity_summary.csv").read_text(encoding="utf-8").splitlines()[0]
+    assert summary_header == (
+        "period_index,optimal_count,failed_count,min_hosting_capacity_mw,"
+        "median_hosting_capacity_mw,max_hosting_capacity_mw"
+    )
+    metadata_text = (output_dir / "hosting_capacity_metadata.json").read_text(encoding="utf-8")
+    metadata = json.loads(metadata_text)
+    assert {"backend", "settings", "tolerances", "counts", "complete", "ordering"} <= set(metadata)
+    assert metadata["complete"] is True
+    assert metadata["ordering"] == {
+        "period_indices": [0, 1],
+        "bus_ids": ["b1", "b2"],
+        "array_axes": ["period_index", "bus_id"],
+    }
+    assert str(tmp_path) not in metadata_text
 
 
 def test_matrix_driver_checkpoint_identity_includes_normalized_period_inputs(tmp_path, monkeypatch):

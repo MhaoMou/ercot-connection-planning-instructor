@@ -436,6 +436,8 @@ def _sorted_unique_ints(values: Sequence[int], *, kind: str) -> tuple[int, ...]:
     for value in values:
         if not isinstance(value, int) or isinstance(value, bool):
             raise ValueError(f"{kind} must contain only integers")
+        if value < 0:
+            raise ValueError(f"{kind} must contain only nonnegative integers")
         normalized.append(value)
     return tuple(sorted(set(normalized)))
 
@@ -478,6 +480,10 @@ def _period_for_requested_index(
     period_provider: Callable[[int], HostingCapacityPeriod],
     requested_period_index: int,
 ) -> HostingCapacityPeriod:
+    if not isinstance(requested_period_index, int) or isinstance(requested_period_index, bool):
+        raise ValueError("period_index must be an integer")
+    if requested_period_index < 0:
+        raise ValueError("period_index must be nonnegative")
     period = validate_period(period_provider(requested_period_index))
     if period.period_index != requested_period_index:
         raise ValueError(
@@ -552,6 +558,7 @@ def _normalized_period_inputs(period: HostingCapacityPeriod) -> dict[str, object
 
 
 def _fixed_topology_signature(period: HostingCapacityPeriod) -> dict[str, object]:
+    """Describe fixed structure while allowing period-specific operating limits."""
     return {
         "bus_order": [
             {"bus_id": bus.bus_id, "reference": bool(bus.reference)}
@@ -562,9 +569,6 @@ def _fixed_topology_signature(period: HostingCapacityPeriod) -> dict[str, object
                 {
                     "generator_id": generator.generator_id,
                     "bus_id": generator.bus_id,
-                    "p_min_mw": float(generator.p_min_mw),
-                    "p_max_mw": float(generator.p_max_mw),
-                    "marginal_cost_per_mwh": float(generator.marginal_cost_per_mwh),
                 }
                 for generator in period.generators
             ],
@@ -577,7 +581,6 @@ def _fixed_topology_signature(period: HostingCapacityPeriod) -> dict[str, object
                     "from_bus_id": branch.from_bus_id,
                     "to_bus_id": branch.to_bus_id,
                     "susceptance_pu": float(branch.susceptance_pu),
-                    "thermal_limit_mw": float(branch.thermal_limit_mw),
                 }
                 for branch in period.branches
             ],
