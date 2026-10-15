@@ -12,6 +12,9 @@ from tools.activsg2000.dcopf import Branch, Bus, Generator
 from tools.hosting_capacity import HostingCapacityPeriod, solve_hosting_capacity_at_bus
 
 
+# HiGHS is the declared main solver dependency. These real-solver analytical
+# tests run whenever that dependency is installed and skip only in lightweight
+# environments that cannot execute the project’s required backend.
 HIGHSPY_MISSING = importlib.util.find_spec("highspy") is None
 GUROBIPY_MISSING = importlib.util.find_spec("gurobipy") is None
 
@@ -57,7 +60,7 @@ def _two_bus_period(
     )
 
 
-@pytest.mark.skipif(HIGHSPY_MISSING, reason="highspy is not installed")
+@pytest.mark.skipif(HIGHSPY_MISSING, reason="highspy (main dependency) is not installed")
 def test_uncongested_two_bus_capacity_equals_generator_headroom():
     period = _two_bus_period(candidate_demand_mw=5.0, generator_p_max_mw=20.0)
 
@@ -67,7 +70,7 @@ def test_uncongested_two_bus_capacity_equals_generator_headroom():
     assert point.hosting_capacity_mw == pytest.approx(15.0, abs=1e-7)
 
 
-@pytest.mark.skipif(HIGHSPY_MISSING, reason="highspy is not installed")
+@pytest.mark.skipif(HIGHSPY_MISSING, reason="highspy (main dependency) is not installed")
 def test_single_bottleneck_capacity_equals_branch_headroom():
     period = _two_bus_period(
         candidate_demand_mw=2.0,
@@ -81,7 +84,7 @@ def test_single_bottleneck_capacity_equals_branch_headroom():
     assert point.hosting_capacity_mw == pytest.approx(5.0, abs=1e-7)
 
 
-@pytest.mark.skipif(HIGHSPY_MISSING, reason="highspy is not installed")
+@pytest.mark.skipif(HIGHSPY_MISSING, reason="highspy (main dependency) is not installed")
 def test_generator_minimum_output_is_feasible_and_limits_upper_capacity():
     period = _two_bus_period(
         candidate_demand_mw=5.0,
@@ -96,7 +99,7 @@ def test_generator_minimum_output_is_feasible_and_limits_upper_capacity():
     assert point.hosting_capacity_mw == pytest.approx(5.0, abs=1e-7)
 
 
-@pytest.mark.skipif(HIGHSPY_MISSING, reason="highspy is not installed")
+@pytest.mark.skipif(HIGHSPY_MISSING, reason="highspy (main dependency) is not installed")
 def test_parallel_paths_respect_each_branch_limit():
     period = _two_bus_period(
         candidate_demand_mw=2.0,
@@ -111,7 +114,7 @@ def test_parallel_paths_respect_each_branch_limit():
     assert point.hosting_capacity_mw == pytest.approx(4.0, abs=1e-7)
 
 
-@pytest.mark.skipif(HIGHSPY_MISSING, reason="highspy is not installed")
+@pytest.mark.skipif(HIGHSPY_MISSING, reason="highspy (main dependency) is not installed")
 def test_disconnected_candidate_never_becomes_a_fabricated_finite_capacity():
     period = _two_bus_period(candidate_demand_mw=5.0, branches=())
 
@@ -122,7 +125,7 @@ def test_disconnected_candidate_never_becomes_a_fabricated_finite_capacity():
     assert point.objective_value is None
 
 
-@pytest.mark.skipif(HIGHSPY_MISSING, reason="highspy is not installed")
+@pytest.mark.skipif(HIGHSPY_MISSING, reason="highspy (main dependency) is not installed")
 def test_infeasible_base_case_is_reported_explicitly():
     period = _two_bus_period(candidate_demand_mw=5.0, generator_p_max_mw=4.0)
 
@@ -133,6 +136,14 @@ def test_infeasible_base_case_is_reported_explicitly():
 
 
 def test_unbounded_backend_status_is_preserved_without_fabricated_capacity(monkeypatch):
+    """Preserve an unbounded backend result through the public API.
+
+    Validated ``HostingCapacityPeriod`` inputs require finite generator and
+    branch limits, so a physical unbounded LP cannot be constructed without
+    violating input validation. This fake backend isolates the public status
+    contract and verifies that unbounded is not coerced into a finite value.
+    """
+
     class UnboundedModel:
         def __init__(self, **kwargs):
             assert kwargs["candidate_demand_bus_id"] == "b2"
@@ -191,8 +202,8 @@ def test_auto_backend_uses_monkeypatched_resolver_result(monkeypatch):
 
 
 @pytest.mark.skipif(
-    GUROBIPY_MISSING or HIGHSPY_MISSING,
-    reason="gurobipy and highspy are required for backend parity",
+    GUROBIPY_MISSING,
+    reason="gurobipy is not installed",
 )
 def test_hosting_capacity_gurobi_matches_highs_on_small_case():
     period = _two_bus_period(candidate_demand_mw=5.0, generator_p_max_mw=20.0)
