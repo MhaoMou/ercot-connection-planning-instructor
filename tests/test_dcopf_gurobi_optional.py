@@ -9,6 +9,7 @@ from tools.activsg2000.dcopf import (
     Branch,
     Bus,
     Generator,
+    GurobiReusableDCOPFModel,
     StorageDispatchAsset,
     solve_dcopf_horizon_benders,
 )
@@ -68,3 +69,32 @@ def test_gurobi_backend_matches_highs_on_small_storage_horizon():
     for highs_period, gurobi_period in zip(highs.periods, gurobi.periods):
         assert highs_period.objective_cost == pytest.approx(gurobi_period.objective_cost, abs=1e-7)
         assert highs_period.balance_dual_by_bus == pytest.approx(gurobi_period.balance_dual_by_bus, abs=1e-6)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("gurobipy") is None, reason="gurobipy is not installed")
+def test_gurobi_candidate_probe_restores_ordinary_solve():
+    buses = (Bus("b1", 0.0, reference=True), Bus("b2", 5.0))
+    generators = (Generator("g1", "b1", 0.0, 20.0, 10.0),)
+    branches = (Branch("br1", "b1", "b2", 1.0, 9.0),)
+    model = GurobiReusableDCOPFModel(
+        buses=buses,
+        generators=generators,
+        branches=branches,
+        candidate_demand_bus_id="b2",
+    )
+    fresh_model = GurobiReusableDCOPFModel(
+        buses=buses,
+        generators=generators,
+        branches=branches,
+    )
+
+    capacity, status = model.max_additional_demand(buses, "b2")
+    ordinary = model.solve(buses)
+    fresh = fresh_model.solve(buses)
+
+    assert status == "optimal"
+    assert capacity == pytest.approx(4.0)
+    assert ordinary.status == fresh.status == "optimal"
+    assert ordinary.objective_cost == pytest.approx(fresh.objective_cost)
+    assert ordinary.generation_mw == pytest.approx(fresh.generation_mw)
+    assert ordinary.flow_mw_by_branch == pytest.approx(fresh.flow_mw_by_branch)

@@ -398,6 +398,58 @@ def _validate(
     return bus_by_id, reference
 
 
+def _validate_candidate_demand_inputs(
+    *,
+    buses: tuple[Bus, ...],
+    bus_order: tuple[str, ...],
+    candidate_bus_ids: set[str],
+    bus_id: str,
+    upper_bound_mw: float | None,
+    fixed_injection_mw_by_bus: Mapping[str, float] | None,
+) -> tuple[dict[str, float], dict[str, float]]:
+    """Validate shared inputs for a reusable candidate-demand probe."""
+    if tuple(bus.bus_id for bus in buses) != bus_order:
+        raise ValueError("topology inputs must match the reusable model")
+    if bus_id not in bus_order:
+        raise ValueError(f"unknown candidate demand bus: {bus_id}")
+    if bus_id not in candidate_bus_ids:
+        raise ValueError("candidate demand probes were not enabled for this reusable model")
+    if upper_bound_mw is not None and (
+        not _is_finite_real(upper_bound_mw) or upper_bound_mw < 0
+    ):
+        raise ValueError("upper_bound_mw must be finite and non-negative")
+    demand_values = {bus.bus_id: bus.demand_mw for bus in buses}
+    if any(not _is_finite_real(value) or value < 0 for value in demand_values.values()):
+        raise ValueError("invalid demand in reusable DCOPF solve")
+    if fixed_injection_mw_by_bus is not None and not isinstance(fixed_injection_mw_by_bus, Mapping):
+        raise ValueError("fixed injections must be a mapping")
+    injections = dict(fixed_injection_mw_by_bus or {})
+    if set(injections) - set(bus_order):
+        raise ValueError("fixed injection references an unknown bus")
+    if any(not _is_finite_real(value) for value in injections.values()):
+        raise ValueError("fixed injections must be finite")
+    return demand_values, injections
+
+
+def _candidate_probe_status(status: str, *, base_case: bool) -> str:
+    """Map a canonical backend status to the public candidate-probe status.
+
+    ``ambiguous`` is intentionally distinct from definitive ``unbounded``:
+    backends must never report an ``INF_OR_UNBD``-style result as unbounded.
+    """
+    if status == "optimal":
+        return "optimal"
+    if status == "ambiguous":
+        return "solver_error"
+    if status == "infeasible":
+        return "infeasible_base_case" if base_case else "solver_error"
+    if status == "unbounded":
+        return "unbounded"
+    if status == "numerical":
+        return "numerical_failure"
+    return "solver_error"
+
+
 class ReusableDCOPFModel:
     """Reusable single-period DCOPF model for a fixed network topology.
 
@@ -555,27 +607,15 @@ class ReusableDCOPFModel:
         case is checked first, then the candidate column is maximized while
         every other probe column remains fixed at zero.
         """
-        if tuple(bus.bus_id for bus in buses) != self._bus_order:
-            raise ValueError("topology inputs must match the reusable model")
-        if bus_id not in self._balance_row_indices:
-            raise ValueError(f"unknown candidate demand bus: {bus_id}")
-        candidate = self._candidate_demand_columns.get(bus_id)
-        if candidate is None:
-            raise ValueError("candidate demand probes were not enabled for this reusable model")
-        if upper_bound_mw is not None and (
-            not _is_finite_real(upper_bound_mw) or upper_bound_mw < 0
-        ):
-            raise ValueError("upper_bound_mw must be finite and non-negative")
-        demand_values = {bus.bus_id: bus.demand_mw for bus in buses}
-        if any(not _is_finite_real(value) or value < 0 for value in demand_values.values()):
-            raise ValueError("invalid demand in reusable DCOPF solve")
-        if fixed_injection_mw_by_bus is not None and not isinstance(fixed_injection_mw_by_bus, Mapping):
-            raise ValueError("fixed injections must be a mapping")
-        injections = dict(fixed_injection_mw_by_bus or {})
-        if set(injections) - set(self._bus_order):
-            raise ValueError("fixed injection references an unknown bus")
-        if any(not _is_finite_real(value) for value in injections.values()):
-            raise ValueError("fixed injections must be finite")
+        demand_values, injections = _validate_candidate_demand_inputs(
+            buses=buses,
+            bus_order=self._bus_order,
+            candidate_bus_ids=set(self._candidate_demand_columns),
+            bus_id=bus_id,
+            upper_bound_mw=upper_bound_mw,
+            fixed_injection_mw_by_bus=fixed_injection_mw_by_bus,
+        )
+        candidate = self._candidate_demand_columns[bus_id]
         for model_bus_id in self._bus_order:
             rhs = demand_values[model_bus_id] - injections.get(model_bus_id, 0.0)
             self._highs.changeRowBounds(self._balance_row_indices[model_bus_id], rhs, rhs)
@@ -593,15 +633,29 @@ class ReusableDCOPFModel:
 
         def candidate_status(model_status: object, *, base_case: bool) -> str:
             if model_status == HighsModelStatus.kOptimal:
-                return "optimal"
-            status_name = getattr(model_status, "name", str(model_status)).lower()
-            if "infeasible" in status_name:
-                return "infeasible_base_case" if base_case else "solver_error"
-            if "unbounded" in status_name:
-                return "unbounded"
-            if "numerical" in status_name:
-                return "numerical_failure"
-            return "solver_error"
+                canonical_status = "optimal"
+            else:
+                status_name = getattr(model_status, "name", str(model_status)).lower()
+                compact_name = status_name.replace("_", "").replace("-", "")
+                if (
+                    ("unbounded" in compact_name and "infeasible" in compact_name)
+                    or "inforunbd" in compact_name
+                    or "unbdorinf" in compact_name
+                ):
+                    canonical_status = "ambiguous"
+                elif status_name.endswith("kunbounded") or status_name == "unbounded":
+                    canonical_status = "unbounded"
+                elif (
+                    status_name.endswith("kinfeasible")
+                    or status_name.endswith("kprimalinfeasible")
+                    or status_name in {"infeasible", "primalinfeasible"}
+                ):
+                    canonical_status = "infeasible"
+                elif "numerical" in compact_name or "numeric" in compact_name:
+                    canonical_status = "numerical"
+                else:
+                    canonical_status = "solver_error"
+            return _candidate_probe_status(canonical_status, base_case=base_case)
 
         try:
             for index in candidate_indices.values():
@@ -939,27 +993,15 @@ class GurobiReusableDCOPFModel:
         fixed_injection_mw_by_bus: Mapping[str, float] | None = None,
     ) -> tuple[float, str]:
         """Return the exact maximum additional load at one bus."""
-        if tuple(bus.bus_id for bus in buses) != self._bus_order:
-            raise ValueError("topology inputs must match the reusable model")
-        if bus_id not in self._balance_rows:
-            raise ValueError(f"unknown candidate demand bus: {bus_id}")
-        candidate = self._candidate_demand_columns.get(bus_id)
-        if candidate is None:
-            raise ValueError("candidate demand probes were not enabled for this reusable model")
-        if upper_bound_mw is not None and (
-            not _is_finite_real(upper_bound_mw) or upper_bound_mw < 0
-        ):
-            raise ValueError("upper_bound_mw must be finite and non-negative")
-        if fixed_injection_mw_by_bus is not None and not isinstance(fixed_injection_mw_by_bus, Mapping):
-            raise ValueError("fixed injections must be a mapping")
-        demand_values = {bus.bus_id: bus.demand_mw for bus in buses}
-        if any(not _is_finite_real(value) or value < 0 for value in demand_values.values()):
-            raise ValueError("invalid demand in reusable DCOPF solve")
-        injections = dict(fixed_injection_mw_by_bus or {})
-        if set(injections) - set(self._bus_order):
-            raise ValueError("fixed injection references an unknown bus")
-        if any(not _is_finite_real(value) for value in injections.values()):
-            raise ValueError("fixed injections must be finite")
+        demand_values, injections = _validate_candidate_demand_inputs(
+            buses=buses,
+            bus_order=self._bus_order,
+            candidate_bus_ids=set(self._candidate_demand_columns),
+            bus_id=bus_id,
+            upper_bound_mw=upper_bound_mw,
+            fixed_injection_mw_by_bus=fixed_injection_mw_by_bus,
+        )
+        candidate = self._candidate_demand_columns[bus_id]
 
         self._set_rhs(buses, injections)
         original_objective = self._model.getObjective()
@@ -971,14 +1013,18 @@ class GurobiReusableDCOPFModel:
 
         def status_for(code: int, *, base_case: bool) -> str:
             if code == self._gp.GRB.OPTIMAL:
-                return "optimal"
-            if code == self._gp.GRB.INFEASIBLE:
-                return "infeasible_base_case" if base_case else "solver_error"
-            if code == self._gp.GRB.UNBOUNDED:
-                return "unbounded"
-            if code == getattr(self._gp.GRB, "NUMERIC", object()):
-                return "numerical_failure"
-            return "solver_error"
+                canonical_status = "optimal"
+            elif code == self._gp.GRB.INFEASIBLE:
+                canonical_status = "infeasible"
+            elif code == self._gp.GRB.UNBOUNDED:
+                canonical_status = "unbounded"
+            elif code == getattr(self._gp.GRB, "INF_OR_UNBD", object()):
+                canonical_status = "ambiguous"
+            elif code == getattr(self._gp.GRB, "NUMERIC", object()):
+                canonical_status = "numerical"
+            else:
+                canonical_status = "solver_error"
+            return _candidate_probe_status(canonical_status, base_case=base_case)
 
         try:
             for variable in self._candidate_demand_columns.values():

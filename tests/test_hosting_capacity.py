@@ -3,7 +3,13 @@ import inspect
 
 import pytest
 
-from tools.activsg2000.dcopf import Branch, Bus, Generator, ReusableDCOPFModel
+import tools.activsg2000.dcopf as dcopf
+from tools.activsg2000.dcopf import (
+    Branch,
+    Bus,
+    Generator,
+    ReusableDCOPFModel,
+)
 from tools.hosting_capacity import (
     HOSTING_CAPACITY_STATUSES,
     HostingCapacityPeriod,
@@ -110,3 +116,18 @@ def test_reusable_model_exposes_candidate_demand_probe_contract():
     assert tuple(method_parameters)[:3] == ("self", "buses", "bus_id")
     assert method_parameters["upper_bound_mw"].default is None
     assert method_parameters["fixed_injection_mw_by_bus"].default is None
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    (("optimal", "optimal"), ("infeasible", "infeasible_base_case"),
+     ("unbounded", "unbounded"), ("ambiguous", "solver_error"),
+     ("numerical", "numerical_failure"), ("other", "solver_error")),
+)
+def test_candidate_probe_status_mapping_rejects_ambiguous_unboundedness(status, expected):
+    status_mapper = getattr(dcopf, "_candidate_probe_status", None)
+    assert status_mapper is not None
+    assert status_mapper(status, base_case=True) == expected
+    assert status_mapper(status, base_case=False) == (
+        "solver_error" if status == "infeasible" else expected
+    )
