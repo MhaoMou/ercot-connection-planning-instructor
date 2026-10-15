@@ -16,6 +16,8 @@ from tools.activsg2000.dcopf import (
     Generator,
     load_prepared_artifact,
     prepared_period_inputs,
+    prepared_period_inputs_from_path,
+    solve_prepared_period,
 )
 from tools.hosting_capacity import (
     HostingCapacityPeriod,
@@ -172,6 +174,70 @@ def test_prepared_provider_rejects_unknown_demand_keys_in_adapter_path(tmp_path:
     provider = prepared_artifact_period_provider(artifact_dir)
     with pytest.raises(ValueError, match="unknown bus"):
         provider(0)
+
+
+@pytest.mark.parametrize("period_index", [True, 1.0])
+def test_prepared_period_paths_reject_boolean_and_float_indices(
+    tmp_path: Path, period_index: object
+) -> None:
+    artifact_dir = _write_small_prepared_artifact(tmp_path)
+    artifact = load_prepared_artifact(artifact_dir)
+
+    with pytest.raises(ValueError, match="period_index must be an integer"):
+        prepared_period_inputs_from_path(artifact_dir, period_index)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="period_index must be an integer"):
+        prepared_period_inputs(artifact_dir, artifact, period_index=period_index)  # type: ignore[arg-type]
+
+
+def test_prepared_period_path_indexes_demand_file_once_for_sequential_access(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifact_dir = _write_small_prepared_artifact(tmp_path)
+    original = dcopf._build_prepared_demand_offsets
+    calls = 0
+
+    def count_index_builds(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(dcopf, "_build_prepared_demand_offsets", count_index_builds)
+    first = prepared_period_inputs_from_path(artifact_dir, 0)
+    second = prepared_period_inputs_from_path(artifact_dir, 1)
+
+    assert first[0][1].demand_mw == 5.0
+    assert second[0][1].demand_mw == 7.0
+    assert calls == 1
+
+
+def test_existing_prepared_solve_boundary_rejects_unknown_demand_bus(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifact_dir = _write_small_prepared_artifact(tmp_path)
+    _write_csv(
+        artifact_dir / "demand_bus.csv",
+        ("period", "b1", "b2", "unknown-bus"),
+        [{"period": 0, "b1": 1.0, "b2": 5.0, "unknown-bus": 0.0}],
+    )
+    monkeypatch.setattr(dcopf, "solve_dcopf", lambda *_args, **_kwargs: pytest.fail("solver must not run"))
+
+    with pytest.raises(ValueError, match="unknown bus"):
+        solve_prepared_period(artifact_dir, period_index=0)
+
+
+def test_existing_prepared_solve_boundary_rejects_missing_demand_bus(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifact_dir = _write_small_prepared_artifact(tmp_path)
+    _write_csv(
+        artifact_dir / "demand_bus.csv",
+        ("period", "b1"),
+        [{"period": 0, "b1": 1.0}],
+    )
+    monkeypatch.setattr(dcopf, "solve_dcopf", lambda *_args, **_kwargs: pytest.fail("solver must not run"))
+
+    with pytest.raises(ValueError, match="missing bus"):
+        solve_prepared_period(artifact_dir, period_index=0)
 
 
 def test_prepared_provider_rejects_out_of_range_periods(tmp_path: Path) -> None:

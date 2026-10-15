@@ -213,6 +213,12 @@ class PreparedArtifact:
     scenario_block: str | None = None
 
 
+@dataclass(frozen=True)
+class _PreparedDemandIndex:
+    fieldnames: tuple[str, ...]
+    row_offsets: tuple[int, ...]
+
+
 @lru_cache(maxsize=8)
 def _cached_network_index(
     branches: tuple[Branch, ...],
@@ -360,6 +366,7 @@ def clear_prepared_artifact_cache() -> None:
     """Invalidate all cached prepared artifacts after deliberate file replacement."""
     _load_prepared_artifact_cached.cache_clear()
     _load_prepared_static_artifact_cached.cache_clear()
+    _prepared_demand_index_cached.cache_clear()
     _prepared_period_inputs_from_path_cached.cache_clear()
 
 
@@ -381,17 +388,87 @@ def load_prepared_static_artifact(artifact_dir: str | Path) -> PreparedArtifact:
 
 
 def _read_prepared_demand_row(root: Path, period_index: int) -> Mapping[str, str]:
+    _validate_prepared_period_index(period_index)
+    index = _prepared_demand_index_cached(str(root), _artifact_fingerprint(root))
+    if period_index >= len(index.row_offsets):
+        raise ValueError(f"period_index out of range: {period_index}")
+    path = root / "demand_bus.csv"
+    with path.open(newline="", encoding="utf-8") as handle:
+        handle.seek(index.row_offsets[period_index])
+        row = next(csv.DictReader(handle, fieldnames=index.fieldnames), None)
+    if row is None:
+        raise ValueError(f"period_index out of range: {period_index}")
+    return MappingProxyType(dict(row))
+
+
+def _validate_prepared_period_index(period_index: object) -> None:
     if not isinstance(period_index, int) or isinstance(period_index, bool):
         raise ValueError("period_index must be an integer")
     if period_index < 0:
         raise ValueError(f"period_index out of range: {period_index}")
-    path = root / "demand_bus.csv"
+
+
+def _build_prepared_demand_offsets(path: Path) -> _PreparedDemandIndex:
     with path.open(newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        for row_number, row in enumerate(reader):
-            if row_number == period_index:
-                return MappingProxyType(dict(row))
-    raise ValueError(f"period_index out of range: {period_index}")
+        fieldnames = next(csv.reader(handle), None)
+    if not fieldnames or any(fieldname is None or fieldname == "" for fieldname in fieldnames):
+        raise ValueError("demand_bus.csv must contain a non-empty header")
+
+    row_offsets: list[int] = []
+    record_start = 0
+    record_number = 0
+    record_nonempty = False
+    in_quotes = False
+    quote_pending = False
+    byte_position = 0
+
+    def finish_record(end_position: int) -> None:
+        nonlocal record_start, record_number, record_nonempty
+        if record_number > 0 and record_nonempty:
+            row_offsets.append(record_start)
+        record_number += 1
+        record_start = end_position
+        record_nonempty = False
+
+    with path.open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            offset = 0
+            while offset < len(chunk):
+                byte = chunk[offset]
+                if quote_pending:
+                    if byte == 34:
+                        quote_pending = False
+                        record_nonempty = True
+                        byte_position += 1
+                        offset += 1
+                        continue
+                    in_quotes = False
+                    quote_pending = False
+                if byte == 34:
+                    record_nonempty = True
+                    if in_quotes:
+                        quote_pending = True
+                    else:
+                        in_quotes = True
+                elif byte == 10 and not in_quotes:
+                    finish_record(byte_position + 1)
+                elif byte not in (10, 13):
+                    record_nonempty = True
+                byte_position += 1
+                offset += 1
+    if byte_position > record_start:
+        finish_record(byte_position)
+    if record_number == 0:
+        raise ValueError("demand_bus.csv must contain a header")
+    return _PreparedDemandIndex(tuple(fieldnames), tuple(row_offsets))
+
+
+@lru_cache(maxsize=8)
+def _prepared_demand_index_cached(
+    root_string: str,
+    fingerprint: tuple[tuple[str, int | None, int | None, int | None, int | None], ...],
+) -> _PreparedDemandIndex:
+    return _build_prepared_demand_offsets(Path(root_string) / "demand_bus.csv")
 
 
 def _validate_prepared_demand_row(
@@ -411,6 +488,18 @@ def _validate_prepared_demand_row(
             "prepared demand references unknown bus: "
             + ", ".join(sorted(unknown_bus_ids))
         )
+
+
+def _validate_prepared_demand_schema(
+    artifact: PreparedArtifact, period_indices: Sequence[int]
+) -> None:
+    if artifact.scenario_year is not None:
+        return
+    for period_index in period_indices:
+        _validate_prepared_period_index(period_index)
+        if period_index >= len(artifact.demand_rows):
+            raise ValueError(f"period_index out of range: {period_index}")
+        _validate_prepared_demand_row(artifact.demand_rows[period_index], artifact.buses_raw)
 
 
 def _manifest_scenario_metadata(manifest: Mapping[str, object]) -> tuple[int | None, str | None]:
@@ -3069,13 +3158,11 @@ def prepared_period_inputs(
     delegating to it.  Keeping the artifact directory in the signature is
     necessary for scenario profiles and block-manifest validation.
     """
-    if not isinstance(period_index, int) or isinstance(period_index, bool):
-        raise ValueError("period_index must be an integer")
-    if period_index < 0:
-        raise ValueError(f"period_index out of range: {period_index}")
+    _validate_prepared_period_index(period_index)
     from ercot_game.scenario_package import require_validated_block
 
     require_validated_block(artifact_dir)
+    _validate_prepared_demand_schema(artifact, (period_index,))
     try:
         return _prepared_period_inputs(
             artifact_dir,
@@ -3122,6 +3209,7 @@ def prepared_period_inputs_from_path(
     from ercot_game.scenario_package import require_validated_block
 
     root = Path(artifact_dir).resolve()
+    _validate_prepared_period_index(period_index)
     require_validated_block(root)
     return _prepared_period_inputs_from_path_cached(
         str(root),
@@ -3185,6 +3273,7 @@ def solve_prepared_period(
 ) -> DCOPFResult:
     """Solve one hourly period from a validated prepared scenario block."""
     artifact = load_prepared_artifact(str(Path(artifact_dir).resolve()))
+    _validate_prepared_demand_schema(artifact, (period_index,))
     buses, generators, branches, fixed_injections = _prepared_period_inputs(
         artifact_dir,
         artifact,
@@ -3233,6 +3322,7 @@ def solve_prepared_horizon(
 
     artifact_root = str(Path(artifact_dir).resolve())
     artifact = load_prepared_artifact(artifact_root)
+    _validate_prepared_demand_schema(artifact, period_indices)
     if artifact.scenario_year is not None:
         from ercot_game.scenario_package import require_validated_block
 
@@ -3287,6 +3377,7 @@ def solve_prepared_horizon_benders(
         raise ValueError("additional generators must match the number of periods")
     artifact_root = str(Path(artifact_dir).resolve())
     artifact = load_prepared_artifact(artifact_root)
+    _validate_prepared_demand_schema(artifact, period_indices)
     if artifact.scenario_year is not None:
         from ercot_game.scenario_package import require_validated_block
 
