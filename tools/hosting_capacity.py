@@ -564,28 +564,22 @@ def _fixed_topology_signature(period: HostingCapacityPeriod) -> dict[str, object
             {"bus_id": bus.bus_id, "reference": bool(bus.reference)}
             for bus in period.buses
         ],
-        "generators": sorted(
-            [
-                {
-                    "generator_id": generator.generator_id,
-                    "bus_id": generator.bus_id,
-                }
-                for generator in period.generators
-            ],
-            key=lambda item: str(item["generator_id"]),
-        ),
-        "branches": sorted(
-            [
-                {
-                    "branch_id": branch.branch_id,
-                    "from_bus_id": branch.from_bus_id,
-                    "to_bus_id": branch.to_bus_id,
-                    "susceptance_pu": float(branch.susceptance_pu),
-                }
-                for branch in period.branches
-            ],
-            key=lambda item: str(item["branch_id"]),
-        ),
+        "generators": [
+            {
+                "generator_id": generator.generator_id,
+                "bus_id": generator.bus_id,
+            }
+            for generator in period.generators
+        ],
+        "branches": [
+            {
+                "branch_id": branch.branch_id,
+                "from_bus_id": branch.from_bus_id,
+                "to_bus_id": branch.to_bus_id,
+                "susceptance_pu": float(branch.susceptance_pu),
+            }
+            for branch in period.branches
+        ],
     }
 
 
@@ -629,6 +623,15 @@ def _source_identity(periods: Sequence[HostingCapacityPeriod]) -> tuple[str, obj
     return f"source:{digest}", source_metadata, scenario_identity
 
 
+def _period_fingerprint(period: HostingCapacityPeriod) -> str:
+    """Return a deterministic identity for one normalized provider result."""
+    payload = {
+        "period_inputs": _normalized_period_inputs(period),
+        "source_metadata": _json_safe(period.source_metadata),
+    }
+    return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+
+
 def _solver_version(resolved_backend: str) -> str:
     try:
         if resolved_backend == "highs":
@@ -646,9 +649,10 @@ def _new_period_arrays(bus_ids: tuple[str, ...]) -> dict[str, np.ndarray]:
     count = len(bus_ids)
     return {
         "capacity_mw": np.full(count, np.nan, dtype=float),
-        "status": np.full(count, None, dtype=object),
+        "status": np.full(count, "", dtype="<U32"),
         "objective_value": np.full(count, np.nan, dtype=float),
         "solve_time_s": np.full(count, np.nan, dtype=float),
+        "diagnostic": np.full(count, "", dtype="<U512"),
     }
 
 
@@ -667,6 +671,12 @@ def _solve_matrix_period(
     normalized_period = validate_period(period)
     results = _new_period_arrays(bus_ids)
     started = time.perf_counter()
+
+    def exception_diagnostic(stage: str, error: BaseException) -> str:
+        detail = str(error)
+        suffix = f": {detail}" if detail else ""
+        return f"{stage}: {type(error).__name__}{suffix}"
+
     try:
         model = dcopf._reusable_dcopf_model(
             solver_backend=solver_backend,
@@ -677,44 +687,53 @@ def _solve_matrix_period(
             candidate_demand_bus_id=None,
             solver_threads=solver_threads,
         )
-    except (InterruptedError, TimeoutError):
+    except (InterruptedError, TimeoutError) as error:
         results["status"][:] = "interrupted"
+        results["diagnostic"][:] = exception_diagnostic("backend construction interrupted", error)
         results["solve_time_s"][:] = max(0.0, time.perf_counter() - started)
         return results
     except KeyboardInterrupt:
         raise
-    except Exception:
+    except Exception as error:
         results["status"][:] = "solver_error"
+        results["diagnostic"][:] = exception_diagnostic("backend construction failed", error)
         results["solve_time_s"][:] = max(0.0, time.perf_counter() - started)
         return results
 
     for position, bus_id in enumerate(bus_ids):
         point_started = time.perf_counter()
+        diagnostic = ""
         try:
             capacity, status = model.max_additional_demand(
                 tuple(normalized_period.buses),
                 bus_id,
                 fixed_injection_mw_by_bus=normalized_period.fixed_injection_mw_by_bus,
             )
-        except (InterruptedError, TimeoutError):
+        except (InterruptedError, TimeoutError) as error:
             status = "interrupted"
             capacity = math.nan
+            diagnostic = exception_diagnostic("solver execution interrupted", error)
         except KeyboardInterrupt:
             raise
-        except (ArithmeticError, FloatingPointError, OverflowError):
+        except (ArithmeticError, FloatingPointError, OverflowError) as error:
             status = "numerical_failure"
             capacity = math.nan
-        except Exception:
+            diagnostic = exception_diagnostic("solver execution failed", error)
+        except Exception as error:
             status = "solver_error"
             capacity = math.nan
+            diagnostic = exception_diagnostic("solver execution failed", error)
 
         if not isinstance(status, str) or status not in HOSTING_CAPACITY_STATUSES:
+            diagnostic = f"unsupported backend status: {status!r}"
             status = "solver_error"
             capacity = math.nan
         elif status == "optimal" and not _valid_optimal_value(capacity):
+            diagnostic = f"invalid optimal capacity returned by backend: {capacity!r}"
             status = "numerical_failure"
             capacity = math.nan
         results["status"][position] = status
+        results["diagnostic"][position] = diagnostic
         results["solve_time_s"][position] = max(0.0, time.perf_counter() - point_started)
         if status == "optimal" and _finite_real(capacity) and float(capacity) >= 0:
             results["capacity_mw"][position] = float(capacity)
@@ -722,10 +741,14 @@ def _solve_matrix_period(
     return results
 
 
-def _matrix_period_worker(task: tuple[object, int, tuple[str, ...], str, int]) -> tuple[int, dict[str, np.ndarray]]:
+def _matrix_period_worker(
+    task: tuple[object, int, tuple[str, ...], str, int, str],
+) -> tuple[int, dict[str, np.ndarray]]:
     """Spawn-safe worker; the provider and model are created in the child."""
-    period_provider, period_index, bus_ids, solver_backend, solver_threads = task
+    period_provider, period_index, bus_ids, solver_backend, solver_threads, expected_fingerprint = task
     period = _period_for_requested_index(period_provider, period_index)  # type: ignore[arg-type]
+    if _period_fingerprint(period) != expected_fingerprint:
+        raise ValueError(f"period identity mismatch for period {period_index}")
     return period_index, _solve_matrix_period(
         period,
         bus_ids,
@@ -741,19 +764,23 @@ def _coerce_period_result(
     expected = len(bus_ids)
     try:
         capacities = np.asarray(result["capacity_mw"], dtype=float).reshape(-1)
-        statuses = np.asarray(result["status"], dtype=object).reshape(-1)
+        statuses = np.asarray(result["status"], dtype="<U32").reshape(-1)
         objectives = np.asarray(result["objective_value"], dtype=float).reshape(-1)
         solve_times = np.asarray(result["solve_time_s"], dtype=float).reshape(-1)
+        diagnostics = np.asarray(result.get("diagnostic", np.full(expected, "")), dtype="<U512").reshape(-1)
     except (KeyError, TypeError, ValueError) as error:
         raise ValueError("period solver returned malformed arrays") from error
-    if any(array.size != expected for array in (capacities, statuses, objectives, solve_times)):
+    if any(array.size != expected for array in (capacities, statuses, objectives, solve_times, diagnostics)):
         raise ValueError("period solver returned arrays with the wrong shape")
     normalized = _new_period_arrays(bus_ids)
     for position in range(expected):
         status = statuses[position]
         if not isinstance(status, str) or status not in HOSTING_CAPACITY_STATUSES:
             status = "solver_error"
+            diagnostics[position] = "malformed period solver status"
         normalized["status"][position] = status
+        if isinstance(diagnostics[position], str):
+            normalized["diagnostic"][position] = diagnostics[position]
         if _finite_real(solve_times[position]):
             normalized["solve_time_s"][position] = float(solve_times[position])
         if status == "optimal" and (
@@ -761,6 +788,7 @@ def _coerce_period_result(
             or not _valid_optimal_value(objectives[position])
         ):
             normalized["status"][position] = "numerical_failure"
+            normalized["diagnostic"][position] = "invalid optimal capacity or objective value"
             continue
         if status == "optimal":
             normalized["capacity_mw"][position] = float(capacities[position])
@@ -819,6 +847,7 @@ def _write_period_checkpoint(
         status=result["status"],
         objective_value=result["objective_value"],
         solve_time_s=result["solve_time_s"],
+        diagnostic=result["diagnostic"],
         complete=np.asarray(True),
     )
 
@@ -831,7 +860,7 @@ def _load_period_checkpoint(
     bus_count: int,
 ) -> dict[str, np.ndarray]:
     try:
-        with np.load(path, allow_pickle=True) as checkpoint:
+        with np.load(path, allow_pickle=False) as checkpoint:
             saved_period = int(np.asarray(checkpoint["period_index"]).item())
             saved_identity = json.loads(str(np.asarray(checkpoint["identity"]).item()))
             if saved_period != period_index or saved_identity != _json_safe(identity):
@@ -840,9 +869,10 @@ def _load_period_checkpoint(
                 raise ValueError("checkpoint is not complete")
             result = {
                 "capacity_mw": np.asarray(checkpoint["capacity_mw"], dtype=float),
-                "status": np.asarray(checkpoint["status"], dtype=object),
+                "status": np.asarray(checkpoint["status"], dtype="<U32"),
                 "objective_value": np.asarray(checkpoint["objective_value"], dtype=float),
                 "solve_time_s": np.asarray(checkpoint["solve_time_s"], dtype=float),
+                "diagnostic": np.asarray(checkpoint["diagnostic"], dtype="<U512"),
             }
     except ValueError:
         raise
@@ -865,10 +895,24 @@ def _matrix_metadata(
     bus_ids: tuple[str, ...],
     capacity_mw: np.ndarray,
     status: np.ndarray,
+    diagnostics: np.ndarray,
     completed_periods: set[int],
+    requested_backend: str,
 ) -> dict[str, object]:
     optimal_count = int(np.count_nonzero(status == "optimal"))
     total_count = int(status.size)
+    completed_count = int(np.count_nonzero(status != ""))
+    failed_count = int(np.count_nonzero((status != "") & (status != "optimal")))
+    pending_count = total_count - completed_count
+    diagnostic_records: dict[str, dict[str, str]] = {}
+    for row_index, period_index in enumerate(period_indices):
+        row_diagnostics = {
+            bus_id: str(diagnostics[row_index, bus_index])
+            for bus_index, bus_id in enumerate(bus_ids)
+            if str(diagnostics[row_index, bus_index])
+        }
+        if row_diagnostics:
+            diagnostic_records[str(period_index)] = row_diagnostics
     return {
         "schema_version": _HOSTING_CAPACITY_SCHEMA_VERSION,
         "formulation": _HOSTING_CAPACITY_FORMULATION,
@@ -876,10 +920,12 @@ def _matrix_metadata(
         "source_identity": identity.get("source_identity"),
         "scenario_artifact_identity": scenario_identity,
         "source_metadata": source_metadata,
-        "solver_backend": resolved_backend,
+        "solver_backend": requested_backend,
+        "resolved_solver_backend": resolved_backend,
+        "requested_solver_backend": requested_backend,
         "solver_threads": solver_threads,
         "backend": {
-            "requested": identity.get("requested_solver_backend", resolved_backend),
+            "requested": requested_backend,
             "resolved": resolved_backend,
             "version": _solver_version(resolved_backend),
         },
@@ -890,9 +936,12 @@ def _matrix_metadata(
             "bus_count": len(bus_ids),
             "point_count": total_count,
             "completed_period_count": len(completed_periods),
+            "completed_count": completed_count,
             "optimal_count": optimal_count,
-            "failed_count": total_count - optimal_count,
+            "failed_count": failed_count,
+            "pending_count": pending_count,
         },
+        "diagnostics": diagnostic_records,
         "complete": len(completed_periods) == len(period_indices),
         "warm_start_used": False,
         "ordering": {
@@ -910,14 +959,12 @@ def _write_matrix_outputs(
     bus_ids: tuple[str, ...],
     capacity_mw: np.ndarray,
     status: np.ndarray,
-    objective_value: np.ndarray,
-    solve_time_s: np.ndarray,
     metadata: Mapping[str, object],
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     def save_npy(path: Path, array: np.ndarray) -> None:
-        _atomic_write_bytes(path, lambda handle: np.save(handle, array, allow_pickle=True))
+        _atomic_write_bytes(path, lambda handle: np.save(handle, array, allow_pickle=False))
 
     save_npy(output_dir / "hosting_capacity_mw.npy", capacity_mw)
     save_npy(output_dir / "hosting_capacity_status.npy", status)
@@ -932,8 +979,10 @@ def _write_matrix_outputs(
             handle,
             fieldnames=(
                 "period_index",
+                "completed_count",
                 "optimal_count",
                 "failed_count",
+                "pending_count",
                 "min_hosting_capacity_mw",
                 "median_hosting_capacity_mw",
                 "max_hosting_capacity_mw",
@@ -941,13 +990,18 @@ def _write_matrix_outputs(
         )
         writer.writeheader()
         for row_index, period_index in enumerate(period_indices):
+            completed = status[row_index] != ""
             optimal = status[row_index] == "optimal"
+            failed = completed & ~optimal
+            pending = ~completed
             values = capacity_mw[row_index][optimal]
             writer.writerow(
                 {
                     "period_index": period_index,
+                    "completed_count": int(np.count_nonzero(completed)),
                     "optimal_count": int(np.count_nonzero(optimal)),
-                    "failed_count": len(bus_ids) - int(np.count_nonzero(optimal)),
+                    "failed_count": int(np.count_nonzero(failed)),
+                    "pending_count": int(np.count_nonzero(pending)),
                     "min_hosting_capacity_mw": float(np.min(values)) if values.size else math.nan,
                     "median_hosting_capacity_mw": float(np.median(values)) if values.size else math.nan,
                     "max_hosting_capacity_mw": float(np.max(values)) if values.size else math.nan,
@@ -1038,9 +1092,10 @@ def compute_hosting_capacity_matrix(
     checkpoint_root = Path(checkpoint_dir) if checkpoint_dir is not None else None
     output_root = Path(output_dir) if output_dir is not None else None
     capacity_mw = np.full((len(selected_indices), len(selected_bus_ids)), np.nan, dtype=float)
-    status = np.full((len(selected_indices), len(selected_bus_ids)), None, dtype=object)
+    status = np.full((len(selected_indices), len(selected_bus_ids)), "", dtype="<U32")
     objective_value = np.full_like(capacity_mw, np.nan)
     solve_time_s = np.full_like(capacity_mw, np.nan)
+    diagnostics = np.full((len(selected_indices), len(selected_bus_ids)), "", dtype="<U512")
     completed_periods: set[int] = set()
 
     if checkpoint_root is not None:
@@ -1064,6 +1119,7 @@ def compute_hosting_capacity_matrix(
                 ("status", status),
                 ("objective_value", objective_value),
                 ("solve_time_s", solve_time_s),
+                ("diagnostic", diagnostics),
             ):
                 matrix[row_index] = period_result[name]
             completed_periods.add(checkpoint_period_index)
@@ -1080,7 +1136,9 @@ def compute_hosting_capacity_matrix(
             bus_ids=selected_bus_ids,
             capacity_mw=capacity_mw,
             status=status,
+            diagnostics=diagnostics,
             completed_periods=completed_periods,
+            requested_backend=solver_backend,
         )
         if output_root is not None:
             _write_matrix_outputs(
@@ -1089,8 +1147,6 @@ def compute_hosting_capacity_matrix(
                 bus_ids=selected_bus_ids,
                 capacity_mw=capacity_mw,
                 status=status,
-                objective_value=objective_value,
-                solve_time_s=solve_time_s,
                 metadata=metadata,
             )
 
@@ -1104,6 +1160,7 @@ def compute_hosting_capacity_matrix(
             ("status", status),
             ("objective_value", objective_value),
             ("solve_time_s", solve_time_s),
+            ("diagnostic", diagnostics),
         ):
             matrix[row_index] = period_result[name]
         completed_periods.add(period_index)
@@ -1130,7 +1187,14 @@ def compute_hosting_capacity_matrix(
     elif pending:
         context = multiprocessing.get_context("spawn")
         tasks = [
-            (period_provider, period_index, selected_bus_ids, resolved_backend, solver_threads)
+            (
+                period_provider,
+                period_index,
+                selected_bus_ids,
+                resolved_backend,
+                solver_threads,
+                _period_fingerprint(normalized_periods[period_index]),
+            )
             for period_index in pending
         ]
         with context.Pool(processes=workers) as pool:
@@ -1149,7 +1213,9 @@ def compute_hosting_capacity_matrix(
         bus_ids=selected_bus_ids,
         capacity_mw=capacity_mw,
         status=status,
+        diagnostics=diagnostics,
         completed_periods=completed_periods,
+        requested_backend=solver_backend,
     )
     return HostingCapacityMatrix(
         period_indices=selected_indices,

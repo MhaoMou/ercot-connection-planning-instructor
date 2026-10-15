@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 import tools.activsg2000.dcopf as dcopf
+import tools.hosting_capacity as hosting_capacity
 from tools.activsg2000.dcopf import (
     Branch,
     Bus,
@@ -95,6 +96,9 @@ def test_matrix_driver_returns_sorted_arrays_and_writes_outputs(tmp_path, monkey
     assert (tmp_path / "outputs" / "hosting_capacity_status.npy").exists()
     assert (tmp_path / "outputs" / "hosting_capacity_metadata.json").exists()
     assert (tmp_path / "outputs" / "hosting_capacity_summary.csv").exists()
+    assert result.status.dtype.kind == "U"
+    saved_status = np.load(tmp_path / "outputs" / "hosting_capacity_status.npy", allow_pickle=False)
+    assert saved_status.dtype.kind == "U"
 
 
 def test_matrix_driver_resumes_completed_period_without_solving_it(tmp_path, monkeypatch):
@@ -269,6 +273,141 @@ def test_matrix_driver_accepts_period_varying_generator_and_branch_limits(monkey
     assert result.capacity_mw.shape == (2, 2)
 
 
+@pytest.mark.parametrize("changed_order", ("generators", "branches"))
+def test_matrix_driver_rejects_generator_or_branch_order_changes(changed_order):
+    period_zero = _tiny_period(
+        generators=(
+            Generator("g1", "b1", 0.0, 20.0, 10.0),
+            Generator("g2", "b2", 0.0, 10.0, 20.0),
+        ),
+        branches=(
+            Branch("br1", "b1", "b2", 1.0, 100.0),
+            Branch("br2", "b2", "b1", 2.0, 100.0),
+        ),
+    )
+    period_one = _tiny_period(
+        period_index=1,
+        buses=(Bus("b1", 1.0, reference=True), Bus("b2", 6.0)),
+        generators=(
+            Generator("g1", "b1", 0.0, 21.0, 11.0),
+            Generator("g2", "b2", 0.0, 11.0, 21.0),
+        ),
+        branches=(
+            Branch("br1", "b1", "b2", 1.0, 90.0),
+            Branch("br2", "b2", "b1", 2.0, 90.0),
+        ),
+    )
+    if changed_order == "generators":
+        period_one = HostingCapacityPeriod(
+            **{
+                **period_one.__dict__,
+                "generators": tuple(reversed(period_one.generators)),
+            }
+        )
+    else:
+        period_one = HostingCapacityPeriod(
+            **{
+                **period_one.__dict__,
+                "branches": tuple(reversed(period_one.branches)),
+            }
+        )
+    provider = _TwoPeriodProvider()
+    provider.periods = (period_zero, period_one)
+
+    with pytest.raises(ValueError, match="different fixed topology"):
+        compute_hosting_capacity_matrix(provider, period_indices=[0, 1])
+
+
+def test_matrix_driver_preserves_requested_and_resolved_backend_in_metadata(tmp_path, monkeypatch):
+    monkeypatch.setattr(dcopf, "resolve_solver_backend", lambda requested: "highs")
+    monkeypatch.setattr(
+        "tools.hosting_capacity._solve_matrix_period",
+        lambda period, bus_ids, *, solver_backend, solver_threads: _fake_matrix_result(period, bus_ids),
+    )
+
+    compute_hosting_capacity_matrix(
+        _TwoPeriodProvider(),
+        period_indices=[0],
+        solver_backend="auto",
+        output_dir=tmp_path,
+    )
+
+    metadata = json.loads((tmp_path / "hosting_capacity_metadata.json").read_text(encoding="utf-8"))
+    assert metadata["solver_backend"] == "auto"
+    assert metadata["resolved_solver_backend"] == "highs"
+    assert metadata["backend"]["requested"] == "auto"
+    assert metadata["backend"]["resolved"] == "highs"
+
+
+def test_matrix_driver_partial_outputs_count_pending_points_separately(tmp_path, monkeypatch):
+    def failing_period_solver(period, bus_ids, *, solver_backend, solver_threads):
+        if period.period_index == 1:
+            raise RuntimeError("later period failed")
+        return _fake_matrix_result(period, bus_ids)
+
+    monkeypatch.setattr("tools.hosting_capacity._solve_matrix_period", failing_period_solver)
+    with pytest.raises(RuntimeError, match="later period failed"):
+        compute_hosting_capacity_matrix(
+            _TwoPeriodProvider(),
+            period_indices=[0, 1],
+            bus_ids=["b1", "b2"],
+            solver_backend="highs",
+            output_dir=tmp_path,
+        )
+
+    metadata = json.loads((tmp_path / "hosting_capacity_metadata.json").read_text(encoding="utf-8"))
+    assert metadata["counts"]["completed_count"] == 2
+    assert metadata["counts"]["optimal_count"] == 2
+    assert metadata["counts"]["failed_count"] == 0
+    assert metadata["counts"]["pending_count"] == 2
+    rows = (tmp_path / "hosting_capacity_summary.csv").read_text(encoding="utf-8").splitlines()
+    assert rows[0] == (
+        "period_index,completed_count,optimal_count,failed_count,pending_count,"
+        "min_hosting_capacity_mw,median_hosting_capacity_mw,max_hosting_capacity_mw"
+    )
+    assert rows[2].startswith("1,0,0,0,2,nan,nan,nan")
+
+
+def test_matrix_period_worker_rejects_provider_identity_drift(monkeypatch):
+    provider = _TwoPeriodProvider()
+    expected_fingerprint = hosting_capacity._period_fingerprint(
+        hosting_capacity._period_for_requested_index(provider, 0)
+    )
+    provider.periods = (
+        _tiny_period(
+            period_index=0,
+            buses=(Bus("b1", 0.0, reference=True), Bus("b2", 99.0)),
+        ),
+        provider.periods[1],
+    )
+    monkeypatch.setattr(
+        "tools.hosting_capacity._solve_matrix_period",
+        lambda *args, **kwargs: pytest.fail("worker solved after identity drift"),
+    )
+
+    with pytest.raises(ValueError, match="period identity mismatch"):
+        hosting_capacity._matrix_period_worker(
+            (provider, 0, ("b1", "b2"), "highs", 1, expected_fingerprint)
+        )
+
+
+def test_matrix_driver_retains_period_diagnostics_for_construction_failure(monkeypatch):
+    def failing_model(**kwargs):
+        raise RuntimeError("backend exploded")
+
+    monkeypatch.setattr(dcopf, "_reusable_dcopf_model", failing_model)
+    result = compute_hosting_capacity_matrix(
+        _TwoPeriodProvider(),
+        period_indices=[0],
+        bus_ids=["b1", "b2"],
+        solver_backend="highs",
+    )
+
+    assert result.status.tolist() == [["solver_error", "solver_error"]]
+    diagnostics = result.metadata["diagnostics"]
+    assert diagnostics["0"]["b1"] == "backend construction failed: RuntimeError: backend exploded"
+
+
 @pytest.mark.parametrize("changed_component", ("generator_endpoint", "branch_endpoint"))
 def test_matrix_driver_rejects_structural_generator_or_branch_changes(changed_component):
     provider = _TwoPeriodProvider()
@@ -316,8 +455,8 @@ def test_matrix_driver_writes_exact_summary_header_and_required_metadata(tmp_pat
 
     summary_header = (output_dir / "hosting_capacity_summary.csv").read_text(encoding="utf-8").splitlines()[0]
     assert summary_header == (
-        "period_index,optimal_count,failed_count,min_hosting_capacity_mw,"
-        "median_hosting_capacity_mw,max_hosting_capacity_mw"
+        "period_index,completed_count,optimal_count,failed_count,pending_count,"
+        "min_hosting_capacity_mw,median_hosting_capacity_mw,max_hosting_capacity_mw"
     )
     metadata_text = (output_dir / "hosting_capacity_metadata.json").read_text(encoding="utf-8")
     metadata = json.loads(metadata_text)
