@@ -447,7 +447,83 @@ def _candidate_probe_status(status: str, *, base_case: bool) -> str:
         return "unbounded"
     if status == "numerical":
         return "numerical_failure"
+    if status == "interrupted":
+        return "interrupted"
     return "solver_error"
+
+
+def _status_matches_constant(status: object, constants: object, names: tuple[str, ...]) -> bool:
+    return any(
+        hasattr(constants, name) and status == getattr(constants, name)
+        for name in names
+    )
+
+
+def _highs_candidate_probe_status(
+    model_status: object,
+    highs_model_status: object,
+    *,
+    base_case: bool,
+) -> str:
+    """Classify the actual highspy ``HighsModelStatus`` values we use."""
+    if _status_matches_constant(model_status, highs_model_status, ("kOptimal",)):
+        canonical_status = "optimal"
+    elif _status_matches_constant(
+        model_status,
+        highs_model_status,
+        ("kTimeLimit", "kInterrupt", "kIterationLimit", "kSolutionLimit"),
+    ):
+        canonical_status = "interrupted"
+    else:
+        status_name = getattr(model_status, "name", str(model_status)).lower()
+        compact_name = status_name.replace("_", "").replace("-", "")
+        if (
+            ("unbounded" in compact_name and "infeasible" in compact_name)
+            or "inforunbd" in compact_name
+            or "unbdorinf" in compact_name
+        ):
+            canonical_status = "ambiguous"
+        elif status_name.endswith("kunbounded") or status_name == "unbounded":
+            canonical_status = "unbounded"
+        elif (
+            status_name.endswith("kinfeasible")
+            or status_name.endswith("kprimalinfeasible")
+            or status_name in {"infeasible", "primalinfeasible"}
+        ):
+            canonical_status = "infeasible"
+        elif "numerical" in compact_name or "numeric" in compact_name:
+            canonical_status = "numerical"
+        else:
+            canonical_status = "solver_error"
+    return _candidate_probe_status(canonical_status, base_case=base_case)
+
+
+def _gurobi_candidate_probe_status(
+    status: object,
+    grb: object,
+    *,
+    base_case: bool,
+) -> str:
+    """Classify the actual Gurobi status constants used by the probe."""
+    if _status_matches_constant(status, grb, ("OPTIMAL",)):
+        canonical_status = "optimal"
+    elif _status_matches_constant(status, grb, ("INF_OR_UNBD",)):
+        canonical_status = "ambiguous"
+    elif _status_matches_constant(
+        status,
+        grb,
+        ("TIME_LIMIT", "INTERRUPTED", "USER_OBJ_LIMIT"),
+    ):
+        canonical_status = "interrupted"
+    elif _status_matches_constant(status, grb, ("INFEASIBLE",)):
+        canonical_status = "infeasible"
+    elif _status_matches_constant(status, grb, ("UNBOUNDED",)):
+        canonical_status = "unbounded"
+    elif _status_matches_constant(status, grb, ("NUMERIC",)):
+        canonical_status = "numerical"
+    else:
+        canonical_status = "solver_error"
+    return _candidate_probe_status(canonical_status, base_case=base_case)
 
 
 class ReusableDCOPFModel:
@@ -632,30 +708,11 @@ class ReusableDCOPFModel:
         _Highs, HighsModelStatus, _HighsVarType, highs_inf = _highs()
 
         def candidate_status(model_status: object, *, base_case: bool) -> str:
-            if model_status == HighsModelStatus.kOptimal:
-                canonical_status = "optimal"
-            else:
-                status_name = getattr(model_status, "name", str(model_status)).lower()
-                compact_name = status_name.replace("_", "").replace("-", "")
-                if (
-                    ("unbounded" in compact_name and "infeasible" in compact_name)
-                    or "inforunbd" in compact_name
-                    or "unbdorinf" in compact_name
-                ):
-                    canonical_status = "ambiguous"
-                elif status_name.endswith("kunbounded") or status_name == "unbounded":
-                    canonical_status = "unbounded"
-                elif (
-                    status_name.endswith("kinfeasible")
-                    or status_name.endswith("kprimalinfeasible")
-                    or status_name in {"infeasible", "primalinfeasible"}
-                ):
-                    canonical_status = "infeasible"
-                elif "numerical" in compact_name or "numeric" in compact_name:
-                    canonical_status = "numerical"
-                else:
-                    canonical_status = "solver_error"
-            return _candidate_probe_status(canonical_status, base_case=base_case)
+            return _highs_candidate_probe_status(
+                model_status,
+                HighsModelStatus,
+                base_case=base_case,
+            )
 
         try:
             for index in candidate_indices.values():
@@ -1012,19 +1069,7 @@ class GurobiReusableDCOPFModel:
         )
 
         def status_for(code: int, *, base_case: bool) -> str:
-            if code == self._gp.GRB.OPTIMAL:
-                canonical_status = "optimal"
-            elif code == self._gp.GRB.INFEASIBLE:
-                canonical_status = "infeasible"
-            elif code == self._gp.GRB.UNBOUNDED:
-                canonical_status = "unbounded"
-            elif code == getattr(self._gp.GRB, "INF_OR_UNBD", object()):
-                canonical_status = "ambiguous"
-            elif code == getattr(self._gp.GRB, "NUMERIC", object()):
-                canonical_status = "numerical"
-            else:
-                canonical_status = "solver_error"
-            return _candidate_probe_status(canonical_status, base_case=base_case)
+            return _gurobi_candidate_probe_status(code, self._gp.GRB, base_case=base_case)
 
         try:
             for variable in self._candidate_demand_columns.values():

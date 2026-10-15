@@ -126,15 +126,57 @@ def test_reusable_model_exposes_candidate_demand_probe_contract():
     ("status", "expected"),
     (("optimal", "optimal"), ("infeasible", "infeasible_base_case"),
      ("unbounded", "unbounded"), ("ambiguous", "solver_error"),
-     ("numerical", "numerical_failure"), ("other", "solver_error")),
+     ("numerical", "numerical_failure"), ("interrupted", "interrupted"),
+     ("other", "solver_error")),
 )
-def test_candidate_probe_status_mapping_rejects_ambiguous_unboundedness(status, expected):
+def test_candidate_probe_status_mapping_is_backend_safe(status, expected):
     status_mapper = getattr(dcopf, "_candidate_probe_status", None)
     assert status_mapper is not None
     assert status_mapper(status, base_case=True) == expected
     assert status_mapper(status, base_case=False) == (
         "solver_error" if status == "infeasible" else expected
     )
+
+
+@pytest.mark.parametrize("status_name", ("kTimeLimit", "kInterrupt"))
+def test_highs_interruption_statuses_map_without_highspy(status_name):
+    status_objects = type(
+        "FakeHighsModelStatus",
+        (),
+        {
+            "kOptimal": object(),
+            "kTimeLimit": object(),
+            "kInterrupt": object(),
+            "kUnbounded": object(),
+            "kInfeasible": object(),
+        },
+    )
+
+    status = getattr(status_objects, status_name)
+
+    assert dcopf._highs_candidate_probe_status(status, status_objects, base_case=False) == "interrupted"
+
+
+@pytest.mark.parametrize("status_name", ("TIME_LIMIT", "INTERRUPTED", "USER_OBJ_LIMIT"))
+def test_gurobi_interruption_statuses_map_without_gurobipy(status_name):
+    grb = type(
+        "FakeGRB",
+        (),
+        {
+            "OPTIMAL": 2,
+            "INFEASIBLE": 3,
+            "INF_OR_UNBD": 4,
+            "UNBOUNDED": 5,
+            "TIME_LIMIT": 9,
+            "INTERRUPTED": 11,
+            "USER_OBJ_LIMIT": 15,
+            "NUMERIC": 12,
+        },
+    )
+
+    assert dcopf._gurobi_candidate_probe_status(
+        getattr(grb, status_name), grb, base_case=False
+    ) == "interrupted"
 
 
 @pytest.mark.skipif(importlib.util.find_spec("highspy") is None, reason="highspy is not installed")
