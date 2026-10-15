@@ -10,6 +10,13 @@ import statistics
 import sys
 import time
 
+# This script is also a documented source-checkout entry point.  Resolve the
+# repository from this file so an explicit script path works from any cwd.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+for _path in (_REPO_ROOT, _REPO_ROOT / "src"):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
+
 from ercot_game.hosting_capacity_cli import (
     artifact_horizon,
     ieee14_provider,

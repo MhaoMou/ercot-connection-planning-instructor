@@ -11,8 +11,11 @@ import sys
 import time
 from collections.abc import Sequence
 
+import numpy as np
+
 from tools.activsg2000.dcopf import Branch, Bus, Generator
 from tools.hosting_capacity import (
+    HOSTING_CAPACITY_STATUSES,
     HostingCapacityMatrix,
     HostingCapacityPeriod,
     compute_hosting_capacity_matrix,
@@ -165,6 +168,47 @@ def _checkpoint_exists(path: Path) -> bool:
     return path.is_dir() and any(path.glob("period_*.npz"))
 
 
+def _recover_checkpoint_counts(
+    checkpoint_dir: Path,
+    *,
+    requested_periods: tuple[int, ...],
+    bus_count: int,
+) -> tuple[int, int]:
+    """Count completed and failed points in valid persisted period checkpoints."""
+    completed_count = 0
+    failed_count = 0
+    requested = set(requested_periods)
+    if bus_count < 1 or not checkpoint_dir.is_dir():
+        return completed_count, failed_count
+
+    for path in sorted(checkpoint_dir.glob("period_*.npz")):
+        try:
+            period_index = int(path.stem.removeprefix("period_"))
+        except ValueError:
+            continue
+        if period_index not in requested:
+            continue
+        try:
+            with np.load(path, allow_pickle=False) as checkpoint:
+                complete = np.asarray(checkpoint["complete"])
+                saved_period = int(np.asarray(checkpoint["period_index"]).item())
+                statuses = np.asarray(checkpoint["status"], dtype="<U32")
+                if (
+                    complete.shape != ()
+                    or complete.item() is not True
+                    or saved_period != period_index
+                    or statuses.shape != (bus_count,)
+                    or any(status not in HOSTING_CAPACITY_STATUSES for status in statuses)
+                ):
+                    continue
+        except (OSError, KeyError, TypeError, ValueError):
+            continue
+        completed = int(np.count_nonzero(statuses != ""))
+        completed_count += completed
+        failed_count += int(np.count_nonzero((statuses != "") & (statuses != "optimal")))
+    return completed_count, failed_count
+
+
 def _write_long_form(output_dir: Path, result: HostingCapacityMatrix) -> None:
     path = output_dir / "hosting_capacity_long.csv.gz"
     with gzip.open(path, "wt", newline="", encoding="utf-8") as handle:
@@ -223,6 +267,7 @@ def main(argv: list[str] | None = None) -> int:
     resumed = _checkpoint_exists(checkpoint_dir)
     started = time.perf_counter()
     requested: tuple[int, ...] = ()
+    requested_bus_count: int | None = len(set(args.bus_ids)) if args.bus_ids else None
     try:
         provider, available_horizon = provider_for_args(args)
         requested = requested_periods(args, available_horizon)
@@ -230,6 +275,8 @@ def main(argv: list[str] | None = None) -> int:
         # invalid ranges, artifacts, and candidate buses in the parent process.
         first_period = provider(requested[0])
         available_bus_ids = {bus.bus_id for bus in first_period.buses}
+        if not args.bus_ids:
+            requested_bus_count = len(available_bus_ids)
         if args.bus_ids and any(bus_id not in available_bus_ids for bus_id in args.bus_ids):
             missing = next(bus_id for bus_id in args.bus_ids if bus_id not in available_bus_ids)
             raise ValueError(f"requested bus does not exist: {missing}")
@@ -259,13 +306,18 @@ def main(argv: list[str] | None = None) -> int:
         # compute_hosting_capacity_matrix publishes each completed period and
         # writes atomic checkpoints before the next period starts.  Do not
         # remove either output so the operator can resume the run.
+        completed_count, failed_count = _recover_checkpoint_counts(
+            checkpoint_dir,
+            requested_periods=requested,
+            bus_count=requested_bus_count or 0,
+        )
         partial = {
             "output_dir": str(output_dir),
             "backend": args.solver_backend,
             "requested_periods": list(requested),
-            "bus_count": len(args.bus_ids or ()),
-            "completed_point_count": None,
-            "failed_point_count": None,
+            "bus_count": requested_bus_count or 0,
+            "completed_point_count": completed_count,
+            "failed_point_count": failed_count,
             "wall_time_s": round(time.perf_counter() - started, 6),
             "resume_status": "interrupted",
             "complete": False,
