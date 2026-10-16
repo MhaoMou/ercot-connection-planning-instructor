@@ -178,9 +178,11 @@ following checks are recorded in the release log:
 - Every JSON, NumPy, CSV, and checkpoint output loads successfully, has the
   documented schema and shape, and contains no malformed, partial, or
   unexpected-status output.
-- Record `wall_time_s`, `peak_rss_mb`, and `rss_delta_mb` for each pilot. Keep
-  the raw `/usr/bin/time -l` files and the before/after RSS evidence; these are
-  recorded measurements only, with no invented numeric memory or time limit.
+- Record `wall_time_s`, `peak_rss_mb`, and `rss_delta_mb` from each CLI JSON
+  summary for every pilot; the summary records both auditable resource values.
+  Retain the independent raw `/usr/bin/time -l` files and the before/after RSS
+  evidence as raw evidence; these are recorded measurements only, with no
+  invented numeric memory or time limit.
 
 All three pilots and every criterion above are mandatory. Full-horizon
 execution requires the operator's explicit approval recorded after this gate.

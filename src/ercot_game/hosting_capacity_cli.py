@@ -11,6 +11,11 @@ import sys
 import time
 from collections.abc import Sequence
 
+try:
+    import resource
+except ImportError:  # pragma: no cover - Windows
+    resource = None
+
 import numpy as np
 
 from tools.activsg2000.dcopf import Branch, Bus, Generator
@@ -23,6 +28,54 @@ from tools.hosting_capacity import (
     prepared_artifact_period_provider,
     validate_period,
 )
+
+
+def _resource_usage_snapshot() -> tuple[int | None, int | None]:
+    if resource is None:
+        return (None, None)
+    try:
+        self_kind = resource.RUSAGE_SELF
+    except AttributeError:
+        return (None, None)
+
+    def read_usage(kind) -> int | None:
+        try:
+            raw = int(resource.getrusage(kind).ru_maxrss)
+        except (AttributeError, OSError, TypeError, ValueError):
+            return None
+        return raw if raw >= 0 else None
+
+    self_rss = read_usage(self_kind)
+    children_rss = (
+        read_usage(resource.RUSAGE_CHILDREN)
+        if hasattr(resource, "RUSAGE_CHILDREN")
+        else None
+    )
+    return (self_rss, children_rss)
+
+
+def _rss_mb(raw: int) -> float:
+    # macOS reports bytes; Linux and most other Unix platforms report KiB.
+    divisor = 1024 * 1024 if sys.platform == "darwin" else 1024
+    return round(raw / divisor, 3)
+
+
+def _peak_rss_mb(after: tuple[int | None, int | None]) -> float | None:
+    values = [value for value in after if value is not None and value > 0]
+    return _rss_mb(max(values)) if values else None
+
+
+def _rss_delta_mb(
+    before: tuple[int | None, int | None], after: tuple[int | None, int | None]
+) -> float | None:
+    deltas = [
+        after_value - before_value
+        for before_value, after_value in zip(before, after)
+        if before_value is not None
+        and after_value is not None
+        and after_value >= before_value
+    ]
+    return _rss_mb(max(deltas)) if deltas else None
 
 
 def _at_least_one(label: str):
@@ -241,6 +294,8 @@ def _summary(
     backend: str,
     wall_time_s: float,
     resumed: bool,
+    peak_rss_mb: float | None,
+    rss_delta_mb: float | None,
 ) -> dict[str, object]:
     counts = result.metadata.get("counts", {})
     return {
@@ -251,6 +306,8 @@ def _summary(
         "completed_point_count": int(counts.get("completed_count", np_count(result.status != ""))),
         "failed_point_count": int(counts.get("failed_count", np_count((result.status != "") & (result.status != "optimal")))),
         "wall_time_s": round(wall_time_s, 6),
+        "peak_rss_mb": peak_rss_mb,
+        "rss_delta_mb": rss_delta_mb,
         "resume_status": "resumed" if resumed else "fresh",
         "complete": bool(result.metadata.get("complete", False)),
     }
@@ -268,6 +325,8 @@ def main(argv: list[str] | None = None) -> int:
     started = time.perf_counter()
     requested: tuple[int, ...] = ()
     requested_bus_count: int | None = len(set(args.bus_ids)) if args.bus_ids else None
+    rss_before = (None, None)
+    rss_after: tuple[int | None, int | None] | None = None
     try:
         provider, available_horizon = provider_for_args(args)
         requested = requested_periods(args, available_horizon)
@@ -280,6 +339,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.bus_ids and any(bus_id not in available_bus_ids for bus_id in args.bus_ids):
             missing = next(bus_id for bus_id in args.bus_ids if bus_id not in available_bus_ids)
             raise ValueError(f"requested bus does not exist: {missing}")
+        rss_before = _resource_usage_snapshot()
         result = compute_hosting_capacity_matrix(
             provider,
             bus_ids=args.bus_ids,
@@ -290,6 +350,7 @@ def main(argv: list[str] | None = None) -> int:
             checkpoint_dir=checkpoint_dir,
             output_dir=output_dir,
         )
+        rss_after = _resource_usage_snapshot()
         if args.write_long_form:
             _write_long_form(output_dir, result)
         summary = _summary(
@@ -299,6 +360,8 @@ def main(argv: list[str] | None = None) -> int:
             backend=args.solver_backend,
             wall_time_s=time.perf_counter() - started,
             resumed=resumed,
+            peak_rss_mb=_peak_rss_mb(rss_after),
+            rss_delta_mb=_rss_delta_mb(rss_before, rss_after),
         )
         print(json.dumps(summary, sort_keys=True))
         return 1 if summary["complete"] and summary["failed_point_count"] else 0
@@ -306,6 +369,8 @@ def main(argv: list[str] | None = None) -> int:
         # compute_hosting_capacity_matrix publishes each completed period and
         # writes atomic checkpoints before the next period starts.  Do not
         # remove either output so the operator can resume the run.
+        if rss_after is None:
+            rss_after = _resource_usage_snapshot()
         completed_count, failed_count = _recover_checkpoint_counts(
             checkpoint_dir,
             requested_periods=requested,
@@ -319,6 +384,8 @@ def main(argv: list[str] | None = None) -> int:
             "completed_point_count": completed_count,
             "failed_point_count": failed_count,
             "wall_time_s": round(time.perf_counter() - started, 6),
+            "peak_rss_mb": _peak_rss_mb(rss_after),
+            "rss_delta_mb": _rss_delta_mb(rss_before, rss_after),
             "resume_status": "interrupted",
             "complete": False,
         }

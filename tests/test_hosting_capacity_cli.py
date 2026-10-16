@@ -194,6 +194,8 @@ def test_hosting_capacity_cli_prints_json_summary_and_writes_long_form(tmp_path,
         )
 
     monkeypatch.setattr(hosting_capacity_cli, "compute_hosting_capacity_matrix", fake_compute)
+    snapshots = iter(((1000, 500), (1400, 2500)))
+    monkeypatch.setattr(hosting_capacity_cli, "_resource_usage_snapshot", lambda: next(snapshots))
     output_dir = tmp_path / "output"
 
     return_code = hosting_capacity_cli.main(
@@ -211,6 +213,9 @@ def test_hosting_capacity_cli_prints_json_summary_and_writes_long_form(tmp_path,
     assert summary["completed_point_count"] == 2
     assert summary["failed_point_count"] == 1
     assert summary["requested_periods"] == [0]
+    divisor = 1024 * 1024 if hosting_capacity_cli.sys.platform == "darwin" else 1024
+    assert summary["peak_rss_mb"] == round(2500 / divisor, 3)
+    assert summary["rss_delta_mb"] == round(2000 / divisor, 3)
     assert (output_dir / "hosting_capacity_long.csv.gz").is_file()
 
 
@@ -226,6 +231,8 @@ def test_hosting_capacity_cli_returns_interrupted_and_keeps_checkpoint(tmp_path,
         raise KeyboardInterrupt
 
     monkeypatch.setattr(hosting_capacity_cli, "compute_hosting_capacity_matrix", interrupted_compute)
+    snapshots = iter(((1000, 500), (1400, 2500)))
+    monkeypatch.setattr(hosting_capacity_cli, "_resource_usage_snapshot", lambda: next(snapshots))
     output_dir = tmp_path / "output"
 
     return_code = hosting_capacity_cli.main(
@@ -241,7 +248,43 @@ def test_hosting_capacity_cli_returns_interrupted_and_keeps_checkpoint(tmp_path,
     assert return_code == 130
     summary = json.loads(capsys.readouterr().out)
     assert summary["resume_status"] == "interrupted"
+    divisor = 1024 * 1024 if hosting_capacity_cli.sys.platform == "darwin" else 1024
+    assert summary["peak_rss_mb"] == round(2500 / divisor, 3)
+    assert summary["rss_delta_mb"] == round(2000 / divisor, 3)
     assert (checkpoint_dir / "period_000000.npz").is_file()
+
+
+def test_cli_resource_metrics_match_benchmark_units_and_max_delta(monkeypatch):
+    from ercot_game import hosting_capacity_cli
+
+    class FakeResource:
+        RUSAGE_SELF = object()
+        RUSAGE_CHILDREN = object()
+
+        def __init__(self):
+            self.values = iter((1000, 500, 1400, 2500))
+
+        def getrusage(self, _kind):
+            return SimpleNamespace(ru_maxrss=next(self.values))
+
+    monkeypatch.setattr(hosting_capacity_cli, "resource", FakeResource())
+    before = hosting_capacity_cli._resource_usage_snapshot()
+    after = hosting_capacity_cli._resource_usage_snapshot()
+
+    divisor = 1024 * 1024 if hosting_capacity_cli.sys.platform == "darwin" else 1024
+    assert hosting_capacity_cli._peak_rss_mb(after) == round(2500 / divisor, 3)
+    assert hosting_capacity_cli._rss_delta_mb(before, after) == round(2000 / divisor, 3)
+
+
+def test_cli_resource_metrics_are_null_when_unavailable(monkeypatch):
+    from ercot_game import hosting_capacity_cli
+
+    monkeypatch.setattr(hosting_capacity_cli, "resource", None)
+    before = hosting_capacity_cli._resource_usage_snapshot()
+    after = hosting_capacity_cli._resource_usage_snapshot()
+
+    assert hosting_capacity_cli._peak_rss_mb(after) is None
+    assert hosting_capacity_cli._rss_delta_mb(before, after) is None
 
 
 def _write_interrupt_checkpoint(path: Path, period_index: int, statuses: list[str]) -> None:
