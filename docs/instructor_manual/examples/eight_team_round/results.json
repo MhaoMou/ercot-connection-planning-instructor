@@ -13,6 +13,11 @@
  "projection_activated": false,
  "accepted_submission_count": 8,
  "rejected_submission_count": 0,
+ "aggregate": {
+  "connected_capacity_mw": 705.0,
+  "served_load_mwh": 3079440.0,
+  "score": 2016918545.6668699
+ },
  "runtime_seconds": 1507.8,
  "peak_memory_gib": 9.620132446289062,
  "teams": [

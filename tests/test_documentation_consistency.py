@@ -278,10 +278,10 @@ def test_release_docs_distinguish_canonical_source_control_from_validation():
 
     assert "canonical" in normalized_guide
     assert "source-controlled" in normalized_guide
-    assert "release validation is pending" in normalized_guide
-    assert "not validated" in normalized_guide
+    assert "complete highs-backed release validation" in normalized_guide
+    assert "all six blocks are release-validated" in normalized_guide
     assert package_lines
-    assert all("validated" not in line for line in package_lines)
+    assert any("validated" in line for line in package_lines)
 
     calibration = (
         REPOSITORY_ROOT / "docs" / "ERCOT_DISPATCH_SCORING_CALIBRATION.md"
