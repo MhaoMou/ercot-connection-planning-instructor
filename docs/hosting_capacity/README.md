@@ -62,8 +62,8 @@ separate processes; each worker constructs its own solver model, and no solver
 object crosses a process boundary. Candidate buses within one period are not
 parallelized.
 
-The default `auto` selection prefers licensed Gurobi and falls back to portable
-HiGHS when Gurobi is unavailable. The CLI accepts `highs`, `gurobi`, or `auto`;
+The default `auto` selection prefers Gurobi when available and falls back to
+portable HiGHS otherwise. The CLI accepts `highs`, `gurobi`, or `auto`;
 Gurobi is optional and is never imported at module import time. `workers > 1`
 cannot be combined with `--solver-threads > 1`, avoiding uncontrolled nested
 parallelism.
@@ -249,3 +249,22 @@ The IEEE-14 case measures plumbing and solver correctness on one tiny period; do
 not extrapolate its wall time or memory to ACTIVSg2000 production runs. Interpret
 production performance only from measurements using the target prepared
 artifact, requested horizon, candidate-bus count, backend, and parallelism.
+
+## 13. Release benchmark measured results
+
+The release benchmark evidence is recorded in
+[`benchmark-results.jsonl`](benchmark-results.jsonl), with the transparent
+status report in [`benchmark-report.md`](benchmark-report.md). The environment
+date is 2026-10-15.
+
+The only published measured row is the IEEE-14 one-period stage. It used HiGHS
+with one worker and one solver thread and recorded `wall_time_s=0.007359`,
+`peak_rss_mb=33.797`, `rss_delta_mb=0.609`, `completed_points=14`, and
+`failed_points=14`; `model_build_time_s` was `null`. All 14 completed point
+records were failed because `highspy` was unavailable, so there is no successful
+hosting-capacity value or solver-performance claim in this release evidence.
+
+The ACTIVSg2000 one-period attempt was blocked before its stage row by
+`validation_status=unverified_dependency`. The 24-period, 168-period, and
+full-horizon stages were not run. These limitations mean the published row is
+not evidence for ACTIVSg2000 timing, memory, capacity, or full-horizon behavior.

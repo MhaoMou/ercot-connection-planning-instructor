@@ -1,0 +1,1 @@
+{"backend": "highs", "completed_points": 14, "failed_points": 14, "mean_point_time_s": 0.000103, "model_build_time_s": null, "p50_point_time_s": 0.000103, "p95_point_time_s": 0.000103, "peak_rss_mb": 33.797, "resume_status": "fresh", "rss_delta_mb": 0.609, "solver_threads": 1, "stage": "ieee14-1", "wall_time_s": 0.007359, "workers": 1}
