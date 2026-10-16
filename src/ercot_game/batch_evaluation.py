@@ -132,6 +132,7 @@ class BatchScoringRules:
     default_generator_cost_per_mwh: float = 100.0
     storage_capital_cost_per_mw: float = 0.0
     storage_capital_cost_per_mwh: float = 0.0
+    storage_boundary_mode: str = "half_year_terminal_floor"
     economic_profiles: HourlyEconomicProfiles | None = None
 
     def __post_init__(self) -> None:
@@ -159,6 +160,10 @@ class BatchScoringRules:
         )
         for name in ("storage_capital_cost_per_mw", "storage_capital_cost_per_mwh"):
             _validate_rule_number(name, getattr(self, name), nonnegative=True)
+        if self.storage_boundary_mode not in {"half_year_terminal_floor", "daily_exact_cycle"}:
+            raise ValueError(
+                "storage_boundary_mode must be 'half_year_terminal_floor' or 'daily_exact_cycle'"
+            )
         if self.economic_profiles is not None and not isinstance(self.economic_profiles, HourlyEconomicProfiles):
             raise ValueError("economic_profiles must be an HourlyEconomicProfiles instance")
 
@@ -337,6 +342,7 @@ def load_scoring_rules(
         default_generator_cost_per_mwh=float(payload.get("default_generator_cost_per_mwh", 100.0)),
         storage_capital_cost_per_mw=float(payload.get("storage_capital_cost_per_mw", 0.0)),
         storage_capital_cost_per_mwh=float(payload.get("storage_capital_cost_per_mwh", 0.0)),
+        storage_boundary_mode=str(payload.get("storage_boundary_mode", "half_year_terminal_floor")),
         economic_profiles=economic_profiles,
     )
 
@@ -535,6 +541,11 @@ def _score_team(
                     return max(0.0, float(lmp_by_bus[bus_id]))
                 if profiles is not None:
                     return profiles.price_for_bus(bus_id, period_index)
+                if period_index >= len(rules.energy_price_per_mwh):
+                    raise ValueError(
+                        "Submission 2 requires a dispatch LMP for every grid purchase "
+                        "when no static energy-price profile is configured"
+                    )
                 return rules.energy_price_per_mwh[period_index]
 
             if purchases_by_bus is not None and team_id in purchases_by_bus:
@@ -663,7 +674,13 @@ def _infeasible_score(
     )
 
 
-def _validate_rules(rules: BatchScoringRules, horizon: int, period_indices: tuple[int, ...]) -> None:
+def _validate_rules(
+    rules: BatchScoringRules,
+    horizon: int,
+    period_indices: tuple[int, ...],
+    *,
+    submission_number: int | None = None,
+) -> None:
     if horizon <= 0:
         raise ValueError("horizon must be positive")
     if not period_indices:
@@ -679,8 +696,10 @@ def _validate_rules(rules: BatchScoringRules, horizon: int, period_indices: tupl
     if rules.economic_profiles is not None:
         if max(period_indices) >= rules.economic_profiles.horizon_hours:
             raise ValueError("economic profile must cover the selected period indices")
-    elif max(period_indices) >= len(rules.it_value_per_mwh) or max(period_indices) >= len(rules.energy_price_per_mwh):
-        raise ValueError("scoring price/value vectors must cover the selected period indices")
+    elif max(period_indices) >= len(rules.it_value_per_mwh):
+        raise ValueError("scoring value vector must cover the selected period indices")
+    elif submission_number != 2 and max(period_indices) >= len(rules.energy_price_per_mwh):
+        raise ValueError("scoring energy price vector must cover the selected period indices")
     if not math.isfinite(rules.time_step_hours) or rules.time_step_hours <= 0:
         raise ValueError("time_step_hours must be finite and positive")
 
@@ -979,6 +998,7 @@ def _fair_continuous_projection(
     storage_parallel_workers: int | None = None,
     storage_solver_threads: int = 1,
     storage_solver_backend: str = "auto",
+    storage_boundary_mode: str = "half_year_terminal_floor",
     storage_wall_time_limit_seconds: float | None = 1500.0,
     storage_max_iterations: int = 200,
     storage_tighten_feasible_bounds: bool = False,
@@ -1028,11 +1048,13 @@ def _fair_continuous_projection(
                 projected_plans,
                 period_indices,
                 source_period_indices=source_period_indices,
+                time_step_hours=time_step_hours,
                 stop_on_infeasible=True,
                 storage_solver=storage_solver,
                 storage_parallel_workers=storage_parallel_workers,
                 storage_solver_threads=storage_solver_threads,
                 storage_solver_backend=storage_solver_backend,
+                storage_boundary_mode=storage_boundary_mode,
                 storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
                 storage_max_iterations=storage_max_iterations,
                 storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
@@ -1403,12 +1425,14 @@ def _dispatch_plans(
     period_indices: tuple[int, ...],
     *,
     source_period_indices: tuple[int, ...] | None = None,
+    time_step_hours: float = 1.0,
     workers: int = 1,
     stop_on_infeasible: bool = False,
     storage_solver: str = "benders",
     storage_parallel_workers: int | None = None,
     storage_solver_threads: int = 1,
     storage_solver_backend: str = "auto",
+    storage_boundary_mode: str = "half_year_terminal_floor",
     storage_wall_time_limit_seconds: float | None = 1500.0,
     storage_max_iterations: int = 200,
     storage_tighten_feasible_bounds: bool = False,
@@ -1424,6 +1448,8 @@ def _dispatch_plans(
         else tuple(source_period_indices)
     )
     _validate_period_mapping(period_indices, source_periods)
+    if not math.isfinite(time_step_hours) or time_step_hours <= 0:
+        raise ValueError("time_step_hours must be finite and positive")
     adapter_plans = _source_indexed_plans(
         plans,
         period_indices,
@@ -1440,13 +1466,17 @@ def _dispatch_plans(
     if storage_solver_backend != "auto":
         optional["storage_solver_backend"] = storage_solver_backend
     if storage_solver_threads != 1:
-        optional["solver_threads"] = storage_solver_threads
+        optional["storage_solver_threads"] = storage_solver_threads
+    if storage_boundary_mode != "half_year_terminal_floor":
+        optional["storage_boundary_mode"] = storage_boundary_mode
     if storage_wall_time_limit_seconds != 1500.0:
         optional["storage_wall_time_limit_seconds"] = storage_wall_time_limit_seconds
     if storage_max_iterations != 200:
         optional["storage_max_iterations"] = storage_max_iterations
     if storage_tighten_feasible_bounds:
         optional["tighten_feasible_bounds"] = True
+    if time_step_hours != 1.0:
+        optional["time_step_hours"] = time_step_hours
     if not optional:
         dispatch = evaluate_plans_with_prepared_dcopf(
             artifact_dir, adapter_plans, period_indices=source_periods
@@ -1587,6 +1617,7 @@ def evaluate_csv_batch(
     storage_parallel_workers: int | None = None,
     storage_solver_threads: int = 1,
     storage_solver_backend: str = "auto",
+    storage_boundary_mode: str | None = None,
     storage_wall_time_limit_seconds: float | None = 1500.0,
     storage_max_iterations: int = 200,
     storage_tighten_feasible_bounds: bool = False,
@@ -1620,6 +1651,15 @@ def evaluate_csv_batch(
         raise ValueError("storage_solver must be 'benders' or 'monolithic'")
     if storage_solver_backend not in {"auto", "highs", "gurobi"}:
         raise ValueError("storage_solver_backend must be 'auto', 'highs', or 'gurobi'")
+    effective_storage_boundary_mode = (
+        rules.storage_boundary_mode
+        if storage_boundary_mode is None
+        else storage_boundary_mode
+    )
+    if effective_storage_boundary_mode not in {"half_year_terminal_floor", "daily_exact_cycle"}:
+        raise ValueError(
+            "storage_boundary_mode must be 'half_year_terminal_floor' or 'daily_exact_cycle'"
+        )
     if storage_parallel_workers is not None and (
         not isinstance(storage_parallel_workers, int)
         or isinstance(storage_parallel_workers, bool)
@@ -1651,7 +1691,14 @@ def evaluate_csv_batch(
         raise ValueError(
             "provide either source_period_indices or source_period_offset, not both"
         )
-    _validate_rules(rules, horizon, selected_periods)
+    if submission_number not in (None, 1, 2):
+        raise ValueError("submission_number must be 1, 2, or None")
+    _validate_rules(
+        rules,
+        horizon,
+        selected_periods,
+        submission_number=submission_number,
+    )
     if source_period_indices is None:
         offset = (
             _default_source_period_offset(horizon)
@@ -1697,8 +1744,6 @@ def evaluate_csv_batch(
     _validate_capital_cost_scope(capital_cost_scope, plans)
     _validate_site_cost_scope(site_cost_connection_count_by_team, plans)
     _validate_site_cost_capacity_scope(site_cost_connection_capacity_mw_by_team, plans)
-    if submission_number not in (None, 1, 2):
-        raise ValueError("submission_number must be 1, 2, or None")
     record_by_team = {record.team_id: record for record in accepted}
     all_records = tuple(
         sorted(
@@ -1732,11 +1777,13 @@ def evaluate_csv_batch(
                 plans,
                 selected_periods,
                 source_period_indices=selected_source_periods,
+                time_step_hours=rules.time_step_hours,
                 workers=dispatch_workers,
                 storage_solver=storage_solver,
                 storage_parallel_workers=storage_parallel_workers,
                 storage_solver_threads=storage_solver_threads,
                 storage_solver_backend=storage_solver_backend,
+                storage_boundary_mode=effective_storage_boundary_mode,
                 storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
                 storage_max_iterations=storage_max_iterations,
                 storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
@@ -1771,6 +1818,7 @@ def evaluate_csv_batch(
                 storage_parallel_workers=storage_parallel_workers,
                 storage_solver_threads=storage_solver_threads,
                 storage_solver_backend=storage_solver_backend,
+                storage_boundary_mode=effective_storage_boundary_mode,
                 storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
                 storage_max_iterations=storage_max_iterations,
                 storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
@@ -1869,11 +1917,13 @@ def evaluate_csv_batch(
                         remainder,
                         selected_periods,
                         source_period_indices=selected_source_periods,
+                        time_step_hours=rules.time_step_hours,
                         workers=dispatch_workers,
                         storage_solver=storage_solver,
                         storage_parallel_workers=storage_parallel_workers,
                         storage_solver_threads=storage_solver_threads,
                         storage_solver_backend=storage_solver_backend,
+                        storage_boundary_mode=effective_storage_boundary_mode,
                         storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
                         storage_max_iterations=storage_max_iterations,
                         storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
@@ -1977,11 +2027,13 @@ def evaluate_csv_batch(
                             (plan,),
                             selected_periods,
                             source_period_indices=selected_source_periods,
+                            time_step_hours=rules.time_step_hours,
                             workers=dispatch_workers,
                             storage_solver=storage_solver,
                             storage_parallel_workers=storage_parallel_workers,
                             storage_solver_threads=storage_solver_threads,
                             storage_solver_backend=storage_solver_backend,
+                            storage_boundary_mode=effective_storage_boundary_mode,
                             storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
                             storage_max_iterations=storage_max_iterations,
                             storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
@@ -2120,6 +2172,7 @@ def evaluate_csv_batch(
             "default_generator_cost_per_mwh": generator_cost,
             "storage_capital_cost_per_mw": rules.storage_capital_cost_per_mw,
             "storage_capital_cost_per_mwh": rules.storage_capital_cost_per_mwh,
+            "storage_boundary_mode": rules.storage_boundary_mode,
             "submission_number": submission_number,
             **(
                 {

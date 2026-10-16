@@ -149,3 +149,48 @@ checkout no longer mutates source-tree generated inputs.
 - The student preview remains intentionally non-authoritative; users must
   compare final submissions with the authoritative assignment/evaluator
   contract.
+
+## Canonical six-hour release audit — 2026-10-16
+
+The canonical game configuration is now the six-hour ACTIVSg2000 release with
+`daily_exact_cycle` storage. The hourly package remains available as a
+derivation/reference input and is not the default student-game configuration.
+Submission 2 energy purchases settle against LMPs from the actual joint
+dispatch; a baseline `economic_profiles.npz` is optional diagnostic material,
+not a required scoring input.
+
+### Scenario-package validation
+
+```text
+PYTHONPATH=/private/tmp/ercot_highs_target:src:. \
+  python tools/activsg2000/validate_scenario_package.py \
+  --package data/processed/activsg2000_scenarios_v2_6h --workers 4
+```
+
+Result: `hour_count=4384`, `expected_hour_count=4384`,
+`passed_hour_count=4384`, `failed_hour_count=0`, and
+`unverified_hour_count=0`. All six 2027--2029 half-year blocks have
+`validation_status: passed` and a validated state hash.
+
+### Official eight-team benchmark
+
+The benchmark used the checked-in six-hour package and rules directly, with no
+temporary manifest or zero-price override:
+
+```text
+PYTHONPATH=/private/tmp/ercot_highs_target:src:. \
+  python -m ercot_game.batch_cli run \
+  --submissions-dir docs/instructor_manual/examples/eight_team_round/submissions \
+  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
+  --rules data/teaching/dispatch_scoring_rules_jan_jun_6h_v1.json \
+  --horizon 728 --workers 4 --submission-number 2 \
+  --output-mode compact --solver-backend auto --solver-threads 1 \
+  --output-dir /private/tmp/ercot_official_6h_release/results
+```
+
+Result: 8 teams scored, 0 rejected, all 8 feasible. Wall time was
+`330.11` seconds on the local machine. The evaluation hash was
+`1198ea0ef2fe6f3ff99b4d94437fe7738d2d3d2dd20cabb96dc3c0a7b60b4125`.
+
+The benchmark output is intentionally kept under `/private/tmp`; it is not a
+student-facing ranking artifact.

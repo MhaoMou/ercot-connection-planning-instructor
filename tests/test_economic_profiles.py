@@ -80,6 +80,7 @@ def test_baseline_builder_writes_json_it_profile_next_to_lmp_artifacts(tmp_path:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert profile["it_value_per_mwh"] == [DEFAULT_IT_VALUE_PER_MWH] * 2
     assert profile["it_value_provenance"]["horizon_hours"] == 2
+    assert profile["it_value_provenance"]["time_step_hours"] == 1.0
     assert metadata["artifact_files"]["economic_profile_json"] == "economic_profile.json"
     assert manifest["economic_profile_json_sha256"] == hashlib.sha256(profile_path.read_bytes()).hexdigest()
 

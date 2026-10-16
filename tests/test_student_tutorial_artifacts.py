@@ -263,9 +263,9 @@ def test_task5_pipeline_assigns_context_to_package_and_csv_to_student():
     pipeline = (TUTORIAL_ROOT / "figures" / "pipeline.tex").read_text(encoding="utf-8").lower()
     caption = (TUTORIAL_ROOT / "main.tex").read_text(encoding="utf-8").lower()
 
-    assert "public/network/" in pipeline
-    assert "scenario context" in pipeline
-    assert "validation inputs" in pipeline
+    assert "hourly source data" in pipeline
+    assert "six-hour release" in pipeline
+    assert "6-hour profiles" in pipeline
     assert "student creates" in pipeline
     assert "package -- (csv)" not in pipeline
     assert "feeds the seven-column site csv" not in caption
@@ -284,7 +284,7 @@ def test_task5_csv_flow_separates_exact_evaluator_from_preview():
     assert "dcopf/lp" in flow
     assert "every 6th hour" in main
     assert "not dispatched (idle)" in main
-    assert "dispatched over the whole half-year" in main
+    assert "dispatched independently within each 24-hour block" in main
 
 
 def test_task5_csv_flow_gives_output_boxes_a_clear_vertical_gap():
@@ -451,7 +451,7 @@ def test_latex_presentation_layer_has_required_source_contracts():
     assert "breaklines=true" in main
     assert "breakatwhitespace=false" in main
     assert "emergencystretch=3em" in main
-    for phrase in ("Using AI", "privacy", "one-hour half-year", "student_preview"):
+    for phrase in ("Using AI", "privacy", "six-hour half-year", "student_preview"):
         assert phrase.lower() in main.lower()
     assert "@misc{activsg2000" in bibliography
 

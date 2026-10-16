@@ -1,0 +1,8 @@
+{
+  "aggregation_method": "mean",
+  "aggregation_note": "Each operating period represents six consecutive source hours; MW rates and loads are averaged and flow-based economics use time_step_hours=6.",
+  "calendar_block": "jan_jun",
+  "source_horizon_hours": 4344,
+  "time_step_hours": 6,
+  "year": 2029
+}

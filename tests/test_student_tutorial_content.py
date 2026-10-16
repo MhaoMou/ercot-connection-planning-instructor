@@ -53,7 +53,7 @@ def test_legacy_terms_are_allowed_only_as_explicit_rejections_or_comparisons(tmp
         encoding="utf-8",
     )
     (tmp_path / "main.tex").write_text(
-        "AI-use and privacy guidance. one-hour half-year scenarios.\n"
+        "AI-use and privacy guidance. six-hour half-year scenarios.\n"
         "4,368 hours for 2028 January--June and 4,416 hours for July--December.\n"
         "The current CSV header is team_id,site_id,bus_id,connection_capacity_mw,"
         "generator_capacity_mw,storage_power_mw,storage_energy_mwh.\n"

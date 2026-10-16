@@ -21,6 +21,25 @@ EXPECTED_HORIZONS = {
     "2029-jul_dec": 4416,
 }
 
+AGGREGATED_TIME_STEP_HOURS = 6
+AGGREGATED_EXPECTED_HORIZONS = {
+    block: horizon // AGGREGATED_TIME_STEP_HOURS
+    for block, horizon in EXPECTED_HORIZONS.items()
+}
+SUPPORTED_PACKAGE_VERSIONS = frozenset(
+    {"activsg2000-scenarios-v1", "activsg2000-scenarios-v2-6h"}
+)
+
+
+def expected_horizons_for_manifest(payload: dict[str, Any]) -> dict[str, int]:
+    """Return the horizon contract selected by a scenario manifest."""
+    version = payload.get("package_version")
+    if version == "activsg2000-scenarios-v1":
+        return EXPECTED_HORIZONS
+    if version == "activsg2000-scenarios-v2-6h":
+        return AGGREGATED_EXPECTED_HORIZONS
+    raise ScenarioPackageError("unsupported scenario package_version")
+
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
@@ -39,17 +58,18 @@ def load_scenario_manifest(root: str | Path, *, require_validated: bool = True) 
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ScenarioPackageError(f"cannot read scenario manifest: {exc}") from exc
-    if payload.get("package_version") != "activsg2000-scenarios-v1":
-        raise ScenarioPackageError("unsupported scenario package_version")
+    expected_horizons = expected_horizons_for_manifest(payload)
     if require_validated and payload.get("validation_status") != "passed":
         raise ScenarioPackageError("scenario manifest validation_status is not passed")
     blocks = payload.get("blocks")
-    if not isinstance(blocks, dict) or set(blocks) != set(EXPECTED_HORIZONS):
+    if not isinstance(blocks, dict) or set(blocks) != set(expected_horizons):
         raise ScenarioPackageError("scenario manifest must contain all six half-year blocks")
-    for block, horizon in EXPECTED_HORIZONS.items():
+    for block, horizon in expected_horizons.items():
         entry = blocks.get(block)
         if not isinstance(entry, dict) or entry.get("horizon") != horizon:
             raise ScenarioPackageError(f"invalid horizon for scenario block {block}")
+        if payload.get("package_version") == "activsg2000-scenarios-v2-6h" and entry.get("time_step_hours") != AGGREGATED_TIME_STEP_HOURS:
+            raise ScenarioPackageError(f"invalid time_step_hours for scenario block {block}")
         if not isinstance(entry.get("sha256"), str) or not entry["sha256"]:
             raise ScenarioPackageError(f"missing hash for scenario block {block}")
     network = payload.get("network")
@@ -74,7 +94,7 @@ def require_validated_block(root: str | Path) -> dict[str, Any]:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ScenarioPackageError(f"cannot read scenario block manifest: {exc}") from exc
-    if payload.get("package_version") != "activsg2000-scenarios-v1":
+    if payload.get("package_version") not in SUPPORTED_PACKAGE_VERSIONS:
         raise ScenarioPackageError("unsupported scenario block package_version")
     if payload.get("validation_status") != "passed":
         raise ScenarioPackageError("scenario block validation_status is not passed")

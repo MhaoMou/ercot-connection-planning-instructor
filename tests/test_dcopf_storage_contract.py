@@ -4,12 +4,15 @@ import math
 
 import pytest
 
+from tools.activsg2000 import dcopf
 from tools.activsg2000.dcopf import (
     Branch,
     Bus,
+    DCOPFResult,
     Generator,
     StorageDispatchAsset,
     _group_storage_by_owner_bus,
+    solve_dcopf_daily_blocks,
     solve_dcopf_horizon,
 )
 
@@ -119,3 +122,109 @@ def test_horizon_solver_rejects_non_sequence_owner_load_horizon() -> None:
 def test_horizon_solver_rejects_non_numeric_time_step() -> None:
     with pytest.raises(ValueError, match="time_step_hours must be finite and positive"):
         solve_dcopf_horizon(periods=(_period(),), time_step_hours="one hour")
+
+
+def test_horizon_solver_supports_exact_half_full_terminal_boundary() -> None:
+    period = (
+        (Bus("B1", 2.0, reference=True),),
+        (Generator("g1", "B1", 0.0, 10.0, 1.0),),
+        (),
+    )
+
+    result = solve_dcopf_horizon(
+        periods=(period, period),
+        storage_assets=(StorageDispatchAsset("store-a", "team-a", "B1", 2.0, 10.0, 5.0),),
+        owner_load_mw_by_team={"team-a": ({"B1": 2.0}, {"B1": 2.0})},
+        terminal_soc_policy="exact_half",
+    )
+
+    assert result.final_soc_mwh_by_storage["store-a"] == pytest.approx(5.0)
+
+
+def test_benders_daily_cycle_resets_storage_at_every_day_boundary() -> None:
+    period = (
+        (Bus("B1", 2.0, reference=True),),
+        (Generator("g1", "B1", 0.0, 10.0, 1.0),),
+        (),
+    )
+    periods = (period,) * 48
+
+    result = dcopf.solve_dcopf_horizon_benders(
+        periods=periods,
+        storage_assets=(StorageDispatchAsset("store-a", "team-a", "B1", 2.0, 10.0, 5.0),),
+        owner_load_mw_by_team={"team-a": ({"B1": 2.0},) * 48},
+        storage_cycle_hours=24,
+        terminal_soc_policy="exact_half",
+        solver_backend="highs",
+    )
+
+    assert result.periods[23].storage_soc_mwh["store-a"] == pytest.approx(5.0)
+    first_hour_of_day_two = result.periods[24]
+    assert (
+        first_hour_of_day_two.storage_soc_mwh["store-a"]
+        + first_hour_of_day_two.storage_discharge_mw["store-a"]
+        - first_hour_of_day_two.storage_charge_mw["store-a"]
+    ) == pytest.approx(5.0)
+    assert result.periods[47].storage_soc_mwh["store-a"] == pytest.approx(5.0)
+
+
+def test_daily_blocks_reset_each_storage_to_half_full() -> None:
+    period = (
+        (Bus("B1", 2.0, reference=True),),
+        (Generator("g1", "B1", 0.0, 10.0, 1.0),),
+        (),
+    )
+    periods = (period,) * 48
+
+    result = solve_dcopf_daily_blocks(
+        periods=periods,
+        storage_assets=(StorageDispatchAsset("store-a", "team-a", "B1", 2.0, 10.0, 5.0),),
+        owner_load_mw_by_team={"team-a": ({"B1": 2.0},) * 48},
+        block_hours=24,
+    )
+
+    assert len(result.periods) == 48
+    assert result.periods[23].storage_soc_mwh["store-a"] == pytest.approx(5.0)
+    first_hour_of_day_two = result.periods[24]
+    assert (
+        first_hour_of_day_two.storage_soc_mwh["store-a"]
+        + first_hour_of_day_two.storage_discharge_mw["store-a"]
+        - first_hour_of_day_two.storage_charge_mw["store-a"]
+    ) == pytest.approx(5.0)
+
+
+def test_prepared_daily_blocks_split_into_exact_cycle_calls(monkeypatch) -> None:
+    calls = []
+
+    def fake_benders(_artifact_dir, **kwargs):
+        calls.append(kwargs)
+        periods = tuple(
+            DCOPFResult(
+                status="optimal",
+                objective_cost=0.0,
+                generation_mw={},
+                angle_by_bus={},
+                flow_mw_by_branch={},
+                balance_dual_by_bus={},
+                storage_soc_mwh={"store-a": 5.0},
+            )
+            for _ in kwargs["period_indices"]
+        )
+        return dcopf.DCOPFHorizonResult(
+            status="optimal",
+            periods=periods,
+            final_soc_mwh_by_storage={"store-a": 5.0},
+        )
+
+    monkeypatch.setattr(dcopf, "solve_prepared_horizon_benders", fake_benders)
+    result = dcopf.solve_prepared_daily_blocks(
+        "unused-artifact",
+        period_indices=tuple(range(48)),
+        storage_assets=(StorageDispatchAsset("store-a", "team-a", "B1", 2.0, 10.0, 9.0),),
+        owner_load_mw_by_team={"team-a": ({"B1": 2.0},) * 48},
+    )
+
+    assert [call["period_indices"] for call in calls] == [tuple(range(24)), tuple(range(24, 48))]
+    assert all(call["terminal_soc_policy"] == "exact_half" for call in calls)
+    assert all(call["storage_assets"][0].initial_soc_mwh == 5.0 for call in calls)
+    assert result.final_soc_mwh_by_storage["store-a"] == pytest.approx(5.0)

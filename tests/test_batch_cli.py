@@ -142,6 +142,7 @@ def test_help_is_available_without_optional_solver_dependencies(capsys):
     assert "--workers" in captured.out
     assert "--projection-iterations" in captured.out
     assert "--submission-number" in captured.out
+    assert "--solver-threads" in captured.out
 
 
 def test_cli_defaults_to_scored_submission_number_two(tmp_path, monkeypatch, capsys):
@@ -164,6 +165,21 @@ def test_cli_defaults_to_scored_submission_number_two(tmp_path, monkeypatch, cap
 
     assert observed == [2]
     assert "summary: 0 teams scored, 0 rejected" in capsys.readouterr().out
+
+
+def test_cli_defaults_to_six_hour_game_periods():
+    parser = batch_cli._build_parser()
+    args = parser.parse_args(
+        [
+            "run",
+            "--submissions-dir", "submissions",
+            "--artifact-dir", "artifact",
+            "--rules", "rules.json",
+            "--output-dir", "output",
+        ]
+    )
+
+    assert args.time_step_hours == 6
 
 
 def test_cli_forwards_submission_number_one(tmp_path, monkeypatch, capsys):

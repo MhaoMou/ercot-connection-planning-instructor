@@ -1,4 +1,4 @@
-"""Build deterministic hourly economic-profile inputs for teaching blocks."""
+"""Build deterministic economic-profile inputs for teaching blocks."""
 
 from __future__ import annotations
 
@@ -127,10 +127,10 @@ def build_baseline_lmp_profile(
     epsilon_mw: float = 1e-2,
     require_validated: bool = True,
 ) -> dict[str, Any]:
-    """Generate a deterministic hourly baseline LMP artifact for one block.
+    """Generate a deterministic baseline LMP artifact for one released block.
 
     The student plan is absent by construction.  The resulting matrices are
-    indexed ``[hour, bus]`` and contain both the raw balance dual and the
+    indexed by operating period and bus, and contain both the raw balance dual and the
     non-negative scoring LMP.  A one-hour finite-difference perturbation is
     solved before generation to validate the dual sign convention.
     """
@@ -148,6 +148,22 @@ def build_baseline_lmp_profile(
         raise ValueError("scenario block manifest must contain a positive integer horizon")
     if not math.isfinite(epsilon_mw) or epsilon_mw <= 0:
         raise ValueError("epsilon_mw must be finite and positive")
+    profile_metadata: dict[str, Any] = {}
+    profile_path = artifact_root / "scenario_profile.json"
+    if profile_path.is_file():
+        profile_metadata = json.loads(profile_path.read_text(encoding="utf-8"))
+        if not isinstance(profile_metadata, dict):
+            raise ValueError("scenario_profile.json must contain a JSON object")
+    time_step_hours = profile_metadata.get("time_step_hours", 1)
+    if (
+        not isinstance(time_step_hours, (int, float))
+        or isinstance(time_step_hours, bool)
+        or not math.isfinite(float(time_step_hours))
+        or float(time_step_hours) <= 0
+    ):
+        raise ValueError("scenario_profile.json time_step_hours must be positive")
+    time_step_hours = float(time_step_hours)
+    source_horizon_hours = profile_metadata.get("source_horizon_hours", horizon * time_step_hours)
     bus_ids = _read_bus_ids(artifact_root)
 
     base_result = solve_prepared_period(artifact_root, period_index=0)
@@ -189,9 +205,17 @@ def build_baseline_lmp_profile(
         {"raw_balance_dual": raw_duals, "lmp_per_mwh": scoring_lmps},
     )
     it_profile_path = output_root / "economic_profile.json"
+    it_value_provenance = it_value_metadata(horizon)
+    it_value_provenance.update(
+        {
+            "horizon_periods": horizon,
+            "time_step_hours": time_step_hours,
+            "source_horizon_hours": source_horizon_hours,
+        }
+    )
     it_profile_payload = {
         "it_value_per_mwh": build_it_value_profile(horizon),
-        "it_value_provenance": it_value_metadata(horizon),
+        "it_value_provenance": it_value_provenance,
     }
     it_profile_path.write_text(
         json.dumps(it_profile_payload, indent=2, sort_keys=True) + "\n",
@@ -200,6 +224,9 @@ def build_baseline_lmp_profile(
     metadata: dict[str, Any] = {
         "profile_version": LMP_PROFILE_VERSION,
         "horizon_hours": horizon,
+        "horizon_periods": horizon,
+        "time_step_hours": time_step_hours,
+        "source_horizon_hours": source_horizon_hours,
         "bus_ids": bus_ids,
         "price_source": "baseline ACTIVSg2000 DCOPF balance duals",
         "price_interpretation": "instructional model-derived nodal marginal energy prices; not official ERCOT market prices",

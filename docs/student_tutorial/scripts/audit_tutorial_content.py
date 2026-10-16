@@ -75,7 +75,7 @@ LEGACY_PATTERNS = {
     "path-corridor field": re.compile(r"\bpath[- ]corridor\b", re.I),
     "teaching-bus terminology": re.compile(r"\bteaching bus\b", re.I),
     "obsolete hourly submission field": re.compile(
-        r"(?<![A-Za-z0-9_-])(?:period|load_mw|submission_id|generator_id|storage_id)(?![A-Za-z0-9_-])", re.I
+        r"(?<![A-Za-z0-9_-])(?:period(?=\s*[,\)\]])|load_mw|submission_id|generator_id|storage_id)(?![A-Za-z0-9_-])", re.I
     ),
 }
 EXPLICIT_REJECTION = re.compile(
@@ -413,8 +413,8 @@ def _check_content_contract(root: Path, texts: list[tuple[str, str]], errors: li
     combined = "\n".join(text for _, text in texts)
     if "team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh" not in combined:
         errors.append("tutorial does not show the exact seven-column canonical CSV header")
-    if "one-hour half-year" not in combined.casefold():
-        errors.append("tutorial must explicitly say one-hour half-year")
+    if "six-hour" not in combined.casefold() or "half-year" not in combined.casefold():
+        errors.append("tutorial must explicitly describe the six-hour half-year release")
     if "4,368" not in combined or "4,416" not in combined:
         errors.append("tutorial must include current 4,368 and 4,416 hour semantics")
     if not re.search(r"4,368.{0,120}(?:jan(?:uary)?[-– ]*jun(?:e)?|2028)", combined, re.I | re.S) and not re.search(r"(?:jan(?:uary)?[-– ]*jun(?:e)?|2028).{0,120}4,368", combined, re.I | re.S):

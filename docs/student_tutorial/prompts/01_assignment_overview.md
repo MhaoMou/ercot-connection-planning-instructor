@@ -10,7 +10,7 @@ Explain the current assignment at a student-facing level without replacing the a
 
 ## Context supplied to the AI
 
-Use only the supplied repository sources. The current workflow uses the public synthetic ACTIVSg2000 2,000-bus model, site-level CSV submissions, one-hour half-year scenarios, evaluator-dispatched storage, and student-owned assets that serve only the submitting team. Treat any detail absent from the supplied sources as unknown. Distinguish verified facts, interpretations, and unknowns.
+Use only the supplied repository sources. The current workflow uses the public synthetic ACTIVSg2000 2,000-bus model, site-level CSV submissions, six-hour half-year scenarios with 728 or 736 game periods, evaluator-dispatched storage, and student-owned assets that serve only the submitting team. Treat any detail absent from the supplied sources as unknown. Distinguish verified facts, interpretations, and unknowns.
 
 ## Prompt
 

@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from ercot_game.scenario_package import ScenarioPackageError, require_validated_block
+from ercot_game.scenario_package import (
+    AGGREGATED_EXPECTED_HORIZONS,
+    ScenarioPackageError,
+    require_validated_block,
+)
 from tools.activsg2000.build_scenario_package import build_package
 from tools.activsg2000 import validate_scenario_package
 from tools.activsg2000.validate_scenario_package import validate_package
@@ -109,6 +113,56 @@ def test_missing_highspy_is_unverified_dependency_and_rejects_block(tmp_path: Pa
     assert "highspy" in block_manifest["validation_reason"]
     with pytest.raises(ScenarioPackageError, match="validation_status"):
         require_validated_block(block_manifest_path.parent)
+
+
+def test_validator_uses_aggregate_period_horizons_for_six_hour_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package = tmp_path / "six-hour-package"
+    package.mkdir()
+    blocks = {}
+    for block, horizon in AGGREGATED_EXPECTED_HORIZONS.items():
+        year, calendar_block = block.split("-", 1)
+        block_dir = package / year / calendar_block
+        block_dir.mkdir(parents=True)
+        block_manifest = {
+            "package_version": "activsg2000-scenarios-v2-6h",
+            "validation_status": "pending_aggregation_validation",
+            "block": block,
+            "horizon": horizon,
+        }
+        (block_dir / "manifest.json").write_text(json.dumps(block_manifest), encoding="utf-8")
+        blocks[block] = {"horizon": horizon}
+    (package / "manifest.json").write_text(
+        json.dumps(
+            {
+                "package_version": "activsg2000-scenarios-v2-6h",
+                "validation_status": "pending_aggregation_validation",
+                "blocks": blocks,
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured: list[tuple[str, int, int | None]] = []
+
+    def fake_validate_block(package_path, block, horizon, limit=None):
+        captured.append((block, horizon, limit))
+        return {
+            "block": block,
+            "digest": "digest",
+            "status": "partial",
+            "passed": 0,
+            "failed": 0,
+            "unverified": [],
+            "hour_count": 1,
+            "complete": False,
+            "failures": [],
+        }
+
+    monkeypatch.setattr(validate_scenario_package, "_validate_block", fake_validate_block)
+    validate_scenario_package.validate_package(package, max_hours=1)
+
+    assert captured == [("2027-jan_jun", 724, 1)]
 
 
 def test_missing_highspy_marks_every_block_unverified_when_full_validation_is_requested(

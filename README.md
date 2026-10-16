@@ -2,19 +2,18 @@
 
 Instructor-facing implementation of a competitive connection-planning game
 based on the public synthetic Texas ACTIVSg2000 2,000-bus system. The active
-workflow uses the checked-in three-year ACTIVSg2000 scenario package rather than
-the retired prototype or its abstract teaching network. Full six-block DCOPF
-validation is currently unverified in this environment because the optional
-`highspy` dependency is unavailable; the evaluator remains fail-closed until
-the manifests report `validation_status: passed`.
+workflow uses the checked-in three-year six-hour scenario package rather than
+the retired prototype or its abstract teaching network. The six half-year
+blocks have passed the release DCOPF validation; the hourly package remains a
+derivation/reference input.
 
 ## Current production pipeline
 
 ```text
-ACTIVSg2000 scenario package (full DCOPF validation pending/unverified here)
+ACTIVSg2000 hourly source -> six-hour release package (validated)
         -> student canonical site-level CSV submissions
         -> CSV/catalog validation
-        -> joint DCOPF dispatch
+        -> daily-cycle joint DCOPF dispatch
         -> fair continuous projection if required
         -> team score and ranking
 ```
@@ -22,7 +21,7 @@ ACTIVSg2000 scenario package (full DCOPF validation pending/unverified here)
 The Python evaluator is authoritative. Students submit CSV files; instructors
 run the batch evaluator and return scores plus the intended privacy-safe
 feedback artifacts. Student-owned generators and storage serve only their own
-team. The current score (from `data/teaching/dispatch_scoring_rules_*_v1.json`)
+team. The current score (from `data/teaching/dispatch_scoring_rules_*_6h_v1.json`)
 uses IT value of \$6,500/MWh, a team-generator curve of \$80/\$150/\$250 per
 MWh over 25%/50%/25% of capacity, site cost of \$25M/MW of connection
 capacity, generator capital cost of \$1.5M/MW, and storage capital costs of
@@ -44,7 +43,7 @@ assets reset between weeks.
 | --- | --- |
 | `src/ercot_game/` | Canonical CSV reader, validator, batch evaluator, and CLI |
 | `tools/activsg2000/` | Scenario construction, hourly validation, DCOPF, storage scheduling, and joint dispatch |
-| `data/processed/activsg2000_scenarios_v1/` | Six-block ACTIVSg2000 scenario package; validation is currently unverified |
+| `data/processed/activsg2000_scenarios_v2_6h/` | Canonical validated six-block ACTIVSg2000 package |
 | `data/teaching/` | Half-year scoring rules |
 | `scripts/` | CSV checks, fixture generation, simulation, and summary utilities |
 | `tests/` | Active CSV, batch, DCOPF, storage, and ACTIVSg2000 adapter tests |
@@ -96,10 +95,11 @@ For a 2027 January--June round:
 ```bash
 ercot-game-batch run \
   --submissions-dir path/to/submissions \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2027/jan_jun \
-  --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
+  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2027/jan_jun \
+  --rules data/teaching/dispatch_scoring_rules_jan_jun_6h_v1.json \
   --year 2027 --round jan_jun \
   --submission-number 2 \
+  --horizon 724 \
   --workers 8 \
   --projection-iterations 10 \
   --output-dir work/batch_results_jan_jun
@@ -115,13 +115,14 @@ therefore charges capital for every asset in the files; the `classroom`
 command carries Submission 1 assets into Submission 2 so they are charged only
 once.
 
-Use `--year 2027 --round jul_dec` for July--December. The evaluator derives
-the correct half-year length and source-row offset from the calendar. For
-2028, January--June is 4,368 hours; for 2027 and 2029, January--June is
-4,344 hours; every July--December block is 4,416 hours. The three-year package uses deterministic bus-level load over fixed
-ACTIVSg2000 topology. Generator status, PMIN, PMAX, and marginal costs come
-from the dataset; because ACTIVSg2000 does not provide technology labels or
-hourly availability data, the active release uses static generator limits.
+Use `--year 2027 --round jul_dec` for July--December. The canonical release
+uses six-hour game periods: 724 periods for January--June 2027/2029, 728 for
+January--June 2028, and 736 for July--December. The source profiles contain
+4,344, 4,368, and 4,416 real hours respectively. The three-year package uses
+deterministic bus-level load over fixed ACTIVSg2000 topology. Generator status,
+PMIN, PMAX, and marginal costs come from the dataset; because ACTIVSg2000 does
+not provide technology labels or hourly availability data, the active release
+uses static generator limits.
 See `docs/ACTIVSG2000_SCENARIO_PACKAGE.md`.
 
 If the joint plan is infeasible, the evaluator applies the documented fair

@@ -5,22 +5,17 @@ ACTIVSg2000-based data-center connection-planning game. Its active
 responsibility is to validate student CSV files, run joint DCOPF dispatch on a
 release-approved scenario block, and produce auditable team scores.
 
-Full six-block/hour DCOPF validation is currently pending and unverified because
-the optional `highspy` dependency is unavailable in this environment. The
-checked-in manifests are fail-closed and must not be described as passed or
-validated until a HiGHS-backed validation run succeeds.
-
-The scenario package is canonical and source-controlled, but release validation
-is pending. It is not validated for release until the complete HiGHS-backed
-validation finishes successfully.
+The canonical six-hour scenario package has passed the complete HiGHS-backed
+release validation. The literal-hour package remains available as a
+derivation/reference input and is not the default student-game release.
 
 ## Production boundary
 
 ```text
-Canonical ACTIVSg2000 scenario block; release validation pending (~2,000 buses)
+ACTIVSg2000 hourly source -> validated six-hour scenario block (~2,000 buses)
         -> canonical seven-column site-level student CSV
         -> catalog validation (optional checker context)
-        -> joint hourly DCOPF
+        -> daily-cycle joint DCOPF
         -> fair continuous projection when needed
         -> score components, ranking, and audit outputs
 ```
@@ -32,8 +27,8 @@ The retired browser/practice implementation is recoverable under
 
 - `src/ercot_game/`: canonical CSV and batch-evaluation code.
 - `tools/activsg2000/`: scenario construction, validation, DCOPF, and dispatch adapter.
-- `data/processed/activsg2000_scenarios_v1/`: canonical, source-controlled
-  three-year scenario package; release validation pending.
+- `data/processed/activsg2000_scenarios_v2_6h/`: canonical, source-controlled
+  three-year six-hour scenario package; all six blocks are release-validated.
 - `data/teaching/`: January--June and July--December scoring rules.
 - `scripts/check_submission.py`: student-file validation entry point.
 - `scripts/create_meaningful_test_submissions.py`: **legacy/historical complete-horizon
@@ -58,10 +53,11 @@ ercot-game-check-csv \
 
 ercot-game-batch run \
   --submissions-dir path/to/submissions \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2027/jan_jun \
-  --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
+  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2027/jan_jun \
+  --rules data/teaching/dispatch_scoring_rules_jan_jun_6h_v1.json \
   --year 2027 --round jan_jun \
   --submission-number 2 \
+  --horizon 724 \
   --workers 8 \
   --projection-iterations 10 \
   --output-dir work/batch_results_jan_jun
@@ -90,25 +86,26 @@ full-half-year plan without waiting for the exact storage-coupled LP:
 ```bash
 PYTHONPATH=src python -m ercot_game.student_preview \
   --submissions-dir path/to/submissions \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
-  --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
-  --horizon 4368 \
+  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
+  --rules data/teaching/dispatch_scoring_rules_jan_jun_6h_v1.json \
+  --horizon 728 \
   --workers 2 \
   --output preview.json
 ```
 
-The preview keeps the official 4,368/4,416-hour index space but samples one
-representative hour every six hours by default and scales the sampled totals
+The preview is a conservative screening tool. For the canonical release, use
+the 724/728/736 game-period horizon. Its default stride samples every six
+game periods (36 real hours); use `--preview-stride 1` to inspect every
+six-hour game period. It scales the sampled totals
 to the represented hours. It validates submitted storage and includes storage
 construction cost, but uses an idle-storage dispatch policy for speed.
 Consequently it is a conservative screening estimate and must not be used for
-ranking or final scores. Use `--preview-stride 1` only for a slower diagnostic
-run. The instructor batch evaluator remains authoritative and performs the
+ranking or final scores. The instructor batch evaluator remains authoritative and performs the
 exact joint storage dispatch LP.
 
-Use `data/processed/activsg2000_scenarios_v1/2027/jul_dec` with the
-July--December rules for the second half-year. The scenario package manifest
-records the six blocks and their validation state.
+Use `data/processed/activsg2000_scenarios_v2_6h/2027/jul_dec` with the
+six-hour July--December rules for the second half-year. The scenario package
+manifest records the six blocks and their validation state.
 
 The CSV uses source `bus_id` values directly. Site capacities are specified in
 MW/MWh, and each team's submitted resources serve only that team. The score
@@ -131,7 +128,7 @@ in the file), and each line by its peak loading over the evaluated hours.
 
 ```bash
 ercot-game-grid-map \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
+  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
   --submissions-dir <round submissions directory> \
   --dispatch-dir <evaluator output directory>/dispatch \
   --title "Week 2, Submission 1 (2028 January-June)" \

@@ -1249,6 +1249,41 @@ def test_batch_scoring_rules_normalizes_vectors_to_tuples():
     assert isinstance(rules.energy_price_per_mwh, tuple)
 
 
+def test_submission_two_lmp_settlement_does_not_require_static_energy_vector():
+    rules = BatchScoringRules(
+        rules_version="six-hour-test",
+        it_value_per_mwh=(6500.0,),
+        energy_price_per_mwh=(),
+        time_step_hours=6.0,
+        storage_boundary_mode="daily_exact_cycle",
+    )
+
+    batch_evaluation._validate_rules(
+        rules,
+        horizon=1,
+        period_indices=(0,),
+        submission_number=2,
+    )
+
+
+def test_submission_one_still_requires_static_energy_vector_without_profiles():
+    rules = BatchScoringRules(
+        rules_version="six-hour-test",
+        it_value_per_mwh=(6500.0,),
+        energy_price_per_mwh=(),
+        time_step_hours=6.0,
+        storage_boundary_mode="daily_exact_cycle",
+    )
+
+    with pytest.raises(ValueError, match="energy price vector"):
+        batch_evaluation._validate_rules(
+            rules,
+            horizon=1,
+            period_indices=(0,),
+            submission_number=1,
+        )
+
+
 def test_scoring_settles_grid_purchase_at_each_site_bus():
     profiles = load_economic_profiles(
         {

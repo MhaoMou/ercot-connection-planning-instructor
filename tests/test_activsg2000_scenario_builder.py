@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 
 from tools.activsg2000.build_scenario_package import build_package
+from tools.activsg2000.build_aggregated_scenario_package import build_aggregated_package
+from ercot_game.scenario_package import load_scenario_manifest
 
 
 def _source_fixture(root: Path) -> Path:
@@ -60,3 +62,22 @@ def test_builder_uses_dataset_static_generator_limits_when_source_has_no_availab
     assert profiles["generator_type_source"] == "ACTIVSg2000 generator table"
     assert profiles["availability_model"] == "static status and nameplate limits"
     assert all(row["profile_type"] == "thermal" for row in profiles["generators"])
+
+
+def test_aggregated_builder_writes_six_hour_horizons(tmp_path: Path) -> None:
+    source = tmp_path / "hourly"
+    build_package(_source_fixture(tmp_path / "source"), source, enforce_activsg2000_size=False)
+
+    output = tmp_path / "six_hour"
+    build_aggregated_package(source, output)
+    payload = load_scenario_manifest(output, require_validated=False)
+
+    assert payload["package_version"] == "activsg2000-scenarios-v2-6h"
+    assert payload["blocks"]["2028-jan_jun"]["horizon"] == 728
+    assert payload["blocks"]["2028-jul_dec"]["horizon"] == 736
+    assert payload["blocks"]["2028-jan_jun"]["time_step_hours"] == 6
+    assert (output / "profile_parameters.json").is_file()
+    profile = json.loads(
+        (output / "2028" / "jan_jun" / "scenario_profile.json").read_text(encoding="utf-8")
+    )
+    assert profile["aggregation_method"] == "mean"

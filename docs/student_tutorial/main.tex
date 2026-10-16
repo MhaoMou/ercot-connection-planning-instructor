@@ -124,7 +124,7 @@ check your submission, and how to use AI tools along the way. The assignment han
 \section{The game in one page}\label{sec:game}
 
 Your team is a data-center operator. You choose where to connect computing
-load to a synthetic model of the Texas grid, how large (in MW) connection is, and
+load to a public-data-informed planning model of the Texas grid, how large (in MW) connection is, and
 whether to build your own generation and battery storage next to it. The
 instructor, acting as the grid operator, then runs one DCOPF dispatch with every team's plan in it, and scores each team. The grid is the public ACTIVSg2000 test
 system~\cite{activsg2000}: 2,000 buses, 3,206 branches, and 544 generators,
@@ -148,12 +148,15 @@ Storage power $P$ / energy $B$ & MW / MWh & Optional battery: either both zero, 
 \end{center}
 
 You only choose sites and capacities. The grid operator decides how your
-generator and battery run in each hour. Your generator and battery serve only
+generator and battery run in each six-hour operating period. Your generator and battery serve only
 your own load: they never export to the grid or to another team.
 
 \subsection{Schedule}
 The game runs for three weeks with each week focusing on the data-center planning for the year of 2027, 2028, and 2029, respectively. Each week has two submissions, and each
-submission covers the plan for one half-year with a one-hour time step. The first week is for practice and the results will not be counted for grades. The second and third weeks are for real game playing and the results will be counted for grades.
+submission covers the plan for one half-year with six-hour operating intervals. Each
+operating interval represents six consecutive real hours. The first week is for
+practice and the results will not be counted for grades. The second and third
+weeks are for real game playing and the results will be counted for grades.
 
 \begin{center}
 \small
@@ -168,15 +171,41 @@ Week & Submission 1 & Submission 2 & Counts toward final grade?\\
 \end{tabularx}
 \end{center}
 
-The one-hour half-year horizons are 4,368 hours for January--June 2028, 4,344
-hours for January--June 2027 and 2029, and 4,416 hours for every July--December.
+The released six-hour half-year horizons are 728 operating periods for
+January--June 2028, 724 periods for January--June 2027 and 2029, and 736
+periods for every July--December. These correspond to 4,368, 4,344, and
+4,416 real hours, respectively. All flow-based revenues and costs are charged
+for six hours per operating period; capacities and rates remain in MW, MWh,
+and \$/MWh.
+The canonical release uses the scenario packages under
+\code{data/processed/activsg2000\_scenarios\_v2\_6h/} and the matching
+\code{dispatch\_scoring\_rules\_*\_6h\_v1.json} files. \textbf{The retired hourly submission format is not current: do not
+submit one CSV row per operating period.} Your CSV remains one row per
+connection site; the evaluator expands that site-level plan across the
+released operating periods.
+
+\begin{keybox}[The six-hour convention]
+The source profiles are hourly. For each game period $t$, the released package
+averages six consecutive source hours:
+\[
+  \bar{x}_t = \frac{1}{6}\sum_{h=6t}^{6t+5} x_h.
+\]
+The evaluator then charges six hours of service, energy, and operating cost for
+that period. A day therefore contains four game periods. With
+\code{daily\_exact\_cycle}, storage starts at $B/2$ and must end every day at
+exactly $B/2$; the grid operator chooses its signed charging/discharging power.
+\end{keybox}
 \textbf{Your final score is the sum of your four submission scores from
 Weeks 2 and 3}.
+
+Each of these horizons is an integer number of 24-hour dispatch blocks.
 
 Within a week, the two submissions are linked:
 \begin{itemize}[leftmargin=*]
   \item Sites, generators, and storages built in Submission 1 \textbf{stay built} in
-    Submission 2, and the battery keeps its state of charge.
+    Submission 2. The battery's installed capacity remains available, but its
+    operating state is reset to half full at the start of each daily dispatch
+    block.
   \item You cannot move or resize a site you built in Submission 1, but you
     can add new sites in Submission 2.
   \item Capital cost is charged once, in the submission where an asset is
@@ -220,7 +249,7 @@ For each submission, your score in US dollars is
 Term & Value & How it is charged\\
 \midrule
 IT value & \$6,500 per MWh & Paid for every MWh of your load \textbf{that is actually served}.\\
-Energy cost & \textbf{L}ocational \textbf{M}arginal \textbf{P}rice (LMP) at your site & Grid purchases times the hourly LMP. \textbf{Submission 2 only; Submission 1 has no energy cost.}\\
+Energy cost & \textbf{L}ocational \textbf{M}arginal \textbf{P}rice (LMP) at your site & Grid purchases times the LMP and six-hour interval length. \textbf{Submission 2 only; Submission 1 has no energy cost.}\\
 Generator operating cost & \$80 / \$150 / \$250 per MWh & Piecewise: first 25\% of capacity at \$80, next 50\% at \$150, last 25\% at \$250.\\
 Generator capital & \$1.5M per MW & On generator capacity, in the submission where it is first built.\\
 Storage capital & \$400k per MW + \$250k per MWh & In the submission where it is first built. A 4-hour battery costs \$1.4M per MW of power.\\
@@ -237,17 +266,17 @@ Suppose in Week 2 you build one 50\MW{} site in Submission 1 and nothing else,
 and all of its load is served in both submissions. Baseline LMPs in July--December
 are about \$18/MWh.
 
-\textbf{Submission 1} (2028 January--June, 4,368 hours, no energy cost):
+\textbf{Submission 1} (2028 January--June, 728 six-hour periods, no energy cost):
 \begin{align*}
-  \text{IT value}  &= 50 \times 4{,}368 \times 6{,}500 = \$1{,}419.6\text{M}\\
+  \text{IT value}  &= 50 \times 728 \times 6 \times 6{,}500 = \$1{,}419.6\text{M}\\
   \text{site cost} &= 50 \times 25\text{M} = \$1{,}250.0\text{M}\\
   \text{score}     &= \$169.6\text{M}
 \end{align*}
 
-\textbf{Submission 2} (2028 July--December, 4,416 hours, site already paid for):
+\textbf{Submission 2} (2028 July--December, 736 six-hour periods, site already paid for):
 \begin{align*}
-  \text{IT value}    &= 50 \times 4{,}416 \times 6{,}500 = \$1{,}435.2\text{M}\\
-  \text{energy cost} &\approx 50 \times 4{,}416 \times 18 = \$4.0\text{M}\\
+  \text{IT value}    &= 50 \times 736 \times 6 \times 6{,}500 = \$1{,}435.2\text{M}\\
+  \text{energy cost} &\approx 50 \times 736 \times 6 \times 18 = \$4.0\text{M}\\
   \text{score}       &\approx \$1{,}431\text{M}
 \end{align*}
 
@@ -264,11 +293,11 @@ network cannot serve still pays the full site cost.
 
 \begin{exercisebox}
 A team builds a 30\MW{} site in Submission 1 of Week 3 (2029 January--June,
-4,344 hours) and it is fully served in both submissions (Submission 2 is
-2029 July--December, 4,416 hours, LMP about \$18/MWh). Estimate the two
-scores. \emph{(Answer: Submission 1 is $30 \times 4{,}344 \times 6{,}500 -
-750\text{M} \approx \$97\text{M}$; Submission 2 is
-$30 \times 4{,}416 \times (6{,}500 - 18) \approx \$859\text{M}$.)}
+724 six-hour periods) and it is fully served in both submissions (Submission 2
+is 2029 July--December, 736 periods, LMP about \$18/MWh). Estimate the two
+scores. \emph{(Answer: Submission 1 is $30 \times 724 \times 6 \times
+6{,}500 - 750\text{M} \approx \$97\text{M}$; Submission 2 is
+$30 \times 736 \times 6 \times (6{,}500 - 18) \approx \$859\text{M}$.)}
 \end{exercisebox}
 
 \subsection{You are not the only player}\label{sec:projection}
@@ -320,10 +349,10 @@ would the Week 1 results tell you about how other teams actually behave?
 % ---------------------------------------------------------------------------
 \section{How the grid operator runs your plan}\label{sec:model}
 
-The evaluator solves a DCOPF on the ACTIVSg2000 network for every hour of the
-half-year, with all teams' sites added. The existing network, generators, and
-base loads come from the scenario block. \Cref{fig:site} shows what one row of
-your CSV adds at a bus $k$.
+The evaluator solves a DCOPF on the ACTIVSg2000 network for every six-hour
+operating period of the half-year, with all teams' sites added. The existing
+network, generators, and base loads come from the scenario block. \Cref{fig:site}
+shows what one row of your CSV adds at a bus $k$.
 
 \begin{figure}[htbp]
   \centering
@@ -334,48 +363,54 @@ your CSV adds at a bus $k$.
   \label{fig:site}
 \end{figure}
 
-For a site at bus $k$ in hour $t$, the evaluator adds:
+For a site at bus $k$ in aggregate period $t$, the evaluator adds:
 \begin{itemize}[leftmargin=*]
   \item a fixed load $\alpha C$ (normally $\alpha \in [0,1]$, cf. Section~\ref{sec:projection});
   \item a private generator $0 \le g_t \le G$ with the piecewise cost in Table~\ref{tab:hyperparameters};
   \item a battery with signed power $p_t$ (positive = discharge), limited by
     $-P \le p_t \le P$.
 \end{itemize}
-Your grid purchase in hour $t$ is $\alpha C - g_t - p_t$. The generator and
+Your grid purchase rate in period $t$ is $\alpha C - g_t - p_t$. The generator and
 battery can only cover your own team's load at that bus; they cannot push power
 back into the grid.
 
 \subsection{Storage}
-Each battery follows the model below, with one-hour steps and 100\% efficiency:
+Each battery follows the model below, with six-hour steps and 100\% efficiency.
+The signed variable $p_{d,h}$ is a power rate in MW: positive means discharge
+and negative means charge. Let $\Delta t=6$ hours.
 \begin{gather*}
-  e_t = e_{t-1} - p_t, \qquad 0 \le e_t \le B, \qquad -P \le p_t \le P, \qquad p_t \le e_{t-1},\\
-  e_0 = 0.5B, \qquad e_H \ge 0.5B .
+  e_{d,h} = e_{d,h-1} - \Delta t\,p_{d,h}, \qquad 0 \le e_{d,h} \le B, \qquad -P \le p_{d,h} \le P, \qquad \Delta t\,p_{d,h} \le e_{d,h-1},\\
+  e_{d,0} = 0.5B, \qquad e_{d,4} = 0.5B \qquad \text{for each day }d.
 \end{gather*}
-The battery starts half full and must end the half-year at least half full
-(\cref{fig:soc}). Discharge at a bus cannot exceed your own load there.
+The battery starts every daily dispatch block half full and must end that block
+at exactly half full after four six-hour periods (\cref{fig:soc}). There is no state-of-charge carryover
+from one day to the next. Discharge at a bus cannot exceed your own load there.
 
 \begin{figure}[htbp]
   \centering
   \input{figures/storage_soc.tex}
-  \caption{An illustrative battery schedule with $B = 4P$: it starts at
-  $0.5B$, stays between $0$ and $B$, moves by at most $P$ per hour, and ends
-  at or above $0.5B$. The evaluator chooses this schedule.}
+  \caption{An illustrative one-day battery schedule with $B = 4P$: it starts
+  at $0.5B$, stays between $0$ and $B$, moves by at most $6P$ MWh per
+  six-hour interval, and returns to exactly $0.5B$ after four intervals. The evaluator
+  chooses this schedule independently for each day.}
   \label{fig:soc}
 \end{figure}
 
 \subsection{Prices}
 The LMP at your bus is the dual of that bus's power balance in the joint
-dispatch, clipped at zero. The scenario files include baseline LMPs computed
-\emph{without} any team's load (\cref{sec:data}). They are nearly flat at
-around \$17--20/MWh. With teams' load added, lines can congest and the LMP
-at your bus can rise.
+dispatch, clipped at zero. In the canonical six-hour release, Submission 2
+settles against LMPs computed from the actual joint dispatch containing all
+accepted teams. Optional baseline LMP artifacts may be generated for
+diagnostics, but they are not required for scoring. With teams' load added,
+lines can congest and the LMP at your bus can rise.
 
 \begin{exercisebox}
 A battery has $P = 5\MW$ and $B = 20\MWh$. It starts at the required initial
-state of charge. Can it discharge at 5\MW{} for three hours in a row? What is
-the state of charge after each hour? \emph{(Answer: it starts at 10\MWh, is at 5\MWh{} after
-one hour and 0 after two; a third hour is impossible because the battery is
-empty, and it would also miss the 10\MWh{} end-of-horizon target.)}
+state of charge for a daily block. Can it discharge at 5\MW{} for two
+six-hour operating periods in a row? What is the state of charge after each
+period? \emph{(Answer: it starts at 10\MWh, is at 0\MWh{} after two periods;
+it cannot discharge during a third period until it has charged. It must also
+return to exactly 10\MWh{} by the end of that 24-hour block.)}
 \end{exercisebox}
 
 % ---------------------------------------------------------------------------
@@ -406,8 +441,8 @@ The files you will use most:
 Path & What it is\\
 \midrule
 \code{docs/student_manual/main.pdf} & Assignment handout (official rules).\\
-\code{data/processed/activsg2000_scenarios_v1/} & Scenario package: one folder per year and half-year.\\
-\code{data/teaching/dispatch_scoring_rules_*.json} & Scoring coefficients used by the preview and evaluator.\\
+\code{data/processed/activsg2000_scenarios_v2_6h/} & Released scenario package with six-hour operating periods.\\
+\code{data/teaching/dispatch_scoring_rules_*_6h_v1.json} & Scoring coefficients used by the six-hour preview and evaluator.\\
 \code{ercot-game-check-csv} & Checker for your CSV (also \code{scripts/check_submission.py}).\\
 \code{ercot-game-preview} & Approximate scoring run for your plan.\\
 \code{docs/student_tutorial/notebooks/} & Small companion notebooks (see below).\\
@@ -520,7 +555,7 @@ to paste.
 \section{Explore the data}\label{sec:data}
 
 Each half-year has its own folder, for example
-\code{data/processed/activsg2000_scenarios_v1/2028/jul_dec/}. The files you are
+\code{data/processed/activsg2000_scenarios_v2_6h/2028/jul_dec/}. The files you are
 most likely to need:
 
 \begin{center}
@@ -533,7 +568,7 @@ File & Contents\\
 \code{bus_load_base.csv} & Base load at each bus (\code{base_load_mw}).\\
 \code{generator_catalog.csv} & Existing generators: bus, \code{p_min_mw}, \code{p_max_mw}, \code{marginal_cost_c1_per_mwh}, status.\\
 \code{branch_limits.csv} & Lines: \code{from_bus_id}, \code{to_bus_id}, \code{reactance_pu}, \code{thermal_limit_mva}, status.\\
-\code{economic_profiles.npz} & Baseline LMPs, array \code{lmp_per_mwh} of shape hours $\times$ buses.\\
+\code{economic_profiles.npz} & Optional baseline LMP diagnostic, array \code{lmp_per_mwh} of shape aggregate periods $\times$ buses; not required for the canonical score.\\
 \code{manifest.json} & Block year, half-year, horizon, and validation status.\\
 \bottomrule
 \end{tabularx}
@@ -545,33 +580,37 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-block = Path("data/processed/activsg2000_scenarios_v1/2028/jul_dec")
+block = Path("data/processed/activsg2000_scenarios_v2_6h/2028/jul_dec")
 buses = pd.read_csv(block / "bus.csv")
 load = pd.read_csv(block / "bus_load_base.csv")
 gens = pd.read_csv(block / "generator_catalog.csv")
 branches = pd.read_csv(block / "branch_limits.csv")
-lmp = np.load(block / "economic_profiles.npz")["lmp_per_mwh"]  # hours x buses
+lmp_path = block / "economic_profiles.npz"
+if lmp_path.exists():
+    lmp = np.load(lmp_path)["lmp_per_mwh"]  # optional diagnostic: periods x buses
+    print("baseline LMP array:", lmp.shape, "min", round(lmp.min(), 2), "max", round(lmp.max(), 2))
+else:
+    print("No baseline LMP artifact is checked in; Submission 2 uses joint-dispatch LMPs.")
 
 print(len(buses), "buses,", len(branches), "branches,", len(gens), "generators")
 print("base load", round(load.base_load_mw.sum()), "MW; generator capacity",
       round(gens.p_max_mw.sum()), "MW")
-print("LMP array:", lmp.shape, "min", round(lmp.min(), 2), "max", round(lmp.max(), 2))
-
-# Columns of the LMP array follow the row order of bus.csv
-bus_avg = pd.Series(lmp.mean(axis=0), index=buses.bus_id)
-print("average LMP by bus:", round(bus_avg.min(), 2), "to", round(bus_avg.max(), 2))
+if lmp_path.exists():
+    # Columns of the optional LMP array follow the row order of bus.csv.
+    bus_avg = pd.Series(lmp.mean(axis=0), index=buses.bus_id)
+    print("average baseline LMP by bus:", round(bus_avg.min(), 2), "to", round(bus_avg.max(), 2))
 \end{lstlisting}
 Output:
 \begin{lstlisting}
 2000 buses, 3206 branches, 544 generators
 base load 67109 MW; generator capacity 96292 MW
-LMP array: (4416, 2000) min 17.44 max 19.55
-average LMP by bus: 18.0 to 18.08
+No baseline LMP artifact is checked in; Submission 2 uses joint-dispatch LMPs.
 \end{lstlisting}
 
-The baseline LMP is almost the same everywhere: \textbf{without teams' plan, the network
-is not congested.} So baseline prices will not tell you where to build. What
-matters is \textbf{where the network still has room once you add tens of MW.} Good
+When a baseline LMP diagnostic is available, it is nearly the same everywhere:
+\textbf{without teams' plan, the network is not congested.} So baseline prices
+will not tell you where to build. What matters is \textbf{where the network still
+has room once you add tens of MW.} Good
 places to start looking are buses with strong line connections, nearby
 generation with spare capacity, and little base load.
 
@@ -590,34 +629,36 @@ The ``room'' has a name. The \textbf{hosting capacity} of a bus
 is the largest additional load that can be connected there without making the
 grid fail, that is, without making the DCOPF infeasible, while everything else
 in the network stays the same~\cite{bollen2011integration,wan2026hosting}.
-Because your site draws the same load every hour, what matters is the
+Because your site draws the same load every six-hour operating period, what matters is the
 \emph{smallest} hosting capacity over the half-year, which usually occurs in the
-hours of highest system load.
+aggregate periods with the highest system load.
 
-Here are hosting capacities for a few buses in the 2028 July--December block,
-computed with the code in \cref{app:hc} for a typical hour (hour 0) and for
-the hour of peak system load (hour 1837):
+Use the code in \cref{app:hc} to compute hosting capacity for a typical
+aggregate period (period 0) and for the aggregate period with peak system
+load. The exact values are generated from the released scenario package and
+may change when the instructor releases a new validated block:
 
 \begin{center}
 \small
 \begin{tabular}{@{}l r r@{}}
 \toprule
-Bus & Hour 0 & Peak hour\\
+Bus & Period 0 & Peak period\\
 \midrule
-1001 & 377\MW & 332\MW\\
-1002 & 128\MW & 123\MW\\
-7346, 6141, 5317, 3048 (most line capacity) & $\ge$ 1{,}000\MW & $\ge$ 1{,}000\MW\\
+1001 & run the script & run the script\\
+1002 & run the script & run the script\\
+candidate buses & compare your results & compare your results\\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\textbf{Hosting capacity tells you where you can build and roughly how much}: a 150\MW{}
-request at bus 1002 cannot be fully served even if you are the only team.
+\textbf{Hosting capacity tells you where you can build and roughly how much}.
+Use it as a screening calculation, not as a guarantee: the official result
+also includes other teams and the dispatch of team-built assets.
 
 \begin{warningbox}
 Hosting capacity is computed as if your site were the only new load. Other
-teams' sites use up the same headroom. At the peak hour, bus 1002 can host
-123\MW{} on its own, but only 81\MW{} if another team connects 60\MW{} at the
+teams' sites use up the same headroom. At the peak period, a bus can host
+its solo hosting capacity, but less if another team connects additional load at the
 neighboring bus 1010. The hosting capacities of different buses do not add up,
 and the busier a part of the network becomes, the less room each site there
 has (\cref{sec:projection}).
@@ -654,7 +695,7 @@ Column & Rule\\
 \end{center}
 
 IDs may contain letters, digits, and \msg{_ . : -}, with no spaces and at most
-128 characters. The file contains capacities only: do not add hourly rows or
+128 characters. The file contains capacities only: do not add operating-period rows or
 any other columns.
 
 A valid two-site example:
@@ -668,7 +709,7 @@ Run the checker on it. Pass \code{--artifact-dir} so that it also checks your
 bus IDs against the block you are planning for:
 \begin{lstlisting}[language=bash]
 ercot-game-check-csv --file team-blue.csv \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jul_dec
+  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jul_dec
 \end{lstlisting}
 \begin{lstlisting}
 VALID: team-blue.csv
@@ -720,12 +761,12 @@ mkdir -p runs/candidate-a
 cp team-blue.csv runs/candidate-a/
 ercot-game-preview \
   --submissions-dir runs/candidate-a \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jul_dec \
-  --rules data/teaching/dispatch_scoring_rules_jul_dec_v1.json \
-  --horizon 4416 \
+  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jul_dec \
+  --rules data/teaching/dispatch_scoring_rules_jul_dec_6h_v1.json \
+  --horizon 736 \
   --output runs/candidate-a.json
 \end{lstlisting}
-Use the \code{jan_jun} rules file and horizon (4,344 or 4,368) for a
+Use the \code{jan_jun} six-hour rules file and horizon (724 or 728) for a
 January--June block, and add \msg{--submission-number 1} to leave out energy
 cost as in Submission 1. Every CSV in the folder is dispatched together, so
 keep one candidate per folder.
@@ -738,8 +779,8 @@ The preview differs from the official evaluator in four ways:
 \toprule
  & Preview & Official evaluator\\
 \midrule
-Hours solved & Every 6th hour, scaled up to the full half-year & Every hour\\
-Storage & Not dispatched (idle), but its capital is charged & Dispatched over the whole half-year\\
+Operating periods solved & Sampled preview periods, scaled up to the full half-year & Every six-hour aggregate period\\
+Storage & Not dispatched (idle), but its capital is charged & Dispatched independently within each 24-hour block (four aggregate periods); reset to half-full at each block boundary\\
 Other teams & Only the CSVs you put in the folder & All teams, with fair projection if needed\\
 Capital cost & Charged for every site in the file & Charged only for assets new in this submission\\
 \bottomrule
@@ -757,7 +798,7 @@ plus one entry per team in \code{team_scores} with \code{score},
 \code{served_load_mwh}, \code{it_value}, \code{energy_cost},
 \code{generator_operating_cost}, \code{generator_capital_cost},
 \code{storage_capital_cost}, \code{site_cost}, and \code{feasible}. Compare
-\code{served_load_mwh} with $C \times \text{hours}$ to see how much of your
+\code{served_load_mwh} with $C \times \text{periods} \times 6$ to see how much of your
 load was served.
 
 \begin{warningbox}
@@ -770,16 +811,16 @@ they are validated.
 \section{Putting it together: your first plan}\label{sec:walkthrough}
 
 This section strings the previous steps together for Week 2, Submission 1
-(2028 January--June, 4,368 hours). Keep each candidate in its own folder under
+(2028 January--June, 728 six-hour periods). Keep each candidate in its own folder under
 \code{runs/} and log every run (\cref{app:team}).
 
 \begin{enumerate}[leftmargin=*]
   \item \textbf{Pick the block.} Use
-    \code{data/processed/activsg2000_scenarios_v1/2028/jan_jun} with
-    \code{dispatch_scoring_rules_jan_jun_v1.json}.
+    \code{data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun} with
+    \code{dispatch_scoring_rules_jan_jun_6h_v1.json}.
   \item \textbf{Shortlist buses.} Screen buses with the script in
     \cref{sec:data}, then compute hosting capacity for the shortlist over the
-    peak-load hours of this block (\cref{app:hc}). Keep buses whose smallest
+    peak-load periods of this block (\cref{app:hc}). Keep buses whose smallest
     hosting capacity is well above the size you have in mind.
   \item \textbf{Choose sizes.} Start without a generator or battery. Keep each
     site well below its hosting capacity and below the 100\MW{} projection
@@ -789,19 +830,19 @@ This section strings the previous steps together for Week 2, Submission 1
   \item \textbf{Check it:}
 \begin{lstlisting}[language=bash]
 ercot-game-check-csv --file runs/plan-a/plan.csv \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun
+  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun
 \end{lstlisting}
   \item \textbf{Preview it} as Submission 1, so that there is no energy cost:
 \begin{lstlisting}[language=bash]
 ercot-game-preview \
   --submissions-dir runs/plan-a \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
-  --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
-  --horizon 4368 --submission-number 1 \
+  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
+  --rules data/teaching/dispatch_scoring_rules_jan_jun_6h_v1.json \
+  --horizon 728 --submission-number 1 \
   --output runs/plan-a.json
 \end{lstlisting}
   \item \textbf{Read the result.} Divide \code{served_load_mwh} by
-    $C \times 4{,}368$ to get the share of your load that was served, and look
+    $C \times 728 \times 6$ to get the share of your load that was served, and look
     at which cost term dominates \code{score}.
   \item \textbf{Change one thing} (a bus, a size, or adding a generator),
     preview again, and compare (\cref{sec:strategy}).
@@ -838,7 +879,7 @@ above its cost.
 
 \textbf{Storage?} With nearly flat prices, there is little to gain from buying
 low and selling high. Like a generator, a battery is mainly useful at a
-location where the network is tight in some hours. Remember that the preview
+location where the network is tight in some operating periods. Remember that the preview
 does not dispatch storage, so it will not show this benefit.
 
 \textbf{Other teams.} Your preview runs without them, but the official
@@ -852,10 +893,11 @@ treated in the joint evaluation with everyone else.
 \subsection{A two-team example}\label{sec:twoteam}
 Here is the game in miniature, with real numbers from this grid. Team A builds
 at bus 1002 and team B at the neighboring bus 1010, and each chooses between a
-small (50\MW) and a large (100\MW) site. On its own, either bus could take
-100\MW{}: their hosting capacities at the peak hour are 123 and 135\MW{}
-(\cref{sec:hc}). Together they cannot. To keep the arithmetic simple, assume
-every hour of the week looks like the 2028 July--December peak hour, both
+small (50\MW) and a large (100\MW) site. Use the hosting-capacity script in
+\cref{sec:hc} to obtain the corresponding peak-period values for the released
+block. Together the large choices may not fit. To keep the arithmetic simple, assume
+every six-hour operating period of the week looks like the 2028 July--December peak
+period, both
 teams build in Submission 1, and service is decided by the fair projection
 (\cref{sec:projection}). Each served MW is then worth about \$57.0M over the
 week, and each built MW costs \$25M.
@@ -891,8 +933,8 @@ carry over to the real game: over-requesting next to another team is punished
 by the caps; when the grid is short, your position in the network decides who
 gets served; and your best plan depends on what you expect the others to do.
 
-This example simplifies the real evaluator, which uses every hour of the
-half-year and every team's sites at once.
+This example simplifies the real evaluator, which uses every six-hour
+operating period of the half-year and every team's sites at once.
 
 \subsection{Run controlled experiments}
 Change one thing at a time and record every run:
@@ -1069,11 +1111,11 @@ ACTIVSg2000 & The synthetic 2,000-bus Texas grid used in the game. & \cref{sec:g
 Block & One half-year of scenario data, e.g.\ 2028 July--December. & \cref{sec:data}\\
 Bus & A node of the network; every site connects to one bus. & \cref{sec:game}\\
 Site & One row of your CSV: a bus plus the capacities you build there. & \cref{sec:csv}\\
-Connection capacity $C$ & The load your site draws in every hour, in MW. & \cref{sec:game}\\
+Connection capacity $C$ & The load your site draws in every six-hour operating period, in MW. & \cref{sec:game}\\
 Submission 1 / 2 & The January--June and July--December plans of a week. & \cref{sec:game}\\
 Capital cost & One-time cost of building a site, generator, or battery. & \cref{sec:score}\\
 IT value & \$6,500 earned for each MWh of your load that is served. & \cref{sec:score}\\
-DCOPF & DC optimal power flow, the hourly dispatch the evaluator solves. & \cref{sec:model}\\
+DCOPF & DC optimal power flow, the dispatch the evaluator solves for each operating period. & \cref{sec:model}\\
 LMP & Locational marginal price: the cost of one more MWh at a bus. & \cref{sec:model}\\
 SOC & State of charge: the energy stored in a battery. & \cref{sec:model}\\
 Fair projection & How the evaluator shares the grid when not every request fits. & \cref{sec:projection}\\
@@ -1109,7 +1151,7 @@ time rather than a single number~\cite{deoliveira2019dynamic}. In this appendix,
 state a version that matches this game.
 
 \subsection{Formulation}
-Use the notation of the hourly DCOPF: buses $i$, generators $g$ with limits
+Use the notation of the per-period DCOPF: buses $i$, generators $g$ with limits
 $[p_g^{\min}, p_g^{\max}]$, branches $\ell$ from $o(\ell)$ to $r(\ell)$ with
 susceptance $b_\ell$ and thermal limit $F_\ell$, base load $d_{i,t}$, and fixed
 DC-line injections $s_{i,t}$. The hosting capacity of bus $k$ in hour $t$ is
@@ -1130,47 +1172,48 @@ generation-cost objective is replaced by ``make $L$ as large as possible''.
 At the optimum some branch is at its thermal limit, or the generators are at
 their limits. That binding constraint is the bottleneck for bus $k$.
 
-\paragraph{Over the half-year.} Your site's load is the same in every hour, so
+\paragraph{Over the half-year.} Your site's load is the same in every operating
+period, so
 the number that matters for a plan is
 \[
   \mathrm{HC}_k = \min_t \mathrm{HC}_{k,t}.
 \]
-This equals one large LP with a single $L$ shared by every hour. In practice
-you compute $\mathrm{HC}_{k,t}$ for the hours with the highest system load. The
-minimum over a sample of hours is an \emph{upper} bound on $\mathrm{HC}_k$, so
-check more hours before relying on a number close to the limit.
+This equals one large LP with a single $L$ shared by every operating period. In practice
+you compute $\mathrm{HC}_{k,t}$ for the periods with the highest system load. The
+minimum over a sample of periods is an \emph{upper} bound on $\mathrm{HC}_k$, so
+check more periods before relying on a number close to the limit.
 
 \paragraph{Several sites at once.} For new loads $L_1, \dots, L_n$ at several
-buses, the set of combinations that keep every hour feasible is a convex
+buses, the set of combinations that keep every operating period feasible is a convex
 polytope, the \emph{hosting-capacity region}. Each single-bus hosting capacity
 is where this region meets one axis. When two buses share a bottleneck, the
 region is much smaller than the box formed by their individual hosting
-capacities. At the peak hour, bus 1002 can host 123\MW{} and its neighbor 1010
-can host 135\MW{} on their own, but with 60\MW{} at bus 1010, bus 1002 can
-take only 81\MW{} more. The fair projection in
+capacities. At a peak period, two neighboring buses may each look adequate
+on their own, but the second request can reduce the room available at the
+first. The fair projection in
 \cref{sec:projection} picks a point in the joint hosting-capacity region of all
 teams' sites, which is why your service depends on where everyone else builds.
 
 \paragraph{Private generation and storage.} A private generator of $G$\MW{} at
-bus $k$ can cover up to $G$ of the site's load locally, so in any hour the site
+bus $k$ can cover up to $G$ of the site's load locally, so in any operating period the site
 can host up to $\mathrm{HC}_{k,t} + G$. You pay for this through capital and
 an operating cost of at least \$80/MWh whenever the generator runs. A battery
-can do the same for a few hours at a time: it helps when the hosting capacity
+can do the same for a few operating periods at a time: it helps when the hosting capacity
 falls below your load only in a short window, as long as it has enough power
 ($P \ge L - \mathrm{HC}_{k,t}$) and enough stored energy to cover the gap.
 
 \paragraph{Further reading: flexible connection.} In this game your load is
-fixed: the site draws its full capacity in every hour, so a single tight hour
+fixed: the site draws its full capacity in every operating period, so a single tight period
 sets $\mathrm{HC}_k$. Gu, Chen, and Qin~\cite{gu2026flexible} ask what happens
 if a new load instead agrees to be \textbf{curtailed} in a small number of time slots
 per year, an arrangement called \emph{flexible connection}. The hosting
 capacity is then set by the slots that remain. For a constant load at one bus,
-allowing the load to be curtailed in at most $K$ hours gives
+allowing the load to be curtailed in at most $K$ operating periods gives
 \[
   \mathrm{HC}_k^{(K)} = \mathrm{HC}_{k,[K+1]},
 \]
-the $(K+1)$-th smallest of the hourly hosting capacities $\mathrm{HC}_{k,t}$:
-you are no longer limited by the $K$ tightest hours. Their distribution-feeder
+the $(K+1)$-th smallest of the operating-period hosting capacities $\mathrm{HC}_{k,t}$:
+you are no longer limited by the $K$ tightest periods. Their distribution-feeder
 case study finds that curtailing in only 1\% of the 15-minute slots of a year
 (about 88 hours) raises the hosting capacity by about 78\%, that the gain grows
 more slowly as $K$ increases, and that most required curtailments are shallow.
@@ -1179,12 +1222,12 @@ much. A follow-up paper extends the approach to grids where only some buses are
 measured~\cite{gu2026partial}.
 
 You cannot curtail in this game, but your own generator or battery can play the
-same role: whatever the grid cannot deliver in the $K$ tightest hours must come
+same role: whatever the grid cannot deliver in the $K$ tightest periods must come
 from on-site resources, that is, $C - \mathrm{HC}_{k,t}$\MW{} in each of those
-hours. To see whether that is worth it at a bus you like, compute
-$\mathrm{HC}_{k,t}$ for the peak hours, sort them, and compare the smallest
+periods. To see whether that is worth it at a bus you like, compute
+$\mathrm{HC}_{k,t}$ for the peak periods, sort them, and compare the smallest
 value with, say, the 25th smallest. The difference is the extra capacity that
-covering the 24 tightest hours would unlock, and the gap in each of those hours
+covering the 24 tightest periods would unlock, and the gap in each of those periods
 tells you the generator or battery power you would need.
 
 \paragraph{What this version leaves out.} The game's evaluator uses a plain
@@ -1201,27 +1244,27 @@ GitHub repository's solver answers that question directly; each check takes abou
 \begin{lstlisting}[language=tutorialpython]
 from tools.activsg2000.dcopf import DCOPFInfeasible, DCOPFUnresolved, solve_prepared_period
 
-block = "data/processed/activsg2000_scenarios_v1/2028/jul_dec"
+block = "data/processed/activsg2000_scenarios_v2_6h/2028/jul_dec"
 
 
-def feasible(bus_id, extra_mw, hour):
-    """True if the grid can serve extra_mw of new load at bus_id in this hour."""
+def feasible(bus_id, extra_mw, period):
+    """True if the grid can serve extra_mw at bus_id in this period."""
     try:
-        solve_prepared_period(block, period_index=hour,
+        solve_prepared_period(block, period_index=period,
                               additional_demand_mw_by_bus={bus_id: extra_mw})
         return True
     except (DCOPFInfeasible, DCOPFUnresolved):
         return False  # near the limit HiGHS may not resolve; count it as "no"
 
 
-def hosting_capacity(bus_id, hour, upper_mw=1000.0, tol_mw=1.0):
-    """Largest extra load at bus_id that keeps this hour's DCOPF feasible."""
+def hosting_capacity(bus_id, period, upper_mw=1000.0, tol_mw=1.0):
+    """Largest extra load at bus_id that keeps this period feasible."""
     lo, hi = 0.0, upper_mw
-    if feasible(bus_id, hi, hour):
+    if feasible(bus_id, hi, period):
         return hi                      # at least upper_mw
     while hi - lo > tol_mw:            # feasible loads form an interval [0, HC]
         mid = (lo + hi) / 2
-        if feasible(bus_id, mid, hour):
+        if feasible(bus_id, mid, period):
             lo = mid
         else:
             hi = mid
@@ -1229,7 +1272,7 @@ def hosting_capacity(bus_id, hour, upper_mw=1000.0, tol_mw=1.0):
 
 
 for bus in ["1001", "1002"]:
-    print(bus, [round(hosting_capacity(bus, hour)) for hour in (0, 1837)])
+    print(bus, [round(hosting_capacity(bus, period)) for period in (0, peak_period)])
 \end{lstlisting}
 Output:
 \begin{lstlisting}
@@ -1237,16 +1280,18 @@ Output:
 1002 [128, 123]
 \end{lstlisting}
 
-To find the hours with the highest system load, add up the hourly bus loads:
+To find the operating periods with the highest system load, add up the
+periodic bus loads:
 \begin{lstlisting}[language=tutorialpython]
 from ercot_game.scenario_profiles import hourly_state
 
 totals = []
-for hour in range(4416):
-    demand, _ = hourly_state(block, year=2028, calendar_block="jul_dec", period_index=hour)
+for period in range(736):
+    demand, _ = hourly_state(block, year=2028, calendar_block="jul_dec", period_index=period)
     totals.append(sum(demand.values()))
-peak_hours = sorted(range(len(totals)), key=lambda h: -totals[h])[:24]
-print(peak_hours[:5])  # [1837, 2005, 1669, 2173, 1836]
+peak_periods = sorted(range(len(totals)), key=lambda p: -totals[p])[:24]
+peak_period = peak_periods[0]
+print(peak_periods[:5])
 \end{lstlisting}
 
 To check how a neighbor affects you, pass both loads at once inside
@@ -1260,7 +1305,7 @@ The solver only runs on a block that your instructor has released
 \begin{promptbox}
 Here is my Python function \code{hosting_capacity(bus_id, hour)}: [paste it].
 Write a script that computes it for a list of candidate buses over the 24
-peak-load hours in \code{peak_hours}, keeps the minimum for each bus, and
+peak-load periods in \code{peak_periods}, keeps the minimum for each bus, and
 prints a table sorted from largest to smallest. Use
 \code{concurrent.futures} to run buses in parallel.
 \end{promptbox}
@@ -1275,38 +1320,43 @@ half-year.
 \paragraph{Sets and data.} Buses $n$, branches $\ell$ from $o(\ell)$ to
 $r(\ell)$ with susceptance $b_\ell$ and thermal limit $F_\ell$, existing
 generators $g$ with limits $[p_g^{\min}, p_g^{\max}]$ and marginal cost $c_g$,
-base load $d_{n,t}$, fixed DC-line injections $s_{n,t}$, and hours
+base load $d_{n,t}$, fixed DC-line injections $s_{n,t}$, and six-hour
+operating periods
 $t = 1, \dots, T$. Team $i$ has sites $s$ at buses $k(s)$ with capacities
 $C_s, G_s, P_s, B_s$ and service fraction $\alpha_i$ ($\alpha_i = 1$ unless
 the fair projection is needed).
 
-\paragraph{Decision variables, for every hour $t$.} Existing generation
+\paragraph{Decision variables, for every operating period $t$.} Existing generation
 $p_{g,t}$; voltage angles $\theta_{n,t}$ and flows $f_{\ell,t}$; private
 generation in three cost segments $q^{m}_{s,t}$, $m = 1,2,3$, with costs
 $c^1, c^2, c^3 = 80, 150, 250$ \$/MWh and widths $w^1, w^2, w^3 = 0.25, 0.5,
-0.25$; battery net output $u_{s,t}$ (positive means discharging) and state of
-charge $e_{s,t}$.
+0.25$; battery net output $u_{s,d,h}$ (positive means discharging) and state of
+charge $e_{s,d,h}$, where $d$ indexes a 24-hour block and $h=0,\ldots,24$ is
+the hour within that block.
 
 \paragraph{Problem.} The evaluator minimizes the total generation cost over the
 half-year,
 \[
   \min \sum_{t=1}^{T}\Big( \sum_g c_g\, p_{g,t} + \sum_s \sum_{m=1}^{3} c^m q^m_{s,t} \Big),
 \]
-subject to, for every hour $t$:
+For the network equations, the flattened hour $t$ corresponds to one
+day--period pair $(d,h)$ for storage. Subject to, for every operating period $t$:
 \begin{align*}
   & \sum_{g \text{ at } n} p_{g,t} + \sum_{s:\,k(s)=n} \Big(\sum_m q^m_{s,t} + u_{s,t} - \alpha_{i(s)} C_s\Big)
     + s_{n,t} - d_{n,t}
     = \sum_{\ell:\,o(\ell)=n} f_{\ell,t} - \sum_{\ell:\,r(\ell)=n} f_{\ell,t} && \forall n,\\
   & f_{\ell,t} = b_\ell(\theta_{o(\ell),t} - \theta_{r(\ell),t}),\quad |f_{\ell,t}| \le F_\ell,\quad \theta_{\mathrm{ref},t} = 0 && \forall \ell,\\
   & p_g^{\min} \le p_{g,t} \le p_g^{\max},\qquad 0 \le q^m_{s,t} \le w^m G_s && \forall g, s, m,\\
-  & e_{s,t} = e_{s,t-1} - u_{s,t},\quad 0 \le e_{s,t} \le B_s,\quad |u_{s,t}| \le P_s,\quad u_{s,t} \le e_{s,t-1}, \quad e_{s,0} = 0.5 B_s, \quad e_{s,T} \ge 0.5 B_s && \forall s,\\
-  & \sum_{s \in \text{team } i,\ k(s)=n} u_{s,t} \le \sum_{s \in \text{team } i,\ k(s)=n} \alpha_i C_s && \forall i, n,
+  & e_{s,d,h} = e_{s,d,h-1} - u_{s,d,h},\quad 0 \le e_{s,d,h} \le B_s,\quad |u_{s,d,h}| \le P_s,\quad u_{s,d,h} \le e_{s,d,h-1}, && \forall s,d,h,\\
+  & e_{s,d,0} = 0.5 B_s, \qquad e_{s,d,24} = 0.5 B_s && \forall s,d,\\
+  & \sum_{s \in \text{team } i,\ k(s)=n} u_{s,d,h} \le \sum_{s \in \text{team } i,\ k(s)=n} \alpha_i C_s && \forall i, n,d,h,
 \end{align*}
 where the last constraint keeps a
 team's batteries from discharging more than that team's load at a bus.
-Storage couples the hours, so this is one linear program over the whole
-half-year. The grid operator (instructor) solves it exactly. The
-preview drops storage, which makes every hour independent (\cref{sec:preview}).
+Storage couples the four six-hour periods within each day, but not different days. The
+evaluator therefore solves one independent linear program per daily block;
+each block starts and ends at half charge. The grid operator (instructor) solves it exactly. The
+preview drops storage, which makes every operating period independent (\cref{sec:preview}).
 
 \paragraph{Prices and score.} The LMP $\lambda_{n,t}$ is the dual variable of
 the balance constraint at bus $n$ (i.e., the first constraint above), clipped at zero. Team $i$'s grid purchase at

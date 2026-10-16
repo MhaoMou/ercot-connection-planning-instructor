@@ -19,6 +19,7 @@ from .dcopf import (
     DCOPFResult,
     Generator,
     StorageDispatchAsset,
+    solve_prepared_daily_blocks,
     solve_prepared_horizon,
     solve_prepared_horizon_benders,
     solve_prepared_period,
@@ -384,12 +385,15 @@ def evaluate_plans_with_prepared_dcopf(
     plans: Sequence[TeamPlan],
     *,
     period_indices: tuple[int, ...],
+    time_step_hours: float = 1.0,
     workers: int = 1,
     stop_on_infeasible: bool = False,
     storage_solver: str = "benders",
     storage_solver_backend: str = "auto",
+    storage_solver_threads: int = 1,
     storage_wall_time_limit_seconds: float | None = 1500.0,
     storage_max_iterations: int = 200,
+    storage_boundary_mode: str = "half_year_terminal_floor",
 ) -> BatchDispatchResult:
     """Evaluate all teams jointly on the shared prepared network.
 
@@ -414,12 +418,20 @@ def evaluate_plans_with_prepared_dcopf(
     if len(set(team_ids)) != len(team_ids):
         raise ValueError("team IDs must be unique")
     _validate_period_indices(period_indices)
+    if not math.isfinite(time_step_hours) or time_step_hours <= 0:
+        raise ValueError("time_step_hours must be finite and positive")
     if not isinstance(workers, int) or isinstance(workers, bool) or workers <= 0:
         raise ValueError("workers must be a positive integer")
     if storage_solver not in {"benders", "monolithic"}:
         raise ValueError("storage_solver must be 'benders' or 'monolithic'")
     if storage_solver_backend not in {"auto", "highs", "gurobi"}:
         raise ValueError("storage_solver_backend must be 'auto', 'highs', or 'gurobi'")
+    if not isinstance(storage_solver_threads, int) or isinstance(storage_solver_threads, bool) or storage_solver_threads <= 0:
+        raise ValueError("storage_solver_threads must be a positive integer")
+    if storage_boundary_mode not in {"half_year_terminal_floor", "daily_exact_cycle"}:
+        raise ValueError(
+            "storage_boundary_mode must be 'half_year_terminal_floor' or 'daily_exact_cycle'"
+        )
     if not isinstance(storage_max_iterations, int) or storage_max_iterations <= 0:
         raise ValueError("storage_max_iterations must be a positive integer")
     if storage_wall_time_limit_seconds is not None and (
@@ -445,12 +457,14 @@ def evaluate_plans_with_prepared_dcopf(
             connection_by_team=connection_by_team,
             ordered_connections_by_team=ordered_connections_by_team,
             period_indices=period_indices,
-            time_step_hours=1.0,
+            time_step_hours=time_step_hours,
             workers=workers,
             storage_solver=storage_solver,
             storage_solver_backend=storage_solver_backend,
+            storage_solver_threads=storage_solver_threads,
             storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
             storage_max_iterations=storage_max_iterations,
+            storage_boundary_mode=storage_boundary_mode,
         )
 
     storage_schedules = {
@@ -458,7 +472,7 @@ def evaluate_plans_with_prepared_dcopf(
             plan,
             ordered_connections_by_team[plan.team_id],
             period_indices,
-            time_step_hours=1.0,
+            time_step_hours=time_step_hours,
         )
         for plan in ordered_plans
     }
@@ -594,8 +608,10 @@ def _evaluate_batch_with_central_storage(
     workers: int = 1,
     storage_solver: str = "benders",
     storage_solver_backend: str = "auto",
+    storage_solver_threads: int = 1,
     storage_wall_time_limit_seconds: float | None = 1500.0,
     storage_max_iterations: int = 200,
+    storage_boundary_mode: str = "half_year_terminal_floor",
 ) -> BatchDispatchResult:
     """Build one joint horizon solve and attribute storage only to its owner.
 
@@ -696,7 +712,6 @@ def _evaluate_batch_with_central_storage(
         team_id: base_demand_by_team[team_id]
         for team_id in team_ids
     }
-    solve_horizon = solve_prepared_horizon if storage_solver == "monolithic" else solve_prepared_horizon_benders
     horizon_kwargs = dict(
         artifact_dir=artifact_dir,
         period_indices=period_indices,
@@ -706,14 +721,39 @@ def _evaluate_batch_with_central_storage(
         owner_load_mw_by_team=owner_load_mw_by_team,
         time_step_hours=time_step_hours,
     )
-    if storage_solver == "benders":
-        horizon_kwargs.update(
-            max_iterations=storage_max_iterations,
-            parallel_workers=workers,
-            solver_backend=storage_solver_backend,
-            wall_time_limit_seconds=storage_wall_time_limit_seconds,
-        )
-    horizon_result = solve_horizon(**horizon_kwargs)
+    if storage_boundary_mode == "daily_exact_cycle":
+        daily_block_periods = 24.0 / time_step_hours
+        if not math.isfinite(daily_block_periods) or not daily_block_periods.is_integer():
+            raise ValueError("daily_exact_cycle requires time_step_hours to divide 24 hours")
+        daily_block_periods = int(daily_block_periods)
+        if storage_solver == "monolithic":
+            horizon_result = solve_prepared_daily_blocks(
+                **horizon_kwargs,
+                storage_solver="monolithic",
+                block_hours=daily_block_periods,
+            )
+        else:
+            horizon_kwargs.update(
+                max_iterations=storage_max_iterations,
+                parallel_workers=workers,
+                solver_backend=storage_solver_backend,
+                solver_threads=storage_solver_threads,
+                wall_time_limit_seconds=storage_wall_time_limit_seconds,
+                storage_cycle_hours=daily_block_periods,
+                terminal_soc_policy="exact_half",
+            )
+            horizon_result = solve_prepared_horizon_benders(**horizon_kwargs)
+    else:
+        solve_horizon = solve_prepared_horizon if storage_solver == "monolithic" else solve_prepared_horizon_benders
+        if storage_solver == "benders":
+            horizon_kwargs.update(
+                max_iterations=storage_max_iterations,
+                parallel_workers=workers,
+                solver_threads=storage_solver_threads,
+                solver_backend=storage_solver_backend,
+                wall_time_limit_seconds=storage_wall_time_limit_seconds,
+            )
+        horizon_result = solve_horizon(**horizon_kwargs)
     if isinstance(horizon_result, str) or horizon_result.status != "optimal":
         raise DCOPFUnresolved(
             "storage horizon solver did not return an optimal dispatch: "

@@ -32,6 +32,33 @@ def test_rule_builder_derives_horizon_from_year_and_round(
     assert payload["time_step_hours_provenance"]["calendar_block"] == round_name
 
 
+def test_rule_builder_supports_six_hour_half_year_release() -> None:
+    payload = create_half_year_scoring_rules.build_rules_for_year_season(
+        year=2028,
+        round_name="jan_jun",
+        time_step_hours=6,
+    )
+
+    assert len(payload["it_value_per_mwh"]) == 728
+    assert payload["time_step_hours"] == 6.0
+    assert payload["time_step_hours_provenance"]["source_horizon_hours"] == 4368
+    assert payload["time_step_hours_provenance"]["horizon_periods"] == 728
+    assert payload["time_step_hours_provenance"]["interpretation"] == "six-hour aggregate interval"
+    assert payload["storage_boundary_mode"] == "daily_exact_cycle"
+    assert payload["economic_profile_artifact"]["status"] == "optional_reference"
+
+
+def test_hourly_reference_rules_keep_their_legacy_boundary_contract() -> None:
+    payload = create_half_year_scoring_rules.build_rules_for_year_season(
+        year=2028,
+        round_name="jan_jun",
+        time_step_hours=1,
+    )
+
+    assert "storage_boundary_mode" not in payload
+    assert payload["economic_profile_artifact"]["status"] == "required"
+
+
 def test_half_year_rules_have_complete_hourly_vectors_and_revised_economics():
     for filename, horizon in (
         ("dispatch_scoring_rules_jan_jun_v1.json", 4368),

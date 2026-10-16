@@ -6,6 +6,14 @@ DCOPF concepts, CSV preparation, storage, preview workflows, strategy
 experiments, debugging, and reproducibility through reviewed AI examples and
 executable notebooks.
 
+The canonical student-game release uses six-hour operating periods and the
+`daily_exact_cycle` storage boundary. A half-year is still the planning
+horizon: for example, 4,368 January--June 2028 source hours become 728 game
+periods, and 4,416 July--December source hours become 736 game periods. The
+student CSV remains a site-level plan; it does not contain one row per period.
+The hourly scenario package remains available as a derivation/reference input,
+not as the default student-game release.
+
 The existing assignment handout remains authoritative for rules, data
 schemas, horizons, scoring, storage semantics, and deliverables. The tutorial
 is explanatory: AI answers are representative, must be checked against the

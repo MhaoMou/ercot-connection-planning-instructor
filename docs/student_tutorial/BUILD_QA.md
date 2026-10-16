@@ -1,5 +1,11 @@
 # Student tutorial PDF build and visual QA
 
+## Canonical release note
+
+The tutorial describes the six-hour `daily_exact_cycle` game release. Figures,
+commands, and examples must distinguish source hours from game periods and must
+not imply that students submit hourly time-series rows.
+
 Date: 2026-10-11
 
 This report records the Task 7 clean-build and visual inspection. The tutorial

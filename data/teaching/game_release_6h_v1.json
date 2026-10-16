@@ -1,0 +1,50 @@
+{
+  "release_version": "connection-game-6h-v1",
+  "status": "released",
+  "scenario_package": "data/processed/activsg2000_scenarios_v2_6h",
+  "time_step_hours": 6,
+  "storage_boundary_mode": "daily_exact_cycle",
+  "solver_backend": "auto",
+  "submission_contract": "site_level_csv_no_time_series_rows",
+  "source_dataset": "ACTIVSg2000-derived scenario package",
+  "source_time_resolution_hours": 1,
+  "aggregation_method": "mean over six consecutive source hours",
+  "calendar_blocks": {
+    "jan_jun": {
+      "source_hours_by_year": {
+        "2027": 4344,
+        "2028": 4368,
+        "2029": 4344
+      },
+      "game_periods_by_year": {
+        "2027": 724,
+        "2028": 728,
+        "2029": 724
+      }
+    },
+    "jul_dec": {
+      "source_hours_by_year": {
+        "2027": 4416,
+        "2028": 4416,
+        "2029": 4416
+      },
+      "game_periods_by_year": {
+        "2027": 736,
+        "2028": 736,
+        "2029": 736
+      }
+    }
+  },
+  "settlement": {
+    "submission_1": "energy_purchase_cost_excluded",
+    "submission_2": "joint_dispatch_lmp_at_connection_bus",
+    "baseline_lmp_artifact": "optional_diagnostic_not_required_for_scoring"
+  },
+  "validation": {
+    "required_before_release": [
+      "all six blocks pass aggregated-period DCOPF validation",
+      "official eight-team benchmark completes without temporary overrides",
+      "student tutorial commands and figures use six-hour periods"
+    ]
+  }
+}

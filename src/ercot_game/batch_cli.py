@@ -19,7 +19,13 @@ from .batch_evaluation import (
     write_batch_outputs,
 )
 from .calendars import half_year_calendar
+from .temporal_aggregation import aggregated_horizon
 from .round_coordinator import ClassroomRoundInput, evaluate_classroom
+from .release_config import (
+    CANONICAL_TIME_STEP_HOURS,
+    canonical_artifact_dir,
+    canonical_rules_path,
+)
 
 
 class _ParserExit(Exception):
@@ -132,12 +138,19 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     run_parser = subparsers.add_parser("run", help="evaluate a directory of submissions")
     run_parser.add_argument("--submissions-dir", required=True, type=Path)
-    run_parser.add_argument("--artifact-dir", required=True, type=Path)
-    run_parser.add_argument("--rules", required=True, type=Path)
+    run_parser.add_argument("--artifact-dir", type=Path)
+    run_parser.add_argument("--rules", type=Path)
     run_parser.add_argument("--output-dir", required=True, type=Path)
     run_parser.add_argument("--horizon", type=_positive_int)
     run_parser.add_argument("--year", type=int, choices=(2027, 2028, 2029), help="released instructional scenario year")
     run_parser.add_argument("--round", dest="round_name", choices=("jan_jun", "jul_dec"), help="released half-year")
+    run_parser.add_argument(
+        "--time-step-hours",
+        type=_positive_int,
+        choices=(1, 6),
+        default=CANONICAL_TIME_STEP_HOURS,
+        help="operating interval represented by one scoring period; 6 uses the six-hour aggregate release",
+    )
     run_parser.add_argument(
         "--submission-number",
         type=int,
@@ -183,6 +196,12 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=("auto", "highs", "gurobi"),
         default="auto",
         help="storage recourse LP backend; auto uses licensed Gurobi when available, otherwise HiGHS",
+    )
+    run_parser.add_argument(
+        "--solver-threads",
+        type=_positive_int,
+        default=1,
+        help="native solver threads per reusable recourse model; avoid combining large values with --workers",
     )
     run_parser.add_argument(
         "--region-map",
@@ -316,6 +335,14 @@ def _run_classroom(args: argparse.Namespace) -> int:
 
 
 def _run(args: argparse.Namespace) -> int:
+    if args.artifact_dir is None or args.rules is None:
+        if args.year is None or args.round_name is None:
+            raise ValueError(
+                "provide --artifact-dir and --rules, or provide --year and --round "
+                "to use the canonical six-hour release"
+            )
+        args.artifact_dir = canonical_artifact_dir(args.year, args.round_name)
+        args.rules = canonical_rules_path(args.round_name)
     if not args.artifact_dir.is_dir():
         raise ValueError(
             f"artifact directory does not exist or is not a directory: {args.artifact_dir}"
@@ -324,7 +351,7 @@ def _run(args: argparse.Namespace) -> int:
         if args.year is None or args.round_name is None:
             raise ValueError("provide --horizon or both --year and --round")
         calendar = half_year_calendar(args.year, args.round_name)
-        horizon = calendar.horizon
+        horizon = aggregated_horizon(calendar.horizon, args.time_step_hours)
     else:
         if args.year is not None or args.round_name is not None:
             raise ValueError("--year/--round cannot be combined with --horizon")
@@ -369,6 +396,7 @@ def _run(args: argparse.Namespace) -> int:
         dispatch_workers=args.workers,
         projection_iterations=args.projection_iterations,
         storage_solver_backend=args.solver_backend,
+        storage_solver_threads=args.solver_threads,
         submission_number=args.submission_number,
     )
     write_batch_outputs(

@@ -1,5 +1,5 @@
 \begin{tikzpicture}[font=\footnotesize, >=latex, node distance=7mm and 11mm]
-  % Semantic source anchors: public/network/, scenario context, validation inputs, student creates, ACTIVSg2000, DCOPF, student CSV, student preview.
+  % Semantic source anchors: ACTIVSg2000 hourly source, six-hour release, student CSV, daily-cycle dispatch, and scores.
   \tikzset{artifact/.style={draw, rounded corners=2pt, align=center, minimum height=11mm, text width=33mm, inner sep=3pt, execute at begin node={\hyphenpenalty=10000 }},
     source/.style={artifact, fill=blue!10, draw=blue!65!black},
     release/.style={artifact, fill=green!10, draw=green!55!black},
@@ -7,13 +7,13 @@
     outcome/.style={artifact, fill=purple!10, draw=purple!65!black},
     flow/.style={->, thick, draw=ink},
     junction/.style={circle, fill=ink, inner sep=0pt, minimum size=3pt}}
-  \node[source] (public) {Public network\\{\bfseries ACTIVSg2000}};
-  \node[release, right=of public] (package) {{\bfseries Released package}\\{\scriptsize scenario context +\\validation inputs}};
-  \node[submission, below=of package] (csv) {{\bfseries Student CSV}\\{\scriptsize seven columns,\\student creates}};
+  \node[source] (public) {Hourly source data\\{\bfseries ACTIVSg2000}};
+  \node[release, right=of public] (package) {{\bfseries Six-hour release}\\{\scriptsize 6-hour profiles +\\validation inputs}};
+  \node[submission, below=of package] (csv) {{\bfseries Student CSV}\\{\scriptsize one row per site,\\student creates}};
   % Vertical bus: both inputs reach both evaluators without crossing a box.
   \coordinate (bus) at ([xshift=9mm]package.east);
   \node[outcome, anchor=west] (preview) at ([xshift=9mm]bus |- package) {{\bfseries Student preview}\\{\scriptsize local, non-authoritative}};
-  \node[outcome, anchor=west] (eval) at ([xshift=9mm]bus |- csv) {{\bfseries Official evaluator}\\{\scriptsize authoritative score}};
+  \node[outcome, anchor=west] (eval) at ([xshift=9mm]bus |- csv) {{\bfseries Daily-cycle DCOPF}\\{\scriptsize official score + LMP}};
   \draw[flow] (public) -- (package);
   \draw[thick, draw=ink] (package.east) -- (bus |- package) -- (bus |- csv);
   \draw[thick, draw=ink] (csv.east) -- (bus |- csv);

@@ -1,4 +1,4 @@
-"""Deterministic hourly profiles for the ACTIVSg2000 teaching package."""
+"""Deterministic operating-period profiles for the ACTIVSg2000 package."""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ import math
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+
+from .calendars import half_year_calendar
 
 
 def _read_csv(path: Path) -> list[dict[str, str]]:
@@ -76,14 +78,39 @@ def load_profile_inputs(package_root: str | Path) -> tuple[dict[str, float], dic
 def clear_profile_input_cache() -> None:
     """Clear cached scenario profile inputs after deliberate file replacement."""
     _load_profile_inputs_cached.cache_clear()
+    _scenario_time_step_cached.cache_clear()
+    _source_hourly_state_cached.cache_clear()
     _hourly_state_cached.cache_clear()
 
 
 @lru_cache(maxsize=16384)
-def _hourly_state_cached(package_root: str, year: int, calendar_block: str, period_index: int) -> tuple[dict[str, float], dict[str, float]]:
-    """Materialize one bus-demand and generator-availability state."""
+def _scenario_time_step_cached(package_root: str) -> int:
+    profile_path = Path(package_root) / "scenario_profile.json"
+    if not profile_path.is_file():
+        return 1
+    try:
+        payload = json.loads(profile_path.read_text(encoding="utf-8"))
+        value = payload.get("time_step_hours", 1)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"could not read scenario profile metadata: {exc}") from exc
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ValueError("scenario_profile.json time_step_hours must be a positive integer")
+    aggregation_method = payload.get("aggregation_method", "mean")
+    if aggregation_method != "mean":
+        raise ValueError("scenario profile aggregation_method must be 'mean'")
+    return value
+
+
+@lru_cache(maxsize=16384)
+def _source_hourly_state_cached(
+    package_root: str,
+    year: int,
+    calendar_block: str,
+    period_index: int,
+) -> tuple[dict[str, float], dict[str, float]]:
+    """Materialize one source hourly bus-demand and generator state."""
     base_load, profiles, catalog = load_profile_inputs(package_root)
-    horizon = 4368 if calendar_block == "jan_jun" and year % 4 == 0 else 4344 if calendar_block == "jan_jun" else 4416
+    horizon = half_year_calendar(year, calendar_block).horizon
     if not 0 <= period_index < horizon:
         raise IndexError("period_index is outside the half-year block")
     absolute_hour = block_offset(year, calendar_block) + period_index
@@ -93,6 +120,51 @@ def _hourly_state_cached(package_root: str, year: int, calendar_block: str, peri
         row["generator_id"]: round(float(row["p_max_mw"]) * generator_availability(profiles[row["generator_id"]], absolute_hour, year=year), 8)
         for row in catalog
         if int(row["status"]) == 1
+    }
+    return demand, availability
+
+
+@lru_cache(maxsize=16384)
+def _hourly_state_cached(
+    package_root: str,
+    year: int,
+    calendar_block: str,
+    period_index: int,
+) -> tuple[dict[str, float], dict[str, float]]:
+    """Materialize one scenario period at the artifact's declared resolution."""
+
+    time_step_hours = _scenario_time_step_cached(package_root)
+    source_horizon = half_year_calendar(year, calendar_block).horizon
+    aggregate_horizon = source_horizon // time_step_hours
+    if source_horizon % time_step_hours:
+        raise ValueError(
+            "scenario time_step_hours must divide the half-year source horizon"
+        )
+    if not 0 <= period_index < aggregate_horizon:
+        raise IndexError("period_index is outside the half-year block")
+    source_indices = range(
+        period_index * time_step_hours,
+        (period_index + 1) * time_step_hours,
+    )
+    source_states = tuple(
+        _source_hourly_state_cached(package_root, year, calendar_block, source_index)
+        for source_index in source_indices
+    )
+    bus_ids = source_states[0][0]
+    generator_ids = source_states[0][1]
+    demand = {
+        bus_id: round(
+            sum(state[0][bus_id] for state in source_states) / time_step_hours,
+            8,
+        )
+        for bus_id in bus_ids
+    }
+    availability = {
+        generator_id: round(
+            sum(state[1][generator_id] for state in source_states) / time_step_hours,
+            8,
+        )
+        for generator_id in generator_ids
     }
     return demand, availability
 

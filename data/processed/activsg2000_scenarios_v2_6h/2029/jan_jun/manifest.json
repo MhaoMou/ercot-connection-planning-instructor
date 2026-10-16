@@ -1,0 +1,13 @@
+{
+  "aggregation_method": "mean",
+  "block": "2029-jan_jun",
+  "calendar_block": "jan_jun",
+  "horizon": 724,
+  "package_version": "activsg2000-scenarios-v2-6h",
+  "sha256": "fa6cbc7f54de14412c771de21ae80204846fb7807d12d945b00b7dc75fb803c6",
+  "source_horizon_hours": 4344,
+  "time_step_hours": 6,
+  "validation_status": "passed",
+  "year": 2029,
+  "validated_state_hash": "3aac4cb23a4eaef9856f35b35b1a0ed0a9a81c307a878dd67d901b5a1b84219f"
+}

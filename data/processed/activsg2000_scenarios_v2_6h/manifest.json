@@ -1,0 +1,105 @@
+{
+  "aggregation_method": "mean",
+  "blocks": {
+    "2027-jan_jun": {
+      "aggregation_method": "mean",
+      "calendar_block": "jan_jun",
+      "horizon": 724,
+      "sha256": "5218dd640e7237a9aba9e11fa5df1220f51b624e6d6f549ce267eb96d36fc8dc",
+      "source_horizon_hours": 4344,
+      "time_step_hours": 6,
+      "validation_status": "passed",
+      "year": 2027,
+      "validated_state_hash": "3aac4cb23a4eaef9856f35b35b1a0ed0a9a81c307a878dd67d901b5a1b84219f"
+    },
+    "2027-jul_dec": {
+      "aggregation_method": "mean",
+      "calendar_block": "jul_dec",
+      "horizon": 736,
+      "sha256": "c39242c961821e8c4d2dc0c4a20249bf83463a630cf5e641c31d7432aa89d55f",
+      "source_horizon_hours": 4416,
+      "time_step_hours": 6,
+      "validation_status": "passed",
+      "year": 2027,
+      "validated_state_hash": "7364cf864bdd7cab4649350ecae28d01327f80e3e25bc55a9b3856c5a5273513"
+    },
+    "2028-jan_jun": {
+      "aggregation_method": "mean",
+      "calendar_block": "jan_jun",
+      "horizon": 728,
+      "sha256": "85bced4794023e23fb83f6a002b5d74686b4cd0a6dad4bf815ca95c9ca0f9393",
+      "source_horizon_hours": 4368,
+      "time_step_hours": 6,
+      "validation_status": "passed",
+      "year": 2028,
+      "validated_state_hash": "3b3f245f5acbf93b1eac745b08d6cf832077eec2ee6b1da51ed882fd2adc69f4"
+    },
+    "2028-jul_dec": {
+      "aggregation_method": "mean",
+      "calendar_block": "jul_dec",
+      "horizon": 736,
+      "sha256": "d5eaf6f8b8cf74f9671ff0d6cb64386366779e42b610372be0f17607db7ed4fe",
+      "source_horizon_hours": 4416,
+      "time_step_hours": 6,
+      "validation_status": "passed",
+      "year": 2028,
+      "validated_state_hash": "988cbeda7ee0e6814b6aa307f01893d7c0203c0d6e0f4bb36da2682a0b579243"
+    },
+    "2029-jan_jun": {
+      "aggregation_method": "mean",
+      "calendar_block": "jan_jun",
+      "horizon": 724,
+      "sha256": "fa6cbc7f54de14412c771de21ae80204846fb7807d12d945b00b7dc75fb803c6",
+      "source_horizon_hours": 4344,
+      "time_step_hours": 6,
+      "validation_status": "passed",
+      "year": 2029,
+      "validated_state_hash": "3aac4cb23a4eaef9856f35b35b1a0ed0a9a81c307a878dd67d901b5a1b84219f"
+    },
+    "2029-jul_dec": {
+      "aggregation_method": "mean",
+      "calendar_block": "jul_dec",
+      "horizon": 736,
+      "sha256": "f54c16ef4d761537879b0a31f5315ab292159b5c6bc1bebccf56c8f7e7544772",
+      "source_horizon_hours": 4416,
+      "time_step_hours": 6,
+      "validation_status": "passed",
+      "year": 2029,
+      "validated_state_hash": "7364cf864bdd7cab4649350ecae28d01327f80e3e25bc55a9b3856c5a5273513"
+    }
+  },
+  "network": {
+    "bus_count": 2000,
+    "files": [
+      "network/branch.csv",
+      "network/bus.csv",
+      "network/bus_load_base.csv",
+      "network/case.csv",
+      "network/gen.csv",
+      "network/gencost.csv",
+      "network/generator_catalog.csv"
+    ],
+    "generator_count": 544,
+    "sha256": {
+      "network/branch.csv": "5663a9dc2d48d3163a3385a96c300d7315aa87d2946a25568e5a3b77e39b33d7",
+      "network/bus.csv": "7bf6f787481db34120abff44a1cbe5320318c6630dab0e4b7384f8b999648eef",
+      "network/bus_load_base.csv": "40f3ef64f67c7fdbd789b4e1fcebefa69002b65050b0f3f593698625558e0d08",
+      "network/case.csv": "c6b8f4320e9ea1598688eda3e9269d32e29d9384b99273465b4a66d1d75db306",
+      "network/gen.csv": "8493a9ae77a787272af2b48fead18c8bc830a432a143bf80ea284b7a010a1831",
+      "network/gencost.csv": "7091ccec317e12f5202db9e26df67befb9afee05580469c9c43a09064f63c05a",
+      "network/generator_catalog.csv": "d9ccbb55f129cd6e0b00c4bfb54a2c5da9a366cecf773360c26fbf939d976787"
+    }
+  },
+  "package_version": "activsg2000-scenarios-v2-6h",
+  "source_package_version": "activsg2000-scenarios-v1",
+  "time_step_hours": 6,
+  "validation": {
+    "hour_count": 4384,
+    "expected_hour_count": 4384,
+    "passed_hour_count": 4384,
+    "failed_hour_count": 0,
+    "unverified_hour_count": 0,
+    "failures": []
+  },
+  "validation_status": "passed"
+}

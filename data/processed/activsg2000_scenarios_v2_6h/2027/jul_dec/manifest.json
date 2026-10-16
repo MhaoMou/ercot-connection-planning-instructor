@@ -1,0 +1,13 @@
+{
+  "aggregation_method": "mean",
+  "block": "2027-jul_dec",
+  "calendar_block": "jul_dec",
+  "horizon": 736,
+  "package_version": "activsg2000-scenarios-v2-6h",
+  "sha256": "c39242c961821e8c4d2dc0c4a20249bf83463a630cf5e641c31d7432aa89d55f",
+  "source_horizon_hours": 4416,
+  "time_step_hours": 6,
+  "validation_status": "passed",
+  "year": 2027,
+  "validated_state_hash": "7364cf864bdd7cab4649350ecae28d01327f80e3e25bc55a9b3856c5a5273513"
+}

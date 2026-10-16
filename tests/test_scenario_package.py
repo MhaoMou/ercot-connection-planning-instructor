@@ -52,3 +52,14 @@ def test_manifest_rejects_unknown_block_horizon(tmp_path: Path) -> None:
     (tmp_path / "manifest.json").write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ScenarioPackageError, match="horizon"):
         load_scenario_manifest(tmp_path)
+
+
+def test_manifest_accepts_six_hour_release_contract(tmp_path: Path) -> None:
+    _write_manifest(tmp_path)
+    payload = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    payload["package_version"] = "activsg2000-scenarios-v2-6h"
+    for block, entry in payload["blocks"].items():
+        entry["horizon"] = entry["horizon"] // 6
+        entry["time_step_hours"] = 6
+    (tmp_path / "manifest.json").write_text(json.dumps(payload), encoding="utf-8")
+    assert load_scenario_manifest(tmp_path)["package_version"] == "activsg2000-scenarios-v2-6h"

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ercot_game.scenario_profiles import hourly_state, load_profile_inputs
-from ercot_game.scenario_package import EXPECTED_HORIZONS
+from ercot_game.scenario_package import expected_horizons_for_manifest
 from tools.activsg2000.dcopf import Branch, Bus, Generator, DCOPFInfeasible, solve_dcopf
 
 
@@ -142,12 +142,19 @@ def validate_package(
     workers: int = 1,
 ) -> dict[str, Any]:
     package = Path(root)
-    total_expected = sum(EXPECTED_HORIZONS.values())
+    manifest_path = package / "manifest.json"
+    if not manifest_path.is_file():
+        raise ValueError(f"scenario manifest is missing: {manifest_path}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError("scenario manifest must be a JSON object")
+    expected_horizons = expected_horizons_for_manifest(manifest)
+    total_expected = sum(expected_horizons.values())
     if max_hours is not None and max_hours <= 0:
         raise ValueError("max_hours must be positive")
     if not isinstance(workers, int) or isinstance(workers, bool) or workers <= 0:
         raise ValueError("workers must be a positive integer")
-    blocks = list(EXPECTED_HORIZONS.items())
+    blocks = list(expected_horizons.items())
     if max_hours is None and workers > 1:
         with ProcessPoolExecutor(max_workers=workers) as executor:
             results = list(
@@ -201,6 +208,12 @@ def validate_package(
                 block_manifest["validation_status"] = "passed"
                 block_manifest["validated_state_hash"] = result["digest"]
             block_manifest_path.write_text(json.dumps(block_manifest, indent=2) + "\n", encoding="utf-8")
+        if block in manifest.get("blocks", {}):
+            manifest["blocks"][block]["validation_status"] = result["status"]
+            if result["status"] == "passed" and result["complete"]:
+                manifest["blocks"][block]["validated_state_hash"] = result["digest"]
+            else:
+                manifest["blocks"][block].pop("validated_state_hash", None)
 
     status = (
         "unverified_dependency"
@@ -211,8 +224,6 @@ def validate_package(
         if failures
         else "partial"
     )
-    manifest_path = package / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["validation_status"] = status
     manifest["validation"] = {
         "hour_count": passed + len(failures) + len(unverified),
@@ -233,12 +244,8 @@ def validate_package(
             "only then may validation_status become passed and this package be released."
         )
         manifest["validation_reason"] = reason
-    for result in results:
-        block = result["block"]
-        if result["status"] == "passed" and result["complete"]:
-            manifest["blocks"][block]["validated_state_hash"] = result["digest"]
-        else:
-            manifest["blocks"][block].pop("validated_state_hash", None)
+    for block in expected_horizons:
+        manifest["blocks"][block].setdefault("validation_status", "not_run")
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return manifest
 

@@ -15,6 +15,72 @@ from tools.activsg2000.plan_adapter import (
 )
 
 
+def test_batch_adapter_passes_time_step_to_central_storage_solver(monkeypatch) -> None:
+    plan = TeamPlan(
+        team_id="team-a",
+        connections=(ConnectionPlan("site", "b0001", 10.0, (1.0, 1.0, 1.0, 1.0)),),
+        storages=(StoragePlan("store", "site", 2.0, 8.0),),
+    )
+    observed = {}
+
+    def fake_central(_artifact_dir, **kwargs):
+        observed.update(kwargs)
+        return plan_adapter.BatchDispatchResult(team_ids=("team-a",), periods=())
+
+    monkeypatch.setattr(plan_adapter, "_evaluate_batch_with_central_storage", fake_central)
+    evaluate_plans_with_prepared_dcopf(
+        "unused-artifact",
+        (plan,),
+        period_indices=(0, 1, 2, 3),
+        time_step_hours=6.0,
+    )
+
+    assert observed["time_step_hours"] == 6.0
+
+
+def test_daily_exact_cycle_uses_four_six_hour_periods(monkeypatch) -> None:
+    plan = TeamPlan(
+        team_id="team-a",
+        connections=(ConnectionPlan("site", "b0001", 10.0, (1.0,) * 8),),
+        storages=(StoragePlan("store", "site", 2.0, 8.0),),
+    )
+    observed = {}
+
+    def fake_benders(**kwargs):
+        observed.update(kwargs)
+        periods = tuple(
+            DCOPFResult(
+                status="optimal",
+                objective_cost=0.0,
+                generation_mw={},
+                angle_by_bus={},
+                flow_mw_by_branch={},
+                balance_dual_by_bus={},
+                storage_soc_mwh={"store": 4.0},
+            )
+            for _ in kwargs["period_indices"]
+        )
+        return DCOPFHorizonResult(
+            status="optimal",
+            periods=periods,
+            final_soc_mwh_by_storage={"store": 4.0},
+        )
+
+    monkeypatch.setattr(plan_adapter, "solve_prepared_horizon_benders", fake_benders)
+    plan_adapter._evaluate_batch_with_central_storage(
+        "unused-artifact",
+        ordered_plans=(plan,),
+        team_ids=("team-a",),
+        connection_by_team={"team-a": {"site": plan.connections[0]}},
+        ordered_connections_by_team={"team-a": plan.connections},
+        period_indices=tuple(range(8)),
+        time_step_hours=6.0,
+        storage_boundary_mode="daily_exact_cycle",
+    )
+
+    assert observed["storage_cycle_hours"] == 4
+
+
 def test_zero_load_placeholder_storage_stays_idle() -> None:
     plan = TeamPlan(
         team_id="team-a",
@@ -499,4 +565,52 @@ def test_batch_adapter_dispatches_storage_centrally_and_exposes_final_soc(monkey
         "team-a": {"store-a": 8.0},
         "team-b": {"store-b": 7.5},
     }
+
+
+def test_batch_adapter_uses_daily_exact_cycle_mode(monkeypatch) -> None:
+    plan = TeamPlan(
+        team_id="team-a",
+        connections=(ConnectionPlan("site-a", "b0001", 4.0, (1.0,) * 48),),
+        storages=(StoragePlan("store-a", "site-a", 2.0, 8.0, 6.0),),
+    )
+    seen = {}
+
+    def solve_benders(*, period_indices, storage_assets, **kwargs):
+        seen["period_indices"] = period_indices
+        seen["storage_assets"] = storage_assets
+        seen.update(kwargs)
+        periods = tuple(
+            DCOPFResult(
+                status="optimal",
+                objective_cost=0.0,
+                generation_mw={},
+                angle_by_bus={},
+                flow_mw_by_branch={},
+                balance_dual_by_bus={},
+                storage_soc_mwh={"store-a": 4.0},
+            )
+            for _ in period_indices
+        )
+        return DCOPFHorizonResult(
+            status="optimal",
+            periods=periods,
+            final_soc_mwh_by_storage={"store-a": 4.0},
+        )
+
+    monkeypatch.setattr(plan_adapter, "solve_prepared_horizon_benders", solve_benders)
+
+    result = evaluate_plans_with_prepared_dcopf(
+        "unused-artifact",
+        (plan,),
+        period_indices=tuple(range(48)),
+        workers=2,
+        storage_boundary_mode="daily_exact_cycle",
+    )
+
+    assert seen["period_indices"] == tuple(range(48))
+    assert seen["storage_cycle_hours"] == 24
+    assert seen["terminal_soc_policy"] == "exact_half"
+    assert seen["parallel_workers"] == 2
+    assert seen["storage_assets"][0].initial_soc_mwh == 6.0
+    assert result.final_storage_soc_mwh_by_team == {"team-a": {"store-a": 4.0}}
     assert result.final_soc_mwh_by_team == result.final_storage_soc_mwh_by_team
