@@ -327,7 +327,7 @@ def test_matrix_driver_preserves_requested_and_resolved_backend_in_metadata(tmp_
         lambda period, bus_ids, *, solver_backend, solver_threads: _fake_matrix_result(period, bus_ids),
     )
 
-    result = compute_hosting_capacity_matrix(
+    compute_hosting_capacity_matrix(
         _TwoPeriodProvider(),
         period_indices=[0],
         solver_backend="auto",
@@ -396,7 +396,7 @@ def test_matrix_driver_recomputes_malformed_checkpoint_points(
 
     monkeypatch.setattr("tools.hosting_capacity._solve_matrix_period", fake_period_solver)
     checkpoint_dir = tmp_path / "checkpoints"
-    compute_hosting_capacity_matrix(
+    result = compute_hosting_capacity_matrix(
         _TwoPeriodProvider(),
         period_indices=[0],
         bus_ids=["b1", "b2"],
