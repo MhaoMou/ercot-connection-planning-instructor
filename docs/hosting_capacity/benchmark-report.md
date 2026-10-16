@@ -1,6 +1,6 @@
 # Hosting-capacity release benchmark report
 
-**Environment date:** 2026-10-15  
+**Environment date:** 2026-10-15
 **Classification:** dependency-limited
 
 This report publishes only the measured IEEE-14 benchmark row. It does not
@@ -75,8 +75,20 @@ The validation command must finish successfully and the root manifest plus all
 six block manifests must report `validation_status: passed`. A partial run,
 missing dependency, or any block not reporting `passed` is insufficient.
 
-Then run the complete staged benchmark sequence, including the 1-, 24-, 168-,
-and full-horizon stages:
+Before any full-horizon run, execute the staged safety checks below and review
+their output:
+
+1. first 24 periods for one candidate bus;
+2. first 24 periods for ten candidate buses; and
+3. one period for all candidate buses.
+
+Use the CLI's repeatable `--bus-id` option for the one- and ten-bus pilots,
+then omit it for the all-bus one-period check. Confirm output shape,
+checkpoint/resume behavior, memory use, and status distribution. Full-horizon
+execution requires explicit instructor/operator approval after those checks.
+
+Only after those gates pass, run the complete staged benchmark sequence,
+including the 1-, 24-, 168-, and full-horizon stages:
 
 ```bash
 PYTHONPATH=.:src python3 tools/benchmarks/benchmark_hosting_capacity.py \
