@@ -472,9 +472,32 @@ def test_artifact_benchmark_emits_complete_staged_sequence(tmp_path, monkeypatch
     assert period_counts == [1, 1, 24, 168, 365]
     assert all(row["model_build_time_s"] is None for row in rows)
     assert all(row["resume_status"] == "fresh" for row in rows)
+    assert all("peak_rss_mb" in row and "rss_delta_mb" in row for row in rows)
 
 
-def test_benchmark_peak_rss_uses_stage_local_self_and_child_deltas(monkeypatch):
+def test_benchmark_peak_rss_preserves_absolute_post_stage_self_and_child_usage(monkeypatch):
+    from tools.benchmarks import benchmark_hosting_capacity
+
+    class FakeResource:
+        RUSAGE_SELF = object()
+        RUSAGE_CHILDREN = object()
+
+        def __init__(self):
+            self.values = iter((1000, 500, 1400, 2500))
+
+        def getrusage(self, _kind):
+            return SimpleNamespace(ru_maxrss=next(self.values))
+
+    monkeypatch.setattr(benchmark_hosting_capacity, "resource", FakeResource())
+
+    benchmark_hosting_capacity._resource_usage_snapshot()
+    after = benchmark_hosting_capacity._resource_usage_snapshot()
+
+    divisor = 1024 * 1024 if benchmark_hosting_capacity.sys.platform == "darwin" else 1024
+    assert benchmark_hosting_capacity._stage_peak_rss_mb(after) == round(2500 / divisor, 3)
+
+
+def test_benchmark_rss_delta_reports_stage_local_self_and_child_increase(monkeypatch):
     from tools.benchmarks import benchmark_hosting_capacity
 
     class FakeResource:
@@ -493,7 +516,7 @@ def test_benchmark_peak_rss_uses_stage_local_self_and_child_deltas(monkeypatch):
     after = benchmark_hosting_capacity._resource_usage_snapshot()
 
     divisor = 1024 * 1024 if benchmark_hosting_capacity.sys.platform == "darwin" else 1024
-    assert benchmark_hosting_capacity._stage_peak_rss_mb(before, after) == round(2000 / divisor, 3)
+    assert benchmark_hosting_capacity._stage_rss_delta_mb(before, after) == round(2000 / divisor, 3)
 
 
 def test_benchmark_peak_rss_is_null_when_resource_usage_is_unavailable(monkeypatch):
@@ -504,7 +527,8 @@ def test_benchmark_peak_rss_is_null_when_resource_usage_is_unavailable(monkeypat
     before = benchmark_hosting_capacity._resource_usage_snapshot()
     after = benchmark_hosting_capacity._resource_usage_snapshot()
 
-    assert benchmark_hosting_capacity._stage_peak_rss_mb(before, after) is None
+    assert benchmark_hosting_capacity._stage_peak_rss_mb(after) is None
+    assert benchmark_hosting_capacity._stage_rss_delta_mb(before, after) is None
 
 
 def test_benchmark_labels_resume_from_matrix_metadata(tmp_path, monkeypatch):
@@ -522,6 +546,12 @@ def test_benchmark_labels_resume_from_matrix_metadata(tmp_path, monkeypatch):
         )
 
     monkeypatch.setattr(benchmark_hosting_capacity, "compute_hosting_capacity_matrix", fake_compute)
+    snapshots = iter(((1000, 500), (1400, 2500)))
+    monkeypatch.setattr(
+        benchmark_hosting_capacity,
+        "_resource_usage_snapshot",
+        lambda: next(snapshots),
+    )
 
     row = benchmark_hosting_capacity._run_stage(
         stage=benchmark_hosting_capacity.BenchmarkStage("stage", 1),
@@ -534,6 +564,9 @@ def test_benchmark_labels_resume_from_matrix_metadata(tmp_path, monkeypatch):
     )
 
     assert row["resume_status"] == "resumed"
+    divisor = 1024 * 1024 if benchmark_hosting_capacity.sys.platform == "darwin" else 1024
+    assert row["peak_rss_mb"] == round(2500 / divisor, 3)
+    assert row["rss_delta_mb"] == round(2000 / divisor, 3)
 
 
 def test_artifact_benchmark_uses_requested_custom_period_stage(tmp_path, monkeypatch):

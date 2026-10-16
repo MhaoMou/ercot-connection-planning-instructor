@@ -26,6 +26,7 @@ def test_hosting_capacity_readme_matches_current_output_and_benchmark_contracts(
     for field in (
         "wall_time_s",
         "peak_rss_mb",
+        "rss_delta_mb",
         "model_build_time_s",
         "mean_point_time_s",
         "p50_point_time_s",
@@ -62,10 +63,14 @@ def test_hosting_capacity_readme_matches_current_output_and_benchmark_contracts(
         "driver's private period solver and is not separately instrumented"
     ) in normalized
     assert (
-        "`peak_rss_mb` is a stage-local increase in the maximum resident-set counter, computed from "
-        "resource snapshots immediately before and after the stage"
+        "`peak_rss_mb` is the legacy absolute post-stage `ru_maxrss` value in MiB, using the larger "
+        "available value from the benchmark process and waited-for child processes"
     ) in normalized
-    assert "Child usage is accounted for without summing lifetime counters" in normalized
+    assert (
+        "`rss_delta_mb` is the additive stage-local measurement: the maximum non-negative self/child "
+        "delta between resource snapshots immediately before and after the stage"
+    ) in normalized
+    assert "child usage is not computed by summing lifetime counters" in normalized
     assert (
         "`resume_status` is `fresh` when no valid request-matching checkpoint was loaded and `resumed` "
         "when at least one was loaded, including an already-complete rerun."

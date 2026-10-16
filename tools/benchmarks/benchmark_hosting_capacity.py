@@ -125,7 +125,18 @@ def _resource_usage_snapshot() -> tuple[int | None, int | None]:
     return (self_rss, children_rss)
 
 
-def _stage_peak_rss_mb(
+def _rss_mb(raw: int) -> float:
+    # macOS reports bytes; Linux and most other Unix platforms report KiB.
+    divisor = 1024 * 1024 if sys.platform == "darwin" else 1024
+    return round(raw / divisor, 3)
+
+
+def _stage_peak_rss_mb(after: tuple[int | None, int | None]) -> float | None:
+    values = [value for value in after if value is not None and value > 0]
+    return _rss_mb(max(values)) if values else None
+
+
+def _stage_rss_delta_mb(
     before: tuple[int | None, int | None], after: tuple[int | None, int | None]
 ) -> float | None:
     deltas = [
@@ -135,10 +146,7 @@ def _stage_peak_rss_mb(
     ]
     if not deltas:
         return None
-    raw = max(deltas)
-    # macOS reports bytes; Linux and most other Unix platforms report KiB.
-    divisor = 1024 * 1024 if sys.platform == "darwin" else 1024
-    return round(raw / divisor, 3)
+    return _rss_mb(max(deltas))
 
 
 def _percentile(values: list[float], percentile: float) -> float | None:
@@ -192,7 +200,8 @@ def _run_stage(
         "workers": workers,
         "solver_threads": solver_threads,
         "wall_time_s": round(wall_time_s, 6),
-        "peak_rss_mb": _stage_peak_rss_mb(rss_before, rss_after),
+        "peak_rss_mb": _stage_peak_rss_mb(rss_after),
+        "rss_delta_mb": _stage_rss_delta_mb(rss_before, rss_after),
         "model_build_time_s": model_build_time_s,
         "resume_status": (
             "resumed" if result.metadata.get("resumed_from_checkpoint", False) else "fresh"
