@@ -101,18 +101,41 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return _build_parser().parse_args(argv)
 
 
-def _peak_rss_mb() -> float | None:
+def _resource_usage_snapshot() -> tuple[int | None, int | None]:
     if resource is None:
-        return None
+        return (None, None)
     try:
-        usages = [resource.getrusage(resource.RUSAGE_SELF)]
-        if hasattr(resource, "RUSAGE_CHILDREN"):
-            usages.append(resource.getrusage(resource.RUSAGE_CHILDREN))
-        raw = max(int(usage.ru_maxrss) for usage in usages)
-    except (AttributeError, OSError, ValueError):
+        self_kind = resource.RUSAGE_SELF
+    except AttributeError:
+        return (None, None)
+
+    def read_usage(kind) -> int | None:
+        try:
+            raw = int(resource.getrusage(kind).ru_maxrss)
+        except (AttributeError, OSError, TypeError, ValueError):
+            return None
+        return raw if raw >= 0 else None
+
+    self_rss = read_usage(self_kind)
+    children_rss = (
+        read_usage(resource.RUSAGE_CHILDREN)
+        if hasattr(resource, "RUSAGE_CHILDREN")
+        else None
+    )
+    return (self_rss, children_rss)
+
+
+def _stage_peak_rss_mb(
+    before: tuple[int | None, int | None], after: tuple[int | None, int | None]
+) -> float | None:
+    deltas = [
+        after_value - before_value
+        for before_value, after_value in zip(before, after)
+        if before_value is not None and after_value is not None and after_value >= before_value
+    ]
+    if not deltas:
         return None
-    if raw <= 0:
-        return None
+    raw = max(deltas)
     # macOS reports bytes; Linux and most other Unix platforms report KiB.
     divisor = 1024 * 1024 if sys.platform == "darwin" else 1024
     return round(raw / divisor, 3)
@@ -146,6 +169,7 @@ def _run_stage(
     # is not separately instrumented, so do not mislabel provider materialization
     # time as model_build_time_s.
     model_build_time_s = None
+    rss_before = _resource_usage_snapshot()
     started = time.perf_counter()
     result = compute_hosting_capacity_matrix(
         provider,
@@ -157,6 +181,7 @@ def _run_stage(
         output_dir=stage_dir,
     )
     wall_time_s = time.perf_counter() - started
+    rss_after = _resource_usage_snapshot()
     point_times = [float(value) for value in result.solve_time_s.flat if value == value]
     statuses = [str(value) for value in result.status.flat]
     completed = sum(status != "" for status in statuses)
@@ -167,8 +192,11 @@ def _run_stage(
         "workers": workers,
         "solver_threads": solver_threads,
         "wall_time_s": round(wall_time_s, 6),
-        "peak_rss_mb": _peak_rss_mb(),
+        "peak_rss_mb": _stage_peak_rss_mb(rss_before, rss_after),
         "model_build_time_s": model_build_time_s,
+        "resume_status": (
+            "resumed" if result.metadata.get("resumed_from_checkpoint", False) else "fresh"
+        ),
         "mean_point_time_s": round(statistics.fmean(point_times), 6) if point_times else None,
         "p50_point_time_s": round(_percentile(point_times, 50), 6) if point_times else None,
         "p95_point_time_s": round(_percentile(point_times, 95), 6) if point_times else None,

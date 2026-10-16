@@ -217,8 +217,25 @@ and backend version from each stage's `hosting_capacity_metadata.json`, under
 `benchmark_hosting_capacity.jsonl` rows contain the stage label, resolved
 backend convenience field, worker and solver-thread counts, the timing fields
 `wall_time_s`, `peak_rss_mb`, `model_build_time_s`, `mean_point_time_s`,
-`p50_point_time_s`, and `p95_point_time_s`, plus the count fields
-`completed_points` and `failed_points`.
+`p50_point_time_s`, and `p95_point_time_s`, the additive `resume_status` field,
+plus the count fields `completed_points` and `failed_points`.
+
+`wall_time_s` is the elapsed time around the complete matrix-driver call. It
+may include provider materialization, valid-checkpoint loading, point solving,
+checkpoint writes, and output publication; it is not solve-only time unless a
+separate solve-only timer is instrumented. `model_build_time_s` is explicitly
+`null` because model construction occurs inside the matrix driver's private
+period solver and is not separately instrumented; do not fabricate a model-build
+measurement from provider or wall-clock time.
+
+`peak_rss_mb` is a stage-local increase in the maximum resident-set counter,
+computed from resource snapshots immediately before and after the stage. It
+uses the maximum non-negative delta for the benchmark process and, when
+available, waited-for child processes. Child usage is accounted for without
+summing lifetime counters or claiming an aggregate process-tree RSS; the field
+is `null` when no usable counter is available. `resume_status` is `fresh` when
+no valid request-matching checkpoint was loaded and `resumed` when at least one
+was loaded, including an already-complete rerun.
 
 Solver/backend failures can produce a timed stage row, with failed points
 recorded in `failed_points`; the row still includes the timing fields. Artifact

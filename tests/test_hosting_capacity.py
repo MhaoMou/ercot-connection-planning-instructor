@@ -111,7 +111,7 @@ def test_matrix_driver_resumes_completed_period_without_solving_it(tmp_path, mon
     monkeypatch.setattr("tools.hosting_capacity._solve_matrix_period", fake_period_solver)
     provider = _TwoPeriodProvider()
     checkpoint_dir = tmp_path / "checkpoints"
-    compute_hosting_capacity_matrix(
+    initial = compute_hosting_capacity_matrix(
         provider,
         period_indices=[0, 1],
         bus_ids=["b1", "b2"],
@@ -119,6 +119,7 @@ def test_matrix_driver_resumes_completed_period_without_solving_it(tmp_path, mon
         checkpoint_dir=checkpoint_dir,
     )
     assert calls == [0, 1]
+    assert initial.metadata["resumed_from_checkpoint"] is False
 
     calls.clear()
     resumed = compute_hosting_capacity_matrix(
@@ -130,6 +131,7 @@ def test_matrix_driver_resumes_completed_period_without_solving_it(tmp_path, mon
     )
     assert calls == []
     assert resumed.capacity_mw.tolist() == [[0.0, 1.0], [1.0, 2.0]]
+    assert resumed.metadata["resumed_from_checkpoint"] is True
 
 
 def test_matrix_driver_keeps_prior_checkpoint_when_later_period_raises(tmp_path, monkeypatch):
@@ -325,7 +327,7 @@ def test_matrix_driver_preserves_requested_and_resolved_backend_in_metadata(tmp_
         lambda period, bus_ids, *, solver_backend, solver_threads: _fake_matrix_result(period, bus_ids),
     )
 
-    compute_hosting_capacity_matrix(
+    result = compute_hosting_capacity_matrix(
         _TwoPeriodProvider(),
         period_indices=[0],
         solver_backend="auto",
@@ -419,6 +421,7 @@ def test_matrix_driver_recomputes_malformed_checkpoint_points(
     )
     assert calls == [0]
     assert result.status.tolist() == [["optimal", "optimal"]]
+    assert result.metadata["resumed_from_checkpoint"] is False
 
 
 def test_matrix_driver_recomputes_incomplete_checkpoint(tmp_path, monkeypatch):
@@ -430,7 +433,7 @@ def test_matrix_driver_recomputes_incomplete_checkpoint(tmp_path, monkeypatch):
 
     monkeypatch.setattr("tools.hosting_capacity._solve_matrix_period", fake_period_solver)
     checkpoint_dir = tmp_path / "checkpoints"
-    compute_hosting_capacity_matrix(
+    result = compute_hosting_capacity_matrix(
         _TwoPeriodProvider(),
         period_indices=[0],
         bus_ids=["b1", "b2"],
@@ -440,7 +443,7 @@ def test_matrix_driver_recomputes_incomplete_checkpoint(tmp_path, monkeypatch):
     calls.clear()
     _tamper_checkpoint(checkpoint_dir / "period_0.npz", complete=np.asarray(False))
 
-    compute_hosting_capacity_matrix(
+    result = compute_hosting_capacity_matrix(
         _TwoPeriodProvider(),
         period_indices=[0],
         bus_ids=["b1", "b2"],
@@ -448,6 +451,7 @@ def test_matrix_driver_recomputes_incomplete_checkpoint(tmp_path, monkeypatch):
         checkpoint_dir=checkpoint_dir,
     )
     assert calls == [0]
+    assert result.metadata["resumed_from_checkpoint"] is False
 
 
 def test_matrix_driver_recomputes_checkpoint_with_nonboolean_complete_marker(tmp_path, monkeypatch):

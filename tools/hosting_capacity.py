@@ -943,6 +943,7 @@ def _matrix_metadata(
     status: np.ndarray,
     diagnostics: np.ndarray,
     completed_periods: set[int],
+    resumed_from_checkpoint: bool,
     requested_backend: str,
 ) -> dict[str, object]:
     optimal_count = int(np.count_nonzero(status == "optimal"))
@@ -976,6 +977,7 @@ def _matrix_metadata(
             "version": _solver_version(resolved_backend),
         },
         "settings": {"solver_threads": solver_threads, "workers": workers},
+        "resumed_from_checkpoint": resumed_from_checkpoint,
         "tolerances": {"capacity_mw": 1e-9},
         "counts": {
             "period_count": len(period_indices),
@@ -1143,6 +1145,7 @@ def compute_hosting_capacity_matrix(
     solve_time_s = np.full_like(capacity_mw, np.nan)
     diagnostics = np.full((len(selected_indices), len(selected_bus_ids)), "", dtype="<U512")
     completed_periods: set[int] = set()
+    resumed_from_checkpoint = False
 
     if checkpoint_root is not None:
         checkpoint_root.mkdir(parents=True, exist_ok=True)
@@ -1174,6 +1177,7 @@ def compute_hosting_capacity_matrix(
             ):
                 matrix[row_index] = period_result[name]
             completed_periods.add(checkpoint_period_index)
+            resumed_from_checkpoint = True
 
     def publish() -> None:
         metadata = _matrix_metadata(
@@ -1189,6 +1193,7 @@ def compute_hosting_capacity_matrix(
             status=status,
             diagnostics=diagnostics,
             completed_periods=completed_periods,
+            resumed_from_checkpoint=resumed_from_checkpoint,
             requested_backend=solver_backend,
         )
         if output_root is not None:
@@ -1266,6 +1271,7 @@ def compute_hosting_capacity_matrix(
         status=status,
         diagnostics=diagnostics,
         completed_periods=completed_periods,
+        resumed_from_checkpoint=resumed_from_checkpoint,
         requested_backend=solver_backend,
     )
     return HostingCapacityMatrix(

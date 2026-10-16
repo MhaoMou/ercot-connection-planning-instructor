@@ -30,6 +30,7 @@ def test_hosting_capacity_readme_matches_current_output_and_benchmark_contracts(
         "mean_point_time_s",
         "p50_point_time_s",
         "p95_point_time_s",
+        "resume_status",
         "completed_points",
         "failed_points",
     ):
@@ -51,6 +52,24 @@ def test_hosting_capacity_readme_matches_current_output_and_benchmark_contracts(
     assert "reported as unavailable" not in normalized
     assert "unavailable timing fields" not in normalized
     assert "pre-stage failure elapsed time as a benchmark timing" in normalized
+    assert (
+        "`wall_time_s` is the elapsed time around the complete matrix-driver call. It may include "
+        "provider materialization, valid-checkpoint loading, point solving, checkpoint writes, and "
+        "output publication; it is not solve-only time unless a separate solve-only timer is instrumented."
+    ) in normalized
+    assert (
+        "`model_build_time_s` is explicitly `null` because model construction occurs inside the matrix "
+        "driver's private period solver and is not separately instrumented"
+    ) in normalized
+    assert (
+        "`peak_rss_mb` is a stage-local increase in the maximum resident-set counter, computed from "
+        "resource snapshots immediately before and after the stage"
+    ) in normalized
+    assert "Child usage is accounted for without summing lifetime counters" in normalized
+    assert (
+        "`resume_status` is `fresh` when no valid request-matching checkpoint was loaded and `resumed` "
+        "when at least one was loaded, including an already-complete rerun."
+    ) in normalized
 
     assert "capacity and objective entries are `NaN` in the\nNumPy outputs" not in text
     assert "Malformed or incomplete checkpoint files are ignored" not in text
