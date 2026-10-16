@@ -7,13 +7,22 @@ README = REPOSITORY_ROOT / "docs" / "hosting_capacity" / "README.md"
 BENCHMARK_RESULTS = REPOSITORY_ROOT / "docs" / "hosting_capacity" / "benchmark-results.jsonl"
 BENCHMARK_REPORT = REPOSITORY_ROOT / "docs" / "hosting_capacity" / "benchmark-report.md"
 ARTIFACT_PATH = "data/processed/activsg2000_scenarios_v1/2028/jan_jun"
+PILOT_GATE_HEADING = "## Task 9 release pilot gate"
+PILOT_OUTPUT_ROOT = "/private/tmp/hosting-capacity-pilot"
+
+
+def _section(text: str, heading: str) -> str:
+    start = text.index(heading)
+    remainder = text[start:]
+    next_heading = remainder.find("\n## ", len(heading))
+    return remainder if next_heading == -1 else remainder[:next_heading]
 
 
 def test_hosting_capacity_readme_matches_current_output_and_benchmark_contracts():
     text = README.read_text(encoding="utf-8")
     normalized = " ".join(text.split())
 
-    assert text.count(f"--artifact-dir {ARTIFACT_PATH}") == 2
+    assert text.count(f"--artifact-dir {ARTIFACT_PATH}") == 6
     assert "published NumPy surface is" in text
     assert "limited to capacity and status" in text
     assert "there is no `hosting_capacity_objective.npy`" in text
@@ -41,7 +50,7 @@ def test_hosting_capacity_readme_matches_current_output_and_benchmark_contracts(
         assert f"`{field}`" in text
     assert (
         "The default `auto` selection prefers Gurobi when available and falls back "
-        "to portable HiGHS otherwise."
+        "to portable HiGHS through the required project dependency `highspy`."
     ) in normalized
     assert "HiGHS is the portable default backend" not in normalized
 
@@ -118,4 +127,66 @@ def test_release_benchmark_evidence_contains_only_the_actual_ieee14_row():
     assert "activsg2000-24" not in report
     assert "activsg2000-168" not in report
     assert "activsg2000-full" not in report
-    assert "/private/tmp/" not in combined
+    assert PILOT_OUTPUT_ROOT in combined
+
+
+def test_task9_pilot_gate_is_identical_and_decision_complete():
+    readme = README.read_text(encoding="utf-8")
+    report = BENCHMARK_REPORT.read_text(encoding="utf-8")
+    readme_gate = _section(readme, PILOT_GATE_HEADING)
+    report_gate = _section(report, PILOT_GATE_HEADING)
+    normalized_gate = " ".join(readme_gate.split()).lower()
+
+    assert " ".join(readme_gate.split()) == " ".join(report_gate.split())
+    assert "--artifact-dir " + ARTIFACT_PATH in readme_gate
+    assert "--artifact-dir " + ARTIFACT_PATH in report_gate
+    assert "--bus-id 1001" in readme_gate
+    assert readme_gate.count("--bus-id 1001") >= 2
+    for bus_id in range(1001, 1011):
+        assert f"--bus-id {bus_id}" in readme_gate
+    assert "--output-dir /private/tmp/hosting-capacity-pilot/one-bus-24h" in readme_gate
+    assert "--output-dir /private/tmp/hosting-capacity-pilot/ten-bus-24h" in readme_gate
+    assert "--output-dir /private/tmp/hosting-capacity-pilot/all-bus-1h" in readme_gate
+    assert PILOT_OUTPUT_ROOT in readme_gate
+
+    for shape in ("(24, 1)", "(24, 10)", "(1, 2000)"):
+        assert shape in readme_gate
+    for phrase in (
+        "every command has exit code 0",
+        "resume_status=fresh",
+        "resume_status=resumed",
+        "valid completed checkpoint",
+        "no malformed",
+        "wall_time_s",
+        "peak_rss_mb",
+        "rss_delta_mb",
+        "explicit operator approval",
+        "before any full-horizon",
+        "every matrix status is non-empty and `optimal`",
+    ):
+        assert phrase in normalized_gate
+
+    lowered = readme_gate.lower()
+    assert "optional pilot" not in lowered
+    assert "pilot is optional" not in lowered
+    assert "pilots are optional" not in lowered
+    assert "should run" not in lowered
+    assert "may run" not in lowered
+
+
+def test_report_calls_highspy_required_and_unavailable_here():
+    report = BENCHMARK_REPORT.read_text(encoding="utf-8").lower()
+
+    assert "highspy" in report
+    assert "required project dependency" in report
+    assert "highspy" in report and "unavailable in this environment" in report
+    assert "unavailable optional" not in report
+
+
+def test_hosting_capacity_results_are_narrowly_ignored():
+    gitignore = (REPOSITORY_ROOT / ".gitignore").read_text(encoding="utf-8")
+
+    assert "results/hosting_capacity_*/" in gitignore
+    assert "results/hosting_capacity_benchmark_*/" in gitignore
+    assert "results/" in gitignore
+    assert "docs/hosting_capacity/" not in gitignore

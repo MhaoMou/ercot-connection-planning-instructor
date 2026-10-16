@@ -44,17 +44,18 @@ The row below is also preserved verbatim in
 
 The 14 completed point records were all failed points, not successful hosting-
 capacity solves. The IEEE-14 metadata records the failure reason as the
-unavailable optional `highspy` dependency. The backend version is therefore
-`unavailable`, and this row is evidence of the attempted stage timing and
-failure accounting only; it is not a solver-performance claim.
+unavailable required project dependency `highspy`. The backend version is
+therefore `unavailable`, and this row is evidence of the attempted stage timing
+and failure accounting only; it is not a solver-performance claim.
 
 ## ACTIVSg2000 and horizon status
 
 The ACTIVSg2000 one-period attempt was blocked before its stage began because
 the prepared package manifest had
 `validation_status=unverified_dependency`. Consequently, its JSONL file has no
-stage row. The block's classification is dependency-limited because `highspy`
-was unavailable, not because a network or solver failure was observed.
+stage row. The block's classification is dependency-limited because the required
+project dependency `highspy` was unavailable in this environment, not because
+a network or solver failure was observed.
 
 The 24-period, 168-period, and full-horizon stages were not run. No artifact or
 full-horizon benchmark rows are published here.
@@ -75,20 +76,119 @@ The validation command must finish successfully and the root manifest plus all
 six block manifests must report `validation_status: passed`. A partial run,
 missing dependency, or any block not reporting `passed` is insufficient.
 
-Before any full-horizon run, execute the staged safety checks below and review
-their output:
+## Task 9 release pilot gate
 
-1. first 24 periods for one candidate bus;
-2. first 24 periods for ten candidate buses; and
-3. one period for all candidate buses.
+Before any full-horizon run, all three pilots below must pass and the operator
+must record explicit operator approval. Do not start a full-horizon run before
+that approval. These commands use the prepared
+2028 January--June `bus.csv`: `1001` is the one-bus pilot, `1001` through
+`1010` are the ten-bus pilot, and omitting `--bus-id` selects all 2,000 buses.
+All generated files, checkpoints, summaries, and raw resource logs stay below
+`/private/tmp/hosting-capacity-pilot`.
 
-Use the CLI's repeatable `--bus-id` option for the one- and ten-bus pilots,
-then omit it for the all-bus one-period check. Confirm output shape,
-checkpoint/resume behavior, memory use, and status distribution. Full-horizon
-execution requires explicit instructor/operator approval after those checks.
+```bash
+mkdir -p /private/tmp/hosting-capacity-pilot/{one-bus-24h,ten-bus-24h,all-bus-1h}
+```
 
-Only after those gates pass, run the complete staged benchmark sequence,
-including the 1-, 24-, 168-, and full-horizon stages:
+Run the one-bus pilot once from a clean output directory:
+
+```bash
+env PYTHONPATH=.:src /usr/bin/time -l -o /private/tmp/hosting-capacity-pilot/one-bus-24h/resource-usage-fresh.txt \
+  python3 -m ercot_game.hosting_capacity_cli \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
+  --horizon 24 \
+  --period-count 24 \
+  --bus-id 1001 \
+  --solver-backend highs \
+  --solver-threads 1 \
+  --workers 1 \
+  --output-dir /private/tmp/hosting-capacity-pilot/one-bus-24h \
+  > /private/tmp/hosting-capacity-pilot/one-bus-24h/cli-summary-fresh.json
+```
+
+Run the exact same one-bus request again against the preserved output and
+checkpoint directory:
+
+```bash
+env PYTHONPATH=.:src /usr/bin/time -l -o /private/tmp/hosting-capacity-pilot/one-bus-24h/resource-usage-resumed.txt \
+  python3 -m ercot_game.hosting_capacity_cli \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
+  --horizon 24 \
+  --period-count 24 \
+  --bus-id 1001 \
+  --solver-backend highs \
+  --solver-threads 1 \
+  --workers 1 \
+  --output-dir /private/tmp/hosting-capacity-pilot/one-bus-24h \
+  > /private/tmp/hosting-capacity-pilot/one-bus-24h/cli-summary-resumed.json
+```
+
+Run the ten-bus pilot with the ten concrete IDs from that same `bus.csv`:
+
+```bash
+env PYTHONPATH=.:src /usr/bin/time -l -o /private/tmp/hosting-capacity-pilot/ten-bus-24h/resource-usage.txt \
+  python3 -m ercot_game.hosting_capacity_cli \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
+  --horizon 24 \
+  --period-count 24 \
+  --bus-id 1001 \
+  --bus-id 1002 \
+  --bus-id 1003 \
+  --bus-id 1004 \
+  --bus-id 1005 \
+  --bus-id 1006 \
+  --bus-id 1007 \
+  --bus-id 1008 \
+  --bus-id 1009 \
+  --bus-id 1010 \
+  --solver-backend highs \
+  --solver-threads 1 \
+  --workers 1 \
+  --output-dir /private/tmp/hosting-capacity-pilot/ten-bus-24h \
+  > /private/tmp/hosting-capacity-pilot/ten-bus-24h/cli-summary.json
+```
+
+Run the one-period all-bus pilot without any `--bus-id` option:
+
+```bash
+env PYTHONPATH=.:src /usr/bin/time -l -o /private/tmp/hosting-capacity-pilot/all-bus-1h/resource-usage.txt \
+  python3 -m ercot_game.hosting_capacity_cli \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
+  --horizon 1 \
+  --period-count 1 \
+  --solver-backend highs \
+  --solver-threads 1 \
+  --workers 1 \
+  --output-dir /private/tmp/hosting-capacity-pilot/all-bus-1h \
+  > /private/tmp/hosting-capacity-pilot/all-bus-1h/cli-summary.json
+```
+
+The pilot gate passes only when every command has exit code 0 and all of the
+following checks are recorded in the release log:
+
+- `one-bus-24h/hosting_capacity_mw.npy` and
+  `hosting_capacity_status.npy` both have shape `(24, 1)`; the ten-bus files
+  both have shape `(24, 10)`; and the all-bus files both have shape `(1, 2000)`.
+- Each metadata file reports `complete: true`, a matching point count, and
+  every matrix status is non-empty and `optimal`; no capacity value is NaN.
+- The first one-bus summary reports `resume_status=fresh`, the second reports
+  `resume_status=resumed`, `checkpoints/period_0.npz` is a valid completed
+  checkpoint, and the resumed metadata reports
+  `resumed_from_checkpoint: true`.
+- Every JSON, NumPy, CSV, and checkpoint output loads successfully, has the
+  documented schema and shape, and contains no malformed, partial, or
+  unexpected-status output.
+- Record `wall_time_s`, `peak_rss_mb`, and `rss_delta_mb` for each pilot. Keep
+  the raw `/usr/bin/time -l` files and the before/after RSS evidence; these are
+  recorded measurements only, with no invented numeric memory or time limit.
+
+All three pilots and every criterion above are mandatory. Full-horizon
+execution requires the operator's explicit approval recorded after this gate.
+
+## Full-horizon benchmark command
+
+Only after that approval, run the complete staged benchmark sequence, including
+the 1-, 24-, 168-, and full-horizon stages:
 
 ```bash
 PYTHONPATH=.:src python3 tools/benchmarks/benchmark_hosting_capacity.py \

@@ -63,3 +63,5 @@ data/processed/texas_dispatch_source_v1_years/
 
 # Local generated batch/evaluation results; the sanitized web package is
 # intentionally tracked under web/data/results/.
+results/hosting_capacity_*/
+results/hosting_capacity_benchmark_*/

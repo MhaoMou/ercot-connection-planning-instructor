@@ -63,10 +63,10 @@ object crosses a process boundary. Candidate buses within one period are not
 parallelized.
 
 The default `auto` selection prefers Gurobi when available and falls back to
-portable HiGHS otherwise. The CLI accepts `highs`, `gurobi`, or `auto`;
-Gurobi is optional and is never imported at module import time. `workers > 1`
-cannot be combined with `--solver-threads > 1`, avoiding uncontrolled nested
-parallelism.
+portable HiGHS through the required project dependency `highspy`. The CLI
+accepts `highs`, `gurobi`, or `auto`; Gurobi is optional and is never imported
+at module import time. `workers > 1` cannot be combined with
+`--solver-threads > 1`, avoiding uncontrolled nested parallelism.
 
 The first release is exact relative to the supplied LP formulation and the
 selected solver's tolerances. Reusing one LP structure is an implementation
@@ -188,7 +188,116 @@ Use `--write-long-form` when a row-oriented CSV is needed for inspection. The
 artifact directory must be a validated prepared block; a missing, invalid, or
 unverified manifest is rejected before the matrix run.
 
-## 11. Full-horizon command and warning
+## Task 9 release pilot gate
+
+Before any full-horizon run, all three pilots below must pass and the operator
+must record explicit operator approval. Do not start a full-horizon run before
+that approval. These commands use the prepared
+2028 January--June `bus.csv`: `1001` is the one-bus pilot, `1001` through
+`1010` are the ten-bus pilot, and omitting `--bus-id` selects all 2,000 buses.
+All generated files, checkpoints, summaries, and raw resource logs stay below
+`/private/tmp/hosting-capacity-pilot`.
+
+```bash
+mkdir -p /private/tmp/hosting-capacity-pilot/{one-bus-24h,ten-bus-24h,all-bus-1h}
+```
+
+Run the one-bus pilot once from a clean output directory:
+
+```bash
+env PYTHONPATH=.:src /usr/bin/time -l -o /private/tmp/hosting-capacity-pilot/one-bus-24h/resource-usage-fresh.txt \
+  python3 -m ercot_game.hosting_capacity_cli \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
+  --horizon 24 \
+  --period-count 24 \
+  --bus-id 1001 \
+  --solver-backend highs \
+  --solver-threads 1 \
+  --workers 1 \
+  --output-dir /private/tmp/hosting-capacity-pilot/one-bus-24h \
+  > /private/tmp/hosting-capacity-pilot/one-bus-24h/cli-summary-fresh.json
+```
+
+Run the exact same one-bus request again against the preserved output and
+checkpoint directory:
+
+```bash
+env PYTHONPATH=.:src /usr/bin/time -l -o /private/tmp/hosting-capacity-pilot/one-bus-24h/resource-usage-resumed.txt \
+  python3 -m ercot_game.hosting_capacity_cli \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
+  --horizon 24 \
+  --period-count 24 \
+  --bus-id 1001 \
+  --solver-backend highs \
+  --solver-threads 1 \
+  --workers 1 \
+  --output-dir /private/tmp/hosting-capacity-pilot/one-bus-24h \
+  > /private/tmp/hosting-capacity-pilot/one-bus-24h/cli-summary-resumed.json
+```
+
+Run the ten-bus pilot with the ten concrete IDs from that same `bus.csv`:
+
+```bash
+env PYTHONPATH=.:src /usr/bin/time -l -o /private/tmp/hosting-capacity-pilot/ten-bus-24h/resource-usage.txt \
+  python3 -m ercot_game.hosting_capacity_cli \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
+  --horizon 24 \
+  --period-count 24 \
+  --bus-id 1001 \
+  --bus-id 1002 \
+  --bus-id 1003 \
+  --bus-id 1004 \
+  --bus-id 1005 \
+  --bus-id 1006 \
+  --bus-id 1007 \
+  --bus-id 1008 \
+  --bus-id 1009 \
+  --bus-id 1010 \
+  --solver-backend highs \
+  --solver-threads 1 \
+  --workers 1 \
+  --output-dir /private/tmp/hosting-capacity-pilot/ten-bus-24h \
+  > /private/tmp/hosting-capacity-pilot/ten-bus-24h/cli-summary.json
+```
+
+Run the one-period all-bus pilot without any `--bus-id` option:
+
+```bash
+env PYTHONPATH=.:src /usr/bin/time -l -o /private/tmp/hosting-capacity-pilot/all-bus-1h/resource-usage.txt \
+  python3 -m ercot_game.hosting_capacity_cli \
+  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
+  --horizon 1 \
+  --period-count 1 \
+  --solver-backend highs \
+  --solver-threads 1 \
+  --workers 1 \
+  --output-dir /private/tmp/hosting-capacity-pilot/all-bus-1h \
+  > /private/tmp/hosting-capacity-pilot/all-bus-1h/cli-summary.json
+```
+
+The pilot gate passes only when every command has exit code 0 and all of the
+following checks are recorded in the release log:
+
+- `one-bus-24h/hosting_capacity_mw.npy` and
+  `hosting_capacity_status.npy` both have shape `(24, 1)`; the ten-bus files
+  both have shape `(24, 10)`; and the all-bus files both have shape `(1, 2000)`.
+- Each metadata file reports `complete: true`, a matching point count, and
+  every matrix status is non-empty and `optimal`; no capacity value is NaN.
+- The first one-bus summary reports `resume_status=fresh`, the second reports
+  `resume_status=resumed`, `checkpoints/period_0.npz` is a valid completed
+  checkpoint, and the resumed metadata reports
+  `resumed_from_checkpoint: true`.
+- Every JSON, NumPy, CSV, and checkpoint output loads successfully, has the
+  documented schema and shape, and contains no malformed, partial, or
+  unexpected-status output.
+- Record `wall_time_s`, `peak_rss_mb`, and `rss_delta_mb` for each pilot. Keep
+  the raw `/usr/bin/time -l` files and the before/after RSS evidence; these are
+  recorded measurements only, with no invented numeric memory or time limit.
+
+All three pilots and every criterion above are mandatory. Full-horizon
+execution requires the operator's explicit approval recorded after this gate.
+
+## 12. Full-horizon command and warning
 
 The following is the planned 2028 January--June full-horizon command:
 
@@ -201,14 +310,18 @@ ercot-game-hosting-capacity \
   --output-dir results/hosting_capacity_2028_jan_jun
 ```
 
+The pilot gate above is mandatory. Do not launch this command until all three
+pilots pass and explicit operator approval is recorded.
+
 **Warning:** with the default all-bus selection, this requests approximately
 8.7 million point solves: 2,000 candidate buses × 4,368 periods = 8,736,000
-independent `H_{s,t}` values. Run the IEEE-14 and 24-hour stages first, verify
-the output and checkpoint behavior, and launch the full horizon only after
-reviewing measured resource use. The command is resumable, but resumability
-does not make the workload small.
+independent `H_{s,t}` values. Run all three Task 9 pilots first; the IEEE-14
+and generic 24-hour smoke stages do not replace them. Verify the output and
+checkpoint behavior, and launch the full horizon only after reviewing measured
+resource use and recording operator approval. The command is resumable, but
+resumability does not make the workload small.
 
-## 12. Benchmark interpretation
+## 13. Benchmark interpretation
 
 Use `tools/benchmarks/benchmark_hosting_capacity.py` with a caller-selected
 output directory for staged measurements. Read the requested/resolved backend
@@ -250,7 +363,7 @@ not extrapolate its wall time or memory to ACTIVSg2000 production runs. Interpre
 production performance only from measurements using the target prepared
 artifact, requested horizon, candidate-bus count, backend, and parallelism.
 
-## 13. Release benchmark measured results
+## 14. Release benchmark measured results
 
 The release benchmark evidence is recorded in
 [`benchmark-results.jsonl`](benchmark-results.jsonl), with the transparent
@@ -258,13 +371,15 @@ status report in [`benchmark-report.md`](benchmark-report.md). The environment
 date is 2026-10-15.
 
 The only published measured row is the IEEE-14 one-period stage. It used HiGHS
-with one worker and one solver thread and recorded `wall_time_s=0.007359`,
+through the required project dependency `highspy` (unavailable in this
+environment), with one worker and one solver thread, and recorded `wall_time_s=0.007359`,
 `peak_rss_mb=33.797`, `rss_delta_mb=0.609`, `completed_points=14`, and
 `failed_points=14`; `model_build_time_s` was `null`. All 14 completed point
 records were failed because `highspy` was unavailable, so there is no successful
 hosting-capacity value or solver-performance claim in this release evidence.
 
-The ACTIVSg2000 one-period attempt was blocked before its stage row by
+The ACTIVSg2000 one-period attempt was blocked before its stage row by the
+unavailable required project dependency `highspy` and
 `validation_status=unverified_dependency`. The 24-period, 168-period, and
 full-horizon stages were not run. These limitations mean the published row is
 not evidence for ACTIVSg2000 timing, memory, capacity, or full-horizon behavior.
