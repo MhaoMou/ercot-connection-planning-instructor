@@ -1,0 +1,109 @@
+{
+ "scenario": "2028_jan_jun",
+ "time_step_hours": 6,
+ "periods": 728,
+ "competition_scope": "joint",
+ "projection_activated": false,
+ "runtime_seconds": 45.24,
+ "peak_memory_gib": 2.6009864807128906,
+ "rules_version": "dispatch-scoring-jan_jun-6h-v1",
+ "run_id": "5cbc911924e18d6e11c39f99eb7f5c48c5cda993875f5e7f18fd4d280fa6361c",
+ "teams": [
+  {
+   "rank": 1,
+   "team_id": "team-01",
+   "score": 378175541.5987396,
+   "served_load_mwh": 567840.0,
+   "it_value": 3690960000.0,
+   "energy_cost": 9984458.401260328,
+   "generator_operating_cost": 0.0,
+   "generator_capital_cost": 36000000.0,
+   "storage_capital_cost": 16800000.0,
+   "site_cost": 3250000000.0
+  },
+  {
+   "rank": 2,
+   "team_id": "team-02",
+   "score": 304448573.0328083,
+   "served_load_mwh": 502320.0,
+   "it_value": 3265080000.0,
+   "energy_cost": 8831426.967191499,
+   "generator_operating_cost": 0.0,
+   "generator_capital_cost": 60000000.0,
+   "storage_capital_cost": 16800000.0,
+   "site_cost": 2875000000.0
+  },
+  {
+   "rank": 3,
+   "team_id": "team-03",
+   "score": 293319973.73880863,
+   "served_load_mwh": 436800.0,
+   "it_value": 2839200000.0,
+   "energy_cost": 7680026.26119131,
+   "generator_operating_cost": 0.0,
+   "generator_capital_cost": 27000000.0,
+   "storage_capital_cost": 11200000.0,
+   "site_cost": 2500000000.0
+  },
+  {
+   "rank": 4,
+   "team_id": "team-04",
+   "score": 254368319.66204453,
+   "served_load_mwh": 393120.0,
+   "it_value": 2555280000.0,
+   "energy_cost": 6911680.3379552765,
+   "generator_operating_cost": 0.0,
+   "generator_capital_cost": 30000000.0,
+   "storage_capital_cost": 14000000.0,
+   "site_cost": 2250000000.0
+  },
+  {
+   "rank": 5,
+   "team_id": "team-05",
+   "score": 231515906.57046604,
+   "served_load_mwh": 349440.0,
+   "it_value": 2271360000.0,
+   "energy_cost": 6144093.429533896,
+   "generator_operating_cost": 0.0,
+   "generator_capital_cost": 22500000.0,
+   "storage_capital_cost": 11200000.0,
+   "site_cost": 2000000000.0
+  },
+  {
+   "rank": 6,
+   "team_id": "team-06",
+   "score": 205664004.63107967,
+   "served_load_mwh": 305760.0,
+   "it_value": 1987440000.0,
+   "energy_cost": 5375995.368920302,
+   "generator_operating_cost": 0.0,
+   "generator_capital_cost": 18000000.0,
+   "storage_capital_cost": 8400000.0,
+   "site_cost": 1750000000.0
+  },
+  {
+   "rank": 7,
+   "team_id": "team-07",
+   "score": 189088161.32869577,
+   "served_load_mwh": 283920.0,
+   "it_value": 1845480000.0,
+   "energy_cost": 4991838.671304112,
+   "generator_operating_cost": 0.0,
+   "generator_capital_cost": 18000000.0,
+   "storage_capital_cost": 8400000.0,
+   "site_cost": 1625000000.0
+  },
+  {
+   "rank": 8,
+   "team_id": "team-08",
+   "score": 160336185.03128147,
+   "served_load_mwh": 240240.0,
+   "it_value": 1561560000.0,
+   "energy_cost": 4223814.968718544,
+   "generator_operating_cost": 0.0,
+   "generator_capital_cost": 15000000.0,
+   "storage_capital_cost": 7000000.0,
+   "site_cost": 1375000000.0
+  }
+ ]
+}

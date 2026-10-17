@@ -1,0 +1,28 @@
+\begin{tikzpicture}[font=\footnotesize, >=latex]
+  % Semantic anchors: ACTIVSg2000, student CSV, DCOPF, student preview.
+  % One student CSV row attaches a site (load, private generator, storage) to one network bus.
+  \tikzset{part/.style={draw, rounded corners=2pt, align=center, minimum height=10mm, text width=40mm, inner sep=3pt,
+      execute at begin node={\hyphenpenalty=10000 }},
+    load/.style={part, fill=orange!12, draw=orange!70!black},
+    gen/.style={part, fill=green!10, draw=green!55!black},
+    store/.style={part, fill=purple!10, draw=purple!65!black},
+    grid/.style={draw=blue!65!black, fill=blue!10, rounded corners=6pt, align=center, minimum height=34mm, text width=27mm,
+      execute at begin node={\hyphenpenalty=10000 }},
+    link/.style={thick, draw=black}}
+  \node[grid] (net) at (0,0) {{\bfseries ACTIVSg2000}\\{\bfseries network}\\[3pt]six-hour DCOPF with all teams' sites};
+  \node[circle, draw=blue!65!black, fill=white, thick, minimum size=10mm, align=center] (bus) at (5.0,0) {bus $k$};
+  \node[gen] (g) at (10.2,0) {{\bfseries Private generator}\\$0\le g_t\le G$, \$80/150/250 per MWh};
+  \node[load, above=3mm of g] (it) {{\bfseries IT load} $\alpha C$\\earns \$6,500 per MWh served};
+  \node[store, below=3mm of g] (s) {{\bfseries Storage} $-P\le p_t\le P$\\$B=4P$, no operating cost};
+  \begin{scope}[on background layer]
+    \node[draw=orange!70!black, dashed, rounded corners=4pt, fit=(it)(g)(s), inner sep=5pt,
+      label={[font=\scriptsize\bfseries, text=orange!70!black]above:your site = one row of the student CSV}] (site) {};
+  \end{scope}
+  \draw[link] (net.east) -- node[above=1pt, font=\scriptsize] {grid purchase} node[below=1pt, font=\scriptsize] {paid at LMP $\lambda_{k,t}$} (bus.west);
+  \coordinate (tap) at ($(g.west)+(-7mm,0)$);
+  \draw[link] (bus.east) -- (tap);
+  \draw[link] (tap |- it) -- (tap |- s);
+  \draw[link, ->] (tap |- it) -- (it.west);
+  \draw[link, <-] (tap) -- (g.west);
+  \draw[link, <->] (tap |- s) -- (s.west);
+\end{tikzpicture}
