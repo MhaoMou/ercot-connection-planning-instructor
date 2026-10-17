@@ -5,7 +5,8 @@ controlled three-year scenario package labeled as instructional years
 2027--2029. These labels are not historical source-data years or forecasts.
 
 This document describes the hourly source package
-(`data/processed/activsg2000_scenarios_v1`). The canonical classroom release is
+(`data/processed/activsg2000_scenarios_v1`), which is built locally and is not
+published in this repository. The canonical classroom release is
 the six-hour package `data/processed/activsg2000_scenarios_v2_6h`, built from
 the hourly package by `tools/activsg2000/build_aggregated_scenario_package.py`
 (`--source-dir` the hourly package, `--output-dir` the six-hour package). Each

@@ -1,2 +1,0 @@
-team_id,submission_id,period,bus_id,load_mw,generator_id,generator_capacity_mw,storage_id,storage_power_mw,storage_energy_mwh
-team-a,smoke-example-01,1,3001003,2,14023,1,,,

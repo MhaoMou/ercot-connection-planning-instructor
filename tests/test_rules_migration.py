@@ -15,8 +15,8 @@ def _rules(filename: str) -> dict:
 
 def test_production_rules_identify_full_horizon_it_profiles():
     for filename, horizon in (
-        ("dispatch_scoring_rules_jan_jun_v1.json", 4368),
-        ("dispatch_scoring_rules_jul_dec_v1.json", 4416),
+        ("dispatch_scoring_rules_jan_jun_6h_v1.json", 728),
+        ("dispatch_scoring_rules_jul_dec_6h_v1.json", 736),
     ):
         payload = _rules(filename)
         assert len(payload["it_value_per_mwh"]) == horizon
@@ -35,10 +35,10 @@ def test_production_rules_identify_full_horizon_it_profiles():
 
 def test_production_rules_document_lmp_migration_boundary():
     for filename in (
-        "dispatch_scoring_rules_jan_jun_v1.json",
-        "dispatch_scoring_rules_jul_dec_v1.json",
+        "dispatch_scoring_rules_jan_jun_6h_v1.json",
+        "dispatch_scoring_rules_jul_dec_6h_v1.json",
     ):
         payload = _rules(filename)
         assert payload["economic_profile_artifact"]["source_type"] == "baseline ACTIVSg2000 DCOPF LMP artifact"
-        assert payload["economic_profile_artifact"]["status"] == "required"
+        assert payload["economic_profile_artifact"]["status"] == "optional_reference"
         assert "Zenodo" not in payload["description"]

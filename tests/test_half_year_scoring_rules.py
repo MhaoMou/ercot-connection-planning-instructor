@@ -59,16 +59,17 @@ def test_hourly_reference_rules_keep_their_legacy_boundary_contract() -> None:
     assert payload["economic_profile_artifact"]["status"] == "required"
 
 
-def test_half_year_rules_have_complete_hourly_vectors_and_revised_economics():
+def test_six_hour_rules_have_complete_period_vectors_and_revised_economics():
     for filename, horizon in (
-        ("dispatch_scoring_rules_jan_jun_v1.json", 4368),
-        ("dispatch_scoring_rules_jul_dec_v1.json", 4416),
+        ("dispatch_scoring_rules_jan_jun_6h_v1.json", 728),
+        ("dispatch_scoring_rules_jul_dec_6h_v1.json", 736),
     ):
         path = ROOT / "data" / "teaching" / filename
         payload = json.loads(path.read_text(encoding="utf-8"))
         assert len(payload["it_value_per_mwh"]) == horizon
         assert set(payload["it_value_per_mwh"]) == {6500.0}
-        assert payload["time_step_hours"] == 1.0
+        assert payload["time_step_hours"] == 6.0
+        assert payload["storage_boundary_mode"] == "daily_exact_cycle"
         assert payload["generator_capital_cost_per_mw"] == 1_500_000.0
         assert payload["site_cost_per_mw"] == 25_000_000.0
         assert payload["storage_capital_cost_per_mw"] == 400_000.0
@@ -79,14 +80,14 @@ def test_half_year_rules_have_complete_hourly_vectors_and_revised_economics():
             {"capacity_fraction": 0.5, "marginal_cost_per_mwh": 150.0},
             {"capacity_fraction": 0.25, "marginal_cost_per_mwh": 250.0},
         ]
-        assert payload["economic_profile_artifact"]["status"] == "required"
+        assert payload["economic_profile_artifact"]["status"] == "optional_reference"
         assert payload["economic_profile_artifact"]["it_value_json_field"] == "it_value_per_mwh"
 
 
-def test_half_year_rules_record_storage_provenance_and_generation_method():
-    path = ROOT / "data" / "teaching" / "dispatch_scoring_rules_jan_jun_v1.json"
+def test_six_hour_rules_record_storage_provenance_and_generation_method():
+    path = ROOT / "data" / "teaching" / "dispatch_scoring_rules_jan_jun_6h_v1.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload["time_step_hours_provenance"]["interpretation"] == "literal hourly interval"
+    assert payload["time_step_hours_provenance"]["interpretation"] == "six-hour aggregate interval"
     assert payload["storage_cost_provenance"]["four_hour_total_cost_per_kw"] == 1400.0
     assert "variable_om_proxy_per_mwh" not in payload["storage_cost_provenance"]
     assert payload["it_value_provenance"]["profile_name"] == "AI-intensive"
@@ -101,35 +102,27 @@ def test_half_year_rules_record_storage_provenance_and_generation_method():
 @pytest.mark.parametrize("round_name", ["jan_jun", "jul_dec"])
 def test_active_rule_metadata_matches_generator_and_scenario_manifests(round_name: str):
     year = 2028
-    active_rules_path = ROOT / "data" / "teaching" / f"dispatch_scoring_rules_{round_name}_v1.json"
-    block_manifest_path = (
-        ROOT
-        / "data"
-        / "processed"
-        / "activsg2000_scenarios_v1"
-        / str(year)
-        / round_name
-        / "manifest.json"
-    )
-    package_manifest_path = (
-        ROOT / "data" / "processed" / "activsg2000_scenarios_v1" / "manifest.json"
-    )
+    active_rules_path = ROOT / "data" / "teaching" / f"dispatch_scoring_rules_{round_name}_6h_v1.json"
+    package_root = ROOT / "data" / "processed" / "activsg2000_scenarios_v2_6h"
+    block_manifest = json.loads((package_root / str(year) / round_name / "manifest.json").read_text(encoding="utf-8"))
+    package_manifest = json.loads((package_root / "manifest.json").read_text(encoding="utf-8"))
 
     generated = create_half_year_scoring_rules.build_rules_for_year_season(
         year=year,
         round_name=round_name,
+        time_step_hours=6,
     )
     active_rules = json.loads(active_rules_path.read_text(encoding="utf-8"))
-    block_manifest = json.loads(block_manifest_path.read_text(encoding="utf-8"))
-    package_manifest = json.loads(package_manifest_path.read_text(encoding="utf-8"))
 
     assert generated == active_rules
-    assert generated["status"] == package_manifest["validation"]["release_status"]
+    assert generated["status"] == "released"
+    assert package_manifest["validation_status"] == block_manifest["validation_status"] == "passed"
 
     provenance = generated["time_step_hours_provenance"]
     assert provenance["calendar_year"] == block_manifest["year"] == year
     assert provenance["calendar_block"] == round_name
-    assert provenance["horizon_hours"] == block_manifest["horizon"]
+    assert provenance["horizon_periods"] == block_manifest["horizon"]
+    assert provenance["source_horizon_hours"] == block_manifest["source_horizon_hours"]
     assert block_manifest["block"] == f"{year}-{round_name}"
     assert package_manifest["blocks"][block_manifest["block"]]["horizon"] == block_manifest["horizon"]
     assert package_manifest["blocks"][block_manifest["block"]]["calendar_block"] == round_name
@@ -139,8 +132,8 @@ def test_runtime_team_generator_cost_curve_matches_released_rules():
     from ercot_game.csv_submission import TEAM_GENERATOR_COST_CURVE
 
     for filename in (
-        "dispatch_scoring_rules_jan_jun_v1.json",
-        "dispatch_scoring_rules_jul_dec_v1.json",
+        "dispatch_scoring_rules_jan_jun_6h_v1.json",
+        "dispatch_scoring_rules_jul_dec_6h_v1.json",
     ):
         payload = json.loads(
             (ROOT / "data" / "teaching" / filename).read_text(encoding="utf-8")

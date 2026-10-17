@@ -20,24 +20,18 @@ tutorial = [
     "jupyter>=1,<2",
     "matplotlib>=3.8,<4",
 ]
-rl = [
-    "gymnasium>=0.29,<1",
-    "numpy>=1.24,<3",
-]
 
 [project.scripts]
 ercot-game-batch = "ercot_game.batch_cli:main"
 ercot-game-check-csv = "ercot_game.csv_validator:main"
 ercot-game-preview = "ercot_game.student_preview:main"
 ercot-game-grid-map = "ercot_game.grid_map:main"
-ercot-game-compare-baselines = "rl_gym.reporting:main"
 ercot-game-hosting-capacity = "ercot_game.hosting_capacity_cli:main"
 
-# The package contains the canonical CSV evaluator and Zenodo DCOPF adapter.
+# The package contains the canonical CSV evaluator and the ACTIVSg2000 DCOPF tools.
 [tool.setuptools]
 packages = [
     "ercot_game",
-    "rl_gym",
     "tools",
     "tools.activsg2000",
 ]

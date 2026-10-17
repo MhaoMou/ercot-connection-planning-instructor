@@ -45,10 +45,10 @@ assets reset between weeks.
 | `tools/activsg2000/` | Scenario construction, per-period validation, DCOPF, storage scheduling, and joint dispatch |
 | `data/processed/activsg2000_scenarios_v2_6h/` | Canonical validated six-block ACTIVSg2000 package |
 | `data/teaching/` | Half-year scoring rules |
-| `scripts/` | CSV checks, fixture generation, simulation, and summary utilities |
+| `scripts/` | CSV check and scoring-rules generation |
 | `tests/` | Active CSV, batch, DCOPF, storage, and ACTIVSg2000 adapter tests |
-| `archive/legacy/` | Recoverable retired browser/practice implementation and historical tests |
-| `docs/` | Current instructor, student, calibration, and data documentation |
+| `docs/` | Student tutorial, guest lecture, hyperparameters, instructor guides, and data documentation |
+| `examples/eight_team_round/` | Eight-team example round with six-hour results and grid map |
 
 ## Setup
 

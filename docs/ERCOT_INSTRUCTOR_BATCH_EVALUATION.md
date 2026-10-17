@@ -17,10 +17,8 @@ The canonical scenario package is
 `data/processed/activsg2000_scenarios_v2_6h/`: each game period is the mean of
 six consecutive hourly source records, and its root and six block manifests
 report `validation_status: passed` (4,384 six-hour states). The retired hourly
-package `activsg2000_scenarios_v1` is not the classroom default. The Colab benchmark is separate measurement-only work:
-it requires `highspy`, `psutil`, prepared artifacts, and a compatible
-runtime. It does not change evaluator math, and no unrun or partial benchmark
-justifies shortening the official horizon.
+package `activsg2000_scenarios_v1` is not the classroom default and is not
+published in this repository.
 
 ## Classroom schedule
 

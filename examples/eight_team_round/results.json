@@ -1,0 +1,193 @@
+{
+ "example_status": "synthetic_instructor_demonstration",
+ "scenario": "2028_jan_jun",
+ "time_step_hours": 6,
+ "horizon_periods": 728,
+ "submission_number": 2,
+ "solver": "Gurobi via ercot-game-batch (daily-cycle storage)",
+ "parallel_workers": 4,
+ "rules_version": "dispatch-scoring-jan_jun-6h-v1",
+ "run_id": "5cbc911924e18d6e11c39f99eb7f5c48c5cda993875f5e7f18fd4d280fa6361c",
+ "competition_scope": "joint",
+ "joint_dispatch_feasible": true,
+ "projection_activated": false,
+ "accepted_submission_count": 8,
+ "rejected_submission_count": 0,
+ "aggregate": {
+  "connected_capacity_mw": 705.0,
+  "served_load_mwh": 3079440.0,
+  "score": 2016916665.593924
+ },
+ "runtime_seconds": 45.24,
+ "peak_memory_gib": 2.6009864807128906,
+ "teams": [
+  {
+   "rank": 1,
+   "team_id": "team-01",
+   "sites": [
+    "7049",
+    "4071"
+   ],
+   "requested_capacity_mw": 130.0,
+   "connected_capacity_mw": 130.0,
+   "served_load_mwh": 567840.0,
+   "generator_capacity_mw": 24.0,
+   "storage_power_mw": 12.0,
+   "storage_energy_mwh": 48.0,
+   "score": 378175541.5987396,
+   "it_value": 3690960000.0,
+   "energy_cost": 9984458.401260328,
+   "generator_operating_cost": 0.0,
+   "generator_capital_cost": 36000000.0,
+   "storage_capital_cost": 16800000.0,
+   "site_cost": 3250000000.0
+  },
+  {
+   "rank": 2,
+   "team_id": "team-02",
+   "sites": [
+    "7049",
+    "5449"
+   ],
+   "requested_capacity_mw": 115.0,
+   "connected_capacity_mw": 115.0,
+   "served_load_mwh": 502320.0,
+   "generator_capacity_mw": 40.0,
+   "storage_power_mw": 12.0,
+   "storage_energy_mwh": 48.0,
+   "score": 304448573.0328083,
+   "it_value": 3265080000.0,
+   "energy_cost": 8831426.967191499,
+   "generator_operating_cost": 0.0,
+   "generator_capital_cost": 60000000.0,
+   "storage_capital_cost": 16800000.0,
+   "site_cost": 2875000000.0
+  },
+  {
+   "rank": 3,
+   "team_id": "team-03",
+   "sites": [
+    "7229",
+    "5385"
+   ],
+   "requested_capacity_mw": 100.0,
+   "connected_capacity_mw": 100.0,
+   "served_load_mwh": 436800.0,
+   "generator_capacity_mw": 18.0,
+   "storage_power_mw": 8.0,
+   "storage_energy_mwh": 32.0,
+   "score": 293319973.73880863,
+   "it_value": 2839200000.0,
+   "energy_cost": 7680026.26119131,
+   "generator_operating_cost": 0.0,
+   "generator_capital_cost": 27000000.0,
+   "storage_capital_cost": 11200000.0,
+   "site_cost": 2500000000.0
+  },
+  {
+   "rank": 4,
+   "team_id": "team-04",
+   "sites": [
+    "6199",
+    "5103"
+   ],
+   "requested_capacity_mw": 90.0,
+   "connected_capacity_mw": 90.0,
+   "served_load_mwh": 393120.0,
+   "generator_capacity_mw": 20.0,
+   "storage_power_mw": 10.0,
+   "storage_energy_mwh": 40.0,
+   "score": 254368319.66204453,
+   "it_value": 2555280000.0,
+   "energy_cost": 6911680.3379552765,
+   "generator_operating_cost": 0.0,
+   "generator_capital_cost": 30000000.0,
+   "storage_capital_cost": 14000000.0,
+   "site_cost": 2250000000.0
+  },
+  {
+   "rank": 5,
+   "team_id": "team-05",
+   "sites": [
+    "7039",
+    "4040"
+   ],
+   "requested_capacity_mw": 80.0,
+   "connected_capacity_mw": 80.0,
+   "served_load_mwh": 349440.0,
+   "generator_capacity_mw": 15.0,
+   "storage_power_mw": 8.0,
+   "storage_energy_mwh": 32.0,
+   "score": 231515906.57046604,
+   "it_value": 2271360000.0,
+   "energy_cost": 6144093.429533896,
+   "generator_operating_cost": 0.0,
+   "generator_capital_cost": 22500000.0,
+   "storage_capital_cost": 11200000.0,
+   "site_cost": 2000000000.0
+  },
+  {
+   "rank": 6,
+   "team_id": "team-06",
+   "sites": [
+    "5084",
+    "7004"
+   ],
+   "requested_capacity_mw": 70.0,
+   "connected_capacity_mw": 70.0,
+   "served_load_mwh": 305760.0,
+   "generator_capacity_mw": 12.0,
+   "storage_power_mw": 6.0,
+   "storage_energy_mwh": 24.0,
+   "score": 205664004.63107967,
+   "it_value": 1987440000.0,
+   "energy_cost": 5375995.368920302,
+   "generator_operating_cost": 0.0,
+   "generator_capital_cost": 18000000.0,
+   "storage_capital_cost": 8400000.0,
+   "site_cost": 1750000000.0
+  },
+  {
+   "rank": 7,
+   "team_id": "team-07",
+   "sites": [
+    "7248",
+    "5465"
+   ],
+   "requested_capacity_mw": 65.0,
+   "connected_capacity_mw": 65.0,
+   "served_load_mwh": 283920.0,
+   "generator_capacity_mw": 12.0,
+   "storage_power_mw": 6.0,
+   "storage_energy_mwh": 24.0,
+   "score": 189088161.32869577,
+   "it_value": 1845480000.0,
+   "energy_cost": 4991838.671304112,
+   "generator_operating_cost": 0.0,
+   "generator_capital_cost": 18000000.0,
+   "storage_capital_cost": 8400000.0,
+   "site_cost": 1625000000.0
+  },
+  {
+   "rank": 8,
+   "team_id": "team-08",
+   "sites": [
+    "7201",
+    "7183"
+   ],
+   "requested_capacity_mw": 55.0,
+   "connected_capacity_mw": 55.0,
+   "served_load_mwh": 240240.0,
+   "generator_capacity_mw": 10.0,
+   "storage_power_mw": 5.0,
+   "storage_energy_mwh": 20.0,
+   "score": 160336185.03128147,
+   "it_value": 1561560000.0,
+   "energy_cost": 4223814.968718544,
+   "generator_operating_cost": 0.0,
+   "generator_capital_cost": 15000000.0,
+   "storage_capital_cost": 7000000.0,
+   "site_cost": 1375000000.0
+  }
+ ]
+}

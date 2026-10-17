@@ -10,42 +10,10 @@ import sys
 from pathlib import Path
 
 
-REQUIRED_IDS = [
-    "assignment-overview", "dataset-inspection", "python-visualization",
-    "matlab-visualization", "dcopf-concept", "dcopf-formulation",
-    "three-bus-implementation", "csv-format", "storage-model", "colab-preview",
-    "debugging", "strategy-experiments", "reproducibility",
-]
-_PROMPT_NAMES = [
-    ("assignment-overview", "assignment_overview"), ("dataset-inspection", "dataset_inspection"),
-    ("python-visualization", "python_visualization"), ("matlab-visualization", "matlab_visualization"),
-    ("dcopf-concept", "dcopf_concept"), ("dcopf-formulation", "dcopf_formulation"),
-    ("three-bus-implementation", "three_bus_implementation"), ("csv-format", "csv_format"),
-    ("storage-model", "storage_model"), ("colab-preview", "colab_preview"),
-    ("debugging", "debugging"), ("strategy-experiments", "strategy_experiments"),
-    ("reproducibility", "reproducibility"),
-]
-EXPECTED_PROMPT_FILES = {
-    prompt_id: f"prompts/{index:02d}_{name}.md"
-    for index, (prompt_id, name) in enumerate(_PROMPT_NAMES, start=1)
-}
-EXPECTED_TRANSCRIPT_FILES = {
-    prompt_id: path.replace("prompts/", "transcripts/").replace(".md", ".json")
-    for prompt_id, path in EXPECTED_PROMPT_FILES.items()
-}
 EXPECTED_NOTEBOOKS = {
     "01_dataset_inspection.ipynb", "02_network_visualization.ipynb",
     "03_three_bus_dcopf.ipynb", "04_storage_soc.ipynb", "05_csv_validation.ipynb",
     "06_student_preview.ipynb", "07_strategy_ablation.ipynb",
-}
-EXPECTED_NOTEBOOK_ASSOCIATIONS = {
-    "dataset-inspection": "notebooks/01_dataset_inspection.ipynb",
-    "python-visualization": "notebooks/02_network_visualization.ipynb",
-    "three-bus-implementation": "notebooks/03_three_bus_dcopf.ipynb",
-    "storage-model": "notebooks/04_storage_soc.ipynb",
-    "csv-format": "notebooks/05_csv_validation.ipynb",
-    "colab-preview": "notebooks/06_student_preview.ipynb",
-    "strategy-experiments": "notebooks/07_strategy_ablation.ipynb",
 }
 RENDERED_FIGURES = (
     "pipeline.tex",
@@ -63,10 +31,6 @@ EARLY_CONTEXTUAL_PROMPT_SECTIONS = (
     "Explore the data",
     "Write and check your CSV",
     "Develop a strategy",
-)
-REQUIRED_PROMPT_HEADINGS = (
-    "# Prompt metadata", "## Goal", "## Context supplied to the AI",
-    "## Prompt", "## Expected evidence", "## Privacy constraints",
 )
 LEGACY_PATTERNS = {
     "six-period terminology": re.compile(r"\bsix[- ]period(?:s)?\b", re.I),
@@ -189,10 +153,7 @@ def _read_student_texts(root: Path, errors: list[str]) -> list[tuple[str, str]]:
         root / "README.md",
         root / "main.tex",
         root / "references.bib",
-        root / "generated" / "transcripts.tex",
     ]
-    paths += sorted((root / "prompts").glob("*.md"))
-    paths += sorted((root / "transcripts").glob("*.json"))
     paths += sorted((root / "figures").glob("*.tex"))
     texts: list[tuple[str, str]] = []
     for path in paths:
@@ -200,17 +161,9 @@ def _read_student_texts(root: Path, errors: list[str]) -> list[tuple[str, str]]:
         safe = _safe_path(root, name, name, errors)
         if safe is None or not safe.is_file():
             continue
-        if path.suffix == ".json" and path.parent.name == "transcripts":
-            record = _read_json_object(safe, name, errors)
-            if record is None:
-                continue
-            parts = [record.get(key, "") for key in ("prompt", "response", "review_notes")]
-            parts += ["\n".join(value for value in record.get(key, []) if isinstance(value, str)) for key in ("verification_checklist", "sources") if isinstance(record.get(key), list)]
-            texts.append((name, "\n".join(str(part) for part in parts if part is not None)))
-        else:
-            raw = _read_text(safe, name, errors)
-            if raw is not None:
-                texts.append((name, raw))
+        raw = _read_text(safe, name, errors)
+        if raw is not None:
+            texts.append((name, raw))
     for path in sorted((root / "notebooks").glob("*.ipynb")):
         name = path.relative_to(root).as_posix()
         safe = _safe_path(root, name, name, errors)
@@ -228,146 +181,7 @@ def _read_student_texts(root: Path, errors: list[str]) -> list[tuple[str, str]]:
     return texts
 
 
-def _check_transcript(
-    prompt_id: str,
-    transcript: dict,
-    errors: list[str],
-    repository_root: Path,
-    allowed_sources: object,
-) -> None:
-    for key in ("prompt", "response", "review_notes"):
-        if not isinstance(transcript.get(key), str) or not transcript[key].strip():
-            errors.append(f"{prompt_id}: transcript {key} must be a non-null string")
-    checklist = transcript.get("verification_checklist")
-    sources = transcript.get("sources")
-    if not isinstance(checklist, list) or any(not isinstance(value, str) or not value.strip() for value in checklist):
-        errors.append(f"{prompt_id}: verification checklist must be a non-null list of strings")
-    if not isinstance(sources, list) or any(not isinstance(value, str) or not value.strip() for value in sources):
-        errors.append(f"{prompt_id}: transcript sources must be a non-null list of strings")
-    else:
-        for source in sources:
-            source_path = _safe_path(
-                repository_root, source, f"{prompt_id}: transcript source {source}", errors
-            )
-            if source_path is not None and not source_path.is_file():
-                errors.append(f"{prompt_id}: missing transcript source {source}")
-            if isinstance(allowed_sources, list) and source not in allowed_sources:
-                errors.append(
-                    f"{prompt_id}: transcript source is not listed in registry required_sources: {source}"
-                )
-    if transcript.get("prompt_id") != prompt_id:
-        errors.append(f"{prompt_id}: prompt/transcript ID mismatch")
-    if transcript.get("review_status") != "fact-checked":
-        errors.append(f"{prompt_id}: transcript is not fact-checked")
-    if transcript.get("private_information_present") is not False:
-        errors.append(f"{prompt_id}: transcript contains private information")
-
-
-def _check_registry(root: Path, errors: list[str]) -> dict:
-    registry_path = _safe_path(root, "prompt_registry.json", "registry", errors)
-    if registry_path is None or not registry_path.is_file():
-        if registry_path is not None:
-            errors.append("registry: prompt_registry.json is missing")
-        return {}
-    registry = _read_json_object(registry_path, "registry", errors)
-    if registry is None:
-        return {}
-    entries = registry.get("prompts")
-    if not isinstance(entries, list):
-        errors.append("registry: prompts must be a non-null list")
-        return registry
-    ids = [entry.get("id") for entry in entries if isinstance(entry, dict)]
-    if ids != REQUIRED_IDS:
-        errors.append(f"registry IDs must be exactly {REQUIRED_IDS!r}")
-    if len(ids) != len(set(ids)):
-        errors.append("registry IDs must be unique")
-    seen_paths: dict[str, set[str]] = {field: set() for field in ("prompt_file", "transcript_file", "notebook_files")}
-    repo_root = _repository_root(root)
-    for index, entry in enumerate(entries):
-        label = f"registry entry {index}"
-        if not isinstance(entry, dict):
-            errors.append(f"{label}: entry must be an object")
-            continue
-        prompt_id = entry.get("id", "<missing>")
-        if not isinstance(prompt_id, str) or not prompt_id:
-            errors.append(f"{label}: id must be a non-null string")
-            prompt_id = str(prompt_id)
-        for key in ("prompt_file", "transcript_file"):
-            path = _safe_path(root, entry.get(key), f"{prompt_id}: {key}", errors)
-            if path is None:
-                continue
-            relative = path.relative_to(root.resolve()).as_posix()
-            if relative in seen_paths[key]:
-                errors.append(f"{prompt_id}: duplicate {key} path {relative}")
-            seen_paths[key].add(relative)
-            if not path.is_file():
-                errors.append(f"{prompt_id}: missing {key}")
-            elif key == "prompt_file":
-                prompt = _read_text(path, f"{prompt_id}: prompt", errors)
-                if prompt is not None:
-                    for heading in REQUIRED_PROMPT_HEADINGS:
-                        if heading not in prompt:
-                            errors.append(f"{prompt_id}: prompt missing {heading}")
-            else:
-                transcript = _read_json_object(path, f"{prompt_id}: transcript", errors)
-                if transcript is not None:
-                    _check_transcript(
-                        prompt_id,
-                        transcript,
-                        errors,
-                        repo_root,
-                        entry.get("required_sources"),
-                    )
-        notebook_files = entry.get("notebook_files")
-        if not isinstance(notebook_files, list) or any(not isinstance(value, str) for value in notebook_files):
-            errors.append(f"{prompt_id}: notebook_files must be a non-null list of strings")
-            notebook_files = []
-        for value in notebook_files:
-            path = _safe_path(root, value, f"{prompt_id}: notebook_file", errors)
-            if path is None:
-                continue
-            relative = path.relative_to(root.resolve()).as_posix()
-            if relative in seen_paths["notebook_files"]:
-                errors.append(f"{prompt_id}: duplicate notebook_files path {relative}")
-            seen_paths["notebook_files"].add(relative)
-            if not path.is_file():
-                errors.append(f"{prompt_id}: missing notebook {relative}")
-            else:
-                _read_json_object(path, f"{prompt_id}: notebook {relative}", errors)
-        required_sources = entry.get("required_sources")
-        if not isinstance(required_sources, list) or any(not isinstance(value, str) for value in required_sources):
-            errors.append(f"{prompt_id}: required_sources must be a non-null list of strings")
-            required_sources = []
-        for source in required_sources:
-            source_path = _safe_path(repo_root, source, f"{prompt_id}: required source {source}", errors)
-            if source_path is not None and not source_path.is_file():
-                errors.append(f"{prompt_id}: missing required source {source}")
-        if prompt_id in EXPECTED_PROMPT_FILES and entry.get("prompt_file") != EXPECTED_PROMPT_FILES[prompt_id]:
-            errors.append(f"{prompt_id}: prompt_file association is incorrect")
-        if prompt_id in EXPECTED_TRANSCRIPT_FILES and entry.get("transcript_file") != EXPECTED_TRANSCRIPT_FILES[prompt_id]:
-            errors.append(f"{prompt_id}: transcript_file association is incorrect")
-        expected_notebook = EXPECTED_NOTEBOOK_ASSOCIATIONS.get(prompt_id)
-        if (expected_notebook is None and notebook_files) or (expected_notebook is not None and notebook_files != [expected_notebook]):
-            errors.append(f"{prompt_id}: notebook association is incorrect")
-    if seen_paths["prompt_file"] != set(EXPECTED_PROMPT_FILES.values()):
-        errors.append("registry prompt_file set must exactly match the 13 expected prompt files")
-    if seen_paths["transcript_file"] != set(EXPECTED_TRANSCRIPT_FILES.values()):
-        errors.append("registry transcript_file set must exactly match the 13 expected transcript files")
-    return registry
-
-
-def _check_coverage(
-    root: Path,
-    registry: dict,
-    texts: list[tuple[str, str]],
-    errors: list[str],
-    *,
-    allow_unbuilt: bool = False,
-) -> None:
-    entries = registry.get("prompts", []) if isinstance(registry, dict) else []
-    registered_notebooks = {Path(path).name for entry in entries if isinstance(entry, dict) for path in entry.get("notebook_files", []) if isinstance(path, str)}
-    if registered_notebooks != EXPECTED_NOTEBOOKS:
-        errors.append("registry must cover exactly the seven notebooks")
+def _check_coverage(root: Path, texts: list[tuple[str, str]], errors: list[str]) -> None:
     actual_notebooks = {path.name for path in (root / "notebooks").glob("*.ipynb") if path.is_file()}
     if actual_notebooks != EXPECTED_NOTEBOOKS:
         errors.append("tutorial must contain exactly the seven required notebooks")
@@ -383,30 +197,6 @@ def _check_coverage(
             errors.append(f"main.tex does not integrate figure {figure}")
         if not any(reference in block and "\\caption{" in block for block in figure_blocks):
             errors.append(f"rendered figure {figure} must have an integrated caption")
-    generated = _safe_path(
-        root, "generated/transcripts.tex", "generated/transcripts.tex", errors
-    )
-    if generated is None or not generated.is_file():
-        if not allow_unbuilt:
-            errors.append("generated/transcripts.tex is required for the release audit")
-    else:
-        generated_text = _read_text(generated, "generated/transcripts.tex", errors) or ""
-        for prompt_id in REQUIRED_IDS:
-            if f"transcript:{prompt_id}" not in generated_text:
-                errors.append(f"generated transcripts do not integrate module {prompt_id}")
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        prompt_id = entry.get("id", "<missing>")
-        transcript_path = _safe_path(root, entry.get("transcript_file"), f"{prompt_id}: transcript_file", errors)
-        transcript = _read_json_object(transcript_path, f"{prompt_id}: transcript", errors) if transcript_path and transcript_path.is_file() else None
-        if transcript is None:
-            continue
-        sources = set(transcript.get("sources", [])) if isinstance(transcript.get("sources"), list) else set()
-        required_sources = entry.get("required_sources", [])
-        for source in required_sources if isinstance(required_sources, list) else []:
-            if source not in sources:
-                errors.append(f"{prompt_id}: source coverage missing required source {source}")
 
 
 def _check_content_contract(root: Path, texts: list[tuple[str, str]], errors: list[str]) -> None:
@@ -465,8 +255,7 @@ def audit(root: Path, *, allow_unbuilt: bool = False) -> list[str]:
     errors: list[str] = []
     root = root.resolve()
     texts = _read_student_texts(root, errors)
-    registry = _check_registry(root, errors)
-    _check_coverage(root, registry, texts, errors, allow_unbuilt=allow_unbuilt)
+    _check_coverage(root, texts, errors)
     _check_content_contract(root, texts, errors)
     return errors
 
@@ -477,7 +266,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--allow-unbuilt",
         action="store_true",
-        help="development-only: audit source artifacts before generated/transcripts.tex exists",
+        help="accepted for compatibility; the tutorial has no generated inputs",
     )
     args = parser.parse_args(argv)
     errors = audit(args.tutorial_root, allow_unbuilt=args.allow_unbuilt)
@@ -485,7 +274,7 @@ def main(argv: list[str] | None = None) -> int:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
         return 1
-    print("audited 13 prompt/transcript pairs, 7 notebooks, and 7 figures")
+    print("audited the tutorial text, 7 notebooks, and 7 figures")
     return 0
 
 

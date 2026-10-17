@@ -8,7 +8,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 
@@ -39,18 +38,6 @@ def run_command(command: list[str], *, cwd: Path) -> str:
         env=environment,
     )
     return (completed.stdout or "") + (completed.stderr or "")
-
-
-def run_input_builder(tutorial_root: Path, generated_dir: Path) -> None:
-    run_command(
-        [
-            sys.executable,
-            str(tutorial_root / "scripts" / "build_latex_inputs.py"),
-            "--output-dir",
-            str(generated_dir),
-        ],
-        cwd=tutorial_root,
-    )
 
 
 def _toolchain() -> str:
@@ -104,9 +91,7 @@ def _read_build_logs(build_dir: Path) -> str:
     return "\n".join(chunks)
 
 
-def _prepare_latex_context(
-    tutorial_root: Path, generated_input: Path, build_dir: Path
-) -> Path:
+def _prepare_latex_context(tutorial_root: Path, build_dir: Path) -> Path:
     """Stage relative LaTeX inputs inside the temporary build context."""
     context_dir = build_dir / "context"
     context_dir.mkdir(parents=True, exist_ok=True)
@@ -117,9 +102,6 @@ def _prepare_latex_context(
     figures = tutorial_root / "figures"
     if figures.is_dir():
         shutil.copytree(figures, context_dir / "figures")
-    generated_context = context_dir / "generated"
-    generated_context.mkdir()
-    shutil.copy2(generated_input, generated_context / "transcripts.tex")
     return context_dir
 
 
@@ -127,15 +109,9 @@ def build(
     *,
     tutorial_root: Path = DEFAULT_TUTORIAL_ROOT,
     build_dir: Path | None = None,
-    generated_dir: Path | None = None,
 ) -> Path:
     tutorial_root = tutorial_root.resolve()
-    generated_dir = (generated_dir or tutorial_root / "generated").resolve()
     build_dir = (build_dir or tutorial_root / "build").resolve()
-    run_input_builder(tutorial_root, generated_dir)
-    generated_input = generated_dir / "transcripts.tex"
-    if not generated_input.is_file() or generated_input.stat().st_size == 0:
-        raise RuntimeError(f"required generated input is missing or empty: {generated_input}")
     main_tex = tutorial_root / "main.tex"
     if not main_tex.is_file():
         raise RuntimeError(f"LaTeX source is missing: {main_tex}")
@@ -144,7 +120,7 @@ def build(
             raise RuntimeError(f"build directory is not a regular directory: {build_dir}")
         shutil.rmtree(build_dir)
     build_dir.mkdir(parents=True, exist_ok=True)
-    latex_context = _prepare_latex_context(tutorial_root, generated_input, build_dir)
+    latex_context = _prepare_latex_context(tutorial_root, build_dir)
     tool = _toolchain()
     if not shutil.which(BIBTEX):
         raise RuntimeError(
@@ -172,12 +148,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tutorial-root", type=Path, default=DEFAULT_TUTORIAL_ROOT)
     parser.add_argument("--build-dir", type=Path)
-    parser.add_argument("--generated-dir", type=Path)
     args = parser.parse_args()
     output = build(
         tutorial_root=args.tutorial_root,
         build_dir=args.build_dir,
-        generated_dir=args.generated_dir,
     )
     print(f"built {output}")
     return 0

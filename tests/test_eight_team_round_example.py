@@ -6,9 +6,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXAMPLE = ROOT / "docs/instructor_manual/examples/eight_team_round"
+EXAMPLE = ROOT / "examples/eight_team_round"
 SUBMISSIONS = EXAMPLE / "submissions"
-ARTIFACT = ROOT / "data/processed/activsg2000_scenarios_v1/2028/jan_jun"
+ARTIFACT = ROOT / "data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun"
 CANONICAL_COLUMNS = (
     "team_id",
     "site_id",

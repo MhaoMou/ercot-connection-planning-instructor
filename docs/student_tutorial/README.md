@@ -1,37 +1,29 @@
-# AI-Assisted Student Tutorial
+# Student Tutorial
 
-This directory contains a student-facing companion to the ACTIVSg2000
-connection-planning assignment. It teaches dataset inspection, visualization,
-DCOPF concepts, CSV preparation, storage, preview workflows, strategy
-experiments, debugging, and reproducibility through reviewed AI examples and
-executable notebooks.
+This directory contains the student tutorial for the ACTIVSg2000 data-center
+connection game (`main.tex`, built to `main.pdf`), its figures, and seven
+small companion notebooks.
 
-The canonical student-game release uses six-hour operating periods and the
-`daily_exact_cycle` storage boundary. A half-year is still the planning
-horizon: for example, 4,368 January--June 2028 source hours become 728 game
-periods, and 4,416 July--December source hours become 736 game periods. The
-student CSV remains a site-level plan; it does not contain one row per period.
-The hourly scenario package remains available as a derivation/reference input,
-not as the default student-game release.
-
-The existing assignment handout remains authoritative for rules, data
-schemas, horizons, scoring, storage semantics, and deliverables. The tutorial
-is explanatory: AI answers are representative, must be checked against the
-repository sources, and are not official evaluator results.
+The game uses six-hour operating periods and the `daily_exact_cycle` storage
+boundary. A half-year is the planning horizon: for example, 4,368
+January--June 2028 source hours become 728 game periods, and 4,416
+July--December source hours become 736 game periods. The student CSV is a
+site-level plan; it does not contain one row per period. The numbers in the
+tutorial come from the scoring-rules files in `data/teaching/` and the
+scenario package in `data/processed/activsg2000_scenarios_v2_6h/`.
 
 ## Using the tutorial
 
-The prompt, transcript, and notebook directories contain the reviewed tutorial
-artifacts. Open the notebooks locally or upload them to Google Colab.
-When using Colab, clone or otherwise provide the repository before running
-cells so paths and versioned data resolve consistently. The local tutorial
-dependencies can be installed with:
+The notebooks use tiny made-up fixtures to show individual mechanics. Open
+them locally or upload them to Google Colab. When using Colab, clone or
+otherwise provide the repository before running cells so paths resolve
+consistently. The local tutorial dependencies can be installed with:
 
 ```bash
 python3 -m pip install -e '.[tutorial]'
 ```
 
-From the repository root, execute the examples locally with:
+From the repository root, execute the notebooks with:
 
 ```bash
 PYTHONPATH=src python3 docs/student_tutorial/scripts/execute_notebooks.py \
@@ -39,10 +31,7 @@ PYTHONPATH=src python3 docs/student_tutorial/scripts/execute_notebooks.py \
   --output-dir docs/student_tutorial/outputs/notebook_runs
 ```
 
-That runner executes the notebooks with the repository package on the
-Python path and writes executed notebooks to the indicated output directory.
-
-The validator checks the executed notebooks and published artifacts:
+and check the executed notebooks and published artifacts with:
 
 ```bash
 PYTHONPATH=src python3 docs/student_tutorial/scripts/validate_tutorial_examples.py \
@@ -52,47 +41,38 @@ PYTHONPATH=src python3 docs/student_tutorial/scripts/validate_tutorial_examples.
 Run the tutorial regression tests with:
 
 ```bash
-pytest -q tests/test_student_tutorial_artifacts.py tests/test_student_tutorial_notebooks.py
+pytest -q tests/test_student_tutorial_artifacts.py tests/test_student_tutorial_content.py \
+  tests/test_student_tutorial_notebooks.py
 ```
 
-Prompt files and reviewed transcripts are paired through `prompt_registry.json`.
+`scripts/audit_tutorial_content.py` checks the tutorial text: the canonical
+CSV header, horizon statements, figure integration, citations, privacy
+guidance, and that retired submission fields only appear as rejected or
+historical.
 
 ### Reproducible PDF build
 
-From the repository root, build the frozen tutorial PDF with the local LaTeX
+From the repository root, build the tutorial PDF with the local LaTeX
 toolchain:
 
 ```bash
 python3 docs/student_tutorial/scripts/build_pdf.py
 ```
 
-The command first runs the prompt-registry and transcript validators, generates
-`docs/student_tutorial/generated/transcripts.tex`, verifies that the generated
-input is present, and then compiles `docs/student_tutorial/main.tex` into
-`docs/student_tutorial/build/main.pdf` using installed `latexmk` or `pdflatex`.
-It never calls a model or downloads data. A clean checkout must have all
-checked-in prompts and transcripts; missing generated inputs cause the command
-to fail instead of compiling a partial tutorial. The `generated/` and `build/`
-directories contain rebuildable artifacts and are intentionally ignored.
-
-The release audit also requires the generated transcript include and verifies
-that it remains contained within this tutorial and includes every registered
-transcript. For source-only development checks before generating that file,
-pass `--allow-unbuilt` explicitly to `audit_tutorial_content.py`; this mode is
-not the release default.
-
-The build requires the local `latexmk` or `pdflatex` engine plus `bibtex`, and
-always passes `-no-shell-escape`. It fails if bibliography warnings or
-overfull boxes remain in the compiler logs. Underfull boxes can be emitted by
-long breakable examples and are documented as benign; long CSV and path lines
-are configured to wrap rather than clip.
+The command compiles `docs/student_tutorial/main.tex` into
+`docs/student_tutorial/build/main.pdf` using installed `latexmk` or
+`pdflatex` plus `bibtex`, always with `-no-shell-escape`. It never calls a
+model or downloads data, and it fails if bibliography warnings or
+overfull boxes remain in the compiler logs. Underfull boxes from long breakable examples
+are benign; long CSV and path lines wrap rather than clip. The `build/`
+directory is ignored.
 
 ## Verification and privacy
 
 Treat every AI response as a starting point. Verify file names, columns, units,
-bus IDs, solver status, numerical outputs, and provenance using the linked
-repository files or executable examples. The student preview is conservative
-and non-authoritative; it is not an official score.
+bus IDs, solver status, numerical outputs, and provenance using the repository
+files or executable examples. The student preview is conservative and
+non-authoritative; it is not an official score.
 
 Do not upload private team plans, credentials, rankings, instructor-only
 diagnostics, or other confidential information to shared AI tools. Use public

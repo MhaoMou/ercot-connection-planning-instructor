@@ -97,9 +97,9 @@
 
 This tutorial walks you through the assignment from start to finish: what the
 game is, how your plan is scored, how to explore the data, how to write and
-check your submission, and how to use AI tools along the way. The assignment handout
-(\code{docs/student_manual/main.pdf}) is the official statement of the rules, and the numbers in this tutorial come from the scoring-rules files in
-\code{data/teaching/}.
+check your submission, and how to use AI tools along the way. The numbers in
+this tutorial come from the scoring-rules files in \code{data/teaching/}, and
+\code{docs/HYPERPARAMETERS.md} lists every game parameter with its source.
 
 \begin{keybox}[Quick start]
 \begin{enumerate}[leftmargin=*]
@@ -429,7 +429,7 @@ python -m pip install -e ".[tutorial]" pandas
 environment active.} Check the installation by validating the example
 submission (\cref{sec:csv} explains the output):
 \begin{lstlisting}[language=bash]
-ercot-game-check-csv --file docs/instructor_manual/examples/eight_team_round/submissions/team-01.csv
+ercot-game-check-csv --file examples/eight_team_round/submissions/team-01.csv
 \end{lstlisting}
 
 The files you will use most:
@@ -440,7 +440,7 @@ The files you will use most:
 \toprule
 Path & What it is\\
 \midrule
-\code{docs/student_manual/main.pdf} & Assignment handout (official rules).\\
+\code{docs/HYPERPARAMETERS.md} & Every game parameter, with its value and source.\\
 \code{data/processed/activsg2000_scenarios_v2_6h/} & Released scenario package with six-hour operating periods.\\
 \code{data/teaching/dispatch_scoring_rules_*_6h_v1.json} & Scoring coefficients used by the six-hour preview and evaluator.\\
 \code{ercot-game-check-csv} & Checker for your CSV (also \code{scripts/check_submission.py}).\\
@@ -538,7 +538,7 @@ might invent a CSV column, assume you schedule the battery yourself, or use
 made-up prices. Before you rely on an answer:
 \begin{itemize}[leftmargin=*]
   \item \textbf{Run it.} Code that has not run is a guess.
-  \item \textbf{Check the numbers} against the handout and the rules JSON.
+  \item \textbf{Check the numbers} against this tutorial and the rules JSON.
   \item \textbf{Try a case you can do by hand}, such as the worked example in
     \cref{sec:score}.
   \item \textbf{Ask for its assumptions}: ``What did you assume that is not in
@@ -1010,7 +1010,7 @@ first three lines of my CSV are: [paste]. What is wrong and how do I fix it?
   \item For Submission 2, every Submission 1 row is unchanged.
   \item The checker prints \code{VALID} for the exact file you will upload.
   \item You can explain why you chose each bus and capacity.
-  \item The file name and upload location match the handout's instructions.
+  \item The file name and upload location match your instructor's instructions.
 \end{itemize}
 
 

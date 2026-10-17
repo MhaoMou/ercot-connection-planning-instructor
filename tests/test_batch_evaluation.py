@@ -1426,38 +1426,6 @@ def test_load_scoring_rules_replaces_legacy_vectors_with_artifact(tmp_path):
     assert rules.energy_price_per_mwh == ()
 
 
-@pytest.mark.parametrize("year", [2027, 2029])
-def test_nonleap_jan_jun_artifacts_load_and_score_at_final_hour(tmp_path, year):
-    artifact = Path(__file__).parents[1] / "data" / "processed" / "activsg2000_scenarios_v1" / str(year) / "jan_jun"
-    horizon = half_year_calendar(year, "jan_jun").horizon
-    rules_path = tmp_path / f"rules-{year}.json"
-    rules_path.write_text(json.dumps({"rules_version": "test-v1"}), encoding="utf-8")
-
-    rules = load_scoring_rules(rules_path, artifact_dir=artifact)
-
-    assert rules.economic_profiles is not None
-    assert rules.economic_profiles.horizon_hours == 4344
-    final_period = horizon - 1
-    dispatch = SimpleNamespace(
-        periods=(
-            SimpleNamespace(
-                period_index=final_period,
-                submitted_load_mw_by_team={"team-a": 2.0},
-                generator_dispatch_mw_by_team={"team-a": {}},
-                grid_purchase_mw_by_team={"team-a": 2.0},
-                grid_purchase_mw_by_team_by_bus={"team-a": {"1001": 2.0}},
-                dcopf=SimpleNamespace(balance_dual_by_bus={}),
-            ),
-        ),
-    )
-    plan = TeamPlan("team-a", (ConnectionPlan("site-a", "1001", 2.0, (1.0,)),))
-
-    score = _score_team(plan, dispatch, rules)
-
-    assert score.it_value == pytest.approx(2.0 * 6500.0)
-    assert score.energy_cost == pytest.approx(
-        2.0 * rules.economic_profiles.price_for_bus("1001", final_period)
-    )
 
 
 def test_evaluate_csv_batch_rejects_explicit_empty_period_indices():

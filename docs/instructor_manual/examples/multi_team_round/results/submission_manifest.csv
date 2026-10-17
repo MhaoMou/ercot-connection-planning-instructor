@@ -1,5 +1,0 @@
-submission_key,team_id,submission_id,source_filename,input_sha256,valid,failure_reason,identity_is_fallback
-/home/minghao/i-am/work/instructor_manual_example/submissions/groups_04_rep_01/sim-04-r01-team-01.csv,sim-04-r01-team-01,sim-04-r01,sim-04-r01-team-01.csv,030ac6e7c15d9060d2135e03ff613e299174686e625cbbac1662bbf6eb5a163b,True,,False
-/home/minghao/i-am/work/instructor_manual_example/submissions/groups_04_rep_01/sim-04-r01-team-02.csv,sim-04-r01-team-02,sim-04-r01,sim-04-r01-team-02.csv,9537b7a7aab8a772847cf6b3d5e4fa9c87bb13c64db23fffd51fc8e3a0ef68bd,True,,False
-/home/minghao/i-am/work/instructor_manual_example/submissions/groups_04_rep_01/sim-04-r01-team-03.csv,sim-04-r01-team-03,sim-04-r01,sim-04-r01-team-03.csv,e4f63ee63cbb88142e111f913eddf5994bf3325c8f8bc7e4c9c4794c7379fdd4,True,,False
-/home/minghao/i-am/work/instructor_manual_example/submissions/groups_04_rep_01/sim-04-r01-team-04.csv,sim-04-r01-team-04,sim-04-r01,sim-04-r01-team-04.csv,ea6a317468b2ef8d62518e7beb04717b37c50405b94eff095615ce8c9653e9c6,True,,False

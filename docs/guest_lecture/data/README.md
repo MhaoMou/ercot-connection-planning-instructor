@@ -12,7 +12,7 @@ and are turned into plot tables and `numbers.tex` by
 | `raw/hc_selected_allperiods/` | same, `--start-period 0 --period-count 736 --bus-id 1001 1002 1007 1010 7049 7346 --workers 8` (133 s) |
 | `raw/hc_variable_allperiods/` | same, buses 7087 7077 7127 5253 7419 5370 (126 s) |
 | `raw/pair_region_p306.json` | `scripts/pair_region.py 306`: two-bus region for buses 1002/1010 at the peak period and the two-team example (HiGHS via `solve_prepared_period`) |
-| `raw/eight_team_6h_summary.json` | `ercot-game-batch run --submissions-dir docs/instructor_manual/examples/eight_team_round/submissions --year 2028 --round jan_jun --time-step-hours 6 --submission-number 2 --workers 4 --output-mode full --solver-backend gurobi` (45 s), summarized |
+| `raw/eight_team_6h_summary.json` | `ercot-game-batch run --submissions-dir examples/eight_team_round/submissions --year 2028 --round jan_jun --time-step-hours 6 --submission-number 2 --workers 4 --output-mode full --solver-backend gurobi` (45 s), summarized |
 
 The peak-load day is day 76 (periods 304-307); period 306 has the highest
 system load (77,510 MW). The storage curve uses the game rules: six-hour

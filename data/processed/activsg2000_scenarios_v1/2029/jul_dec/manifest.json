@@ -1,8 +1,0 @@
-{
-  "package_version": "activsg2000-scenarios-v1",
-  "validation_status": "unverified_dependency",
-  "validation_reason": "Full DCOPF validation is unverified because the optional project dependency 'highspy' is unavailable in this environment; this is not a genuine network or solver validation failure.",
-  "block": "2029-jul_dec",
-  "horizon": 4416,
-  "year": 2029
-}

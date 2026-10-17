@@ -31,10 +31,10 @@ The retired browser/practice implementation is recoverable under
   three-year six-hour scenario package; all six blocks are release-validated.
 - `data/teaching/`: January--June and July--December scoring rules.
 - `scripts/check_submission.py`: student-file validation entry point.
-- `scripts/create_meaningful_test_submissions.py`: **legacy/historical complete-horizon
-  compatibility fixtures only**; it emits the retired ten-column hourly schema and
-  is not an example for current submissions. Use the canonical one-row-per-site
-  seven-column examples above for active tests and documentation.
+- `scripts/create_half_year_scoring_rules.py`: regenerates the six-hour scoring
+  rules in `data/teaching/`.
+- `examples/eight_team_round/`: deterministic eight-team example round with its
+  six-hour results and classroom grid map.
 - `tests/`: active production tests.
 
 ## Setup

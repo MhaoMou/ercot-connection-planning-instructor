@@ -1430,7 +1430,7 @@ def test_scored_submissions_charge_capital_once_and_energy_only_in_submission_tw
             Path(__file__).parents[1]
             / "data"
             / "teaching"
-            / "dispatch_scoring_rules_jan_jun_v1.json"
+            / "dispatch_scoring_rules_jan_jun_6h_v1.json"
         ).read_text(encoding="utf-8")
     )
     rules = BatchScoringRules(

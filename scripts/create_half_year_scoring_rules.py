@@ -162,7 +162,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--year", type=int, default=2028)
     parser.add_argument("--round", dest="round_name", choices=("jan_jun", "jul_dec"))
-    parser.add_argument("--time-step-hours", type=int, choices=(1, 6), default=1)
+    parser.add_argument("--time-step-hours", type=int, choices=(1, 6), default=6)
     args = parser.parse_args()
     output_dir = Path(__file__).resolve().parents[1] / "data" / "teaching"
     round_names = (args.round_name,) if args.round_name else ("jan_jun", "jul_dec")

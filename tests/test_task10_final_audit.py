@@ -318,11 +318,11 @@ def test_fair_projection_handles_missing_catalog_and_zero_request_without_leakag
     assert all("team-rejected" not in call for call in calls)
 
 
-def test_active_release_surfaces_match_six_half_year_blocks_and_generator_status() -> None:
+def test_active_release_surfaces_match_six_six_hour_blocks_and_generator_status() -> None:
     active_docs = (
         REPOSITORY_ROOT / "README.md",
         REPOSITORY_ROOT / "docs" / "INSTRUCTOR_REPOSITORY_GUIDE.md",
-        REPOSITORY_ROOT / "docs" / "student_manual" / "HYPERPARAMETERS.md",
+        REPOSITORY_ROOT / "docs" / "HYPERPARAMETERS.md",
     )
     for path in active_docs:
         text = path.read_text(encoding="utf-8")
@@ -331,27 +331,27 @@ def test_active_release_surfaces_match_six_half_year_blocks_and_generator_status
         assert "half-year" in text.lower()
         assert "six-period" not in text.lower()
 
-    root = REPOSITORY_ROOT / "data" / "processed" / "activsg2000_scenarios_v1"
+    root = REPOSITORY_ROOT / "data" / "processed" / "activsg2000_scenarios_v2_6h"
     block_manifests = sorted(root.glob("20??/*/manifest.json"))
     assert len(block_manifests) == 6
     assert [json.loads(path.read_text(encoding="utf-8"))["horizon"] for path in block_manifests] == [
-        half_year_calendar(int(path.parts[-3]), path.parts[-2]).horizon
+        half_year_calendar(int(path.parts[-3]), path.parts[-2]).horizon // 6
         for path in block_manifests
     ]
 
-    expected_status = create_half_year_scoring_rules.DEFAULT_RULE_STATUS
     for rules_name, round_name in (
-        ("dispatch_scoring_rules_jan_jun_v1.json", "jan_jun"),
-        ("dispatch_scoring_rules_jul_dec_v1.json", "jul_dec"),
+        ("dispatch_scoring_rules_jan_jun_6h_v1.json", "jan_jun"),
+        ("dispatch_scoring_rules_jul_dec_6h_v1.json", "jul_dec"),
     ):
         rules = json.loads((REPOSITORY_ROOT / "data" / "teaching" / rules_name).read_text(encoding="utf-8"))
         generated = create_half_year_scoring_rules.build_rules_for_year_season(
             year=2028,
             round_name=round_name,
+            time_step_hours=6,
         )
         assert rules == generated
-        assert rules["status"] == expected_status
-        assert len(rules["it_value_per_mwh"]) == half_year_calendar(2028, round_name).horizon
+        assert rules["status"] == "released"
+        assert len(rules["it_value_per_mwh"]) == half_year_calendar(2028, round_name).horizon // 6
 
 
 def test_projection_diagnostics_reject_unknown_team_at_round_boundary(tmp_path: Path) -> None:

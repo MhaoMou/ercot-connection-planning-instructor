@@ -65,3 +65,45 @@ data/processed/texas_dispatch_source_v1_years/
 # intentionally tracked under web/data/results/.
 results/hosting_capacity_*/
 results/hosting_capacity_benchmark_*/
+
+# Kept locally but not published: material that is not part of the current
+# six-hour, daily-storage-cycle classroom game (removed from the repo 2026-10).
+docs/student_manual/
+docs/instructor_manual/
+docs/TASK_10_FINAL_AUDIT_REPORT.md
+docs/EVALUATOR_ACCELERATION.md
+docs/IT_SERVICE_VALUE_PROFILE.md
+docs/ERCOT_DISPATCH_SCORING_SENSITIVITY.md
+docs/ERCOT_DATA_CENTER_VALUE_CALIBRATION.md
+docs/ERCOT_DISPATCH_SCORING_CALIBRATION.md
+docs/COLAB_DCOPF_BENCHMARK.md
+docs/student_tutorial/prompts/
+docs/student_tutorial/transcripts/
+docs/student_tutorial/prompt_registry.json
+docs/student_tutorial/BUILD_QA.md
+docs/student_tutorial/RELEASE_AUDIT.md
+docs/student_tutorial/scripts/validate_prompt_registry.py
+docs/student_tutorial/scripts/validate_transcripts.py
+docs/student_tutorial/scripts/build_latex_inputs.py
+tests/test_student_tutorial_inline_render.py
+data/raw/
+data/processed/reduced/
+data/processed/ercot_planning_model_v1.json
+data/processed/ercot_public_network.json
+data/processed/activsg2000_scenarios_v1/
+data/teaching/planning_region_source_bus_map_v1.json
+data/teaching/dispatch_scoring_rules_jan_jun_v1.json
+data/teaching/dispatch_scoring_rules_jul_dec_v1.json
+examples/instructor_batch/
+examples/week_01_submissions.json
+examples/rl_gym/
+/experiments/
+scripts/create_meaningful_test_submissions.py
+scripts/simulate_group_cohorts.py
+scripts/simulate_eight_team_round.py
+scripts/summarize_simulation.py
+tools/activsg2000/rename_scenario_years.py
+tools/colab_instructor/
+/rl_gym/
+tests/test_rl_gym_*.py
+tests/test_colab_benchmark_package.py
