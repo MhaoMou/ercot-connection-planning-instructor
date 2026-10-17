@@ -13,12 +13,11 @@ Student files use source `bus_id` values from the selected block. The active
 scenario is controlled instructional data, not historical ERCOT telemetry, a
 forecast, or an official operating model.
 
-In this checkout, the root and block manifests report
-`validation_status: unverified_dependency` and
-`release_status: blocked_pending_highspy_validation` because `highspy` is
-unavailable. Do not treat the checked-in manifests as passed. Install
-`highspy` and complete HiGHS-backed validation of all 26,304 hourly states
-before classroom use. The Colab benchmark is separate measurement-only work:
+The canonical scenario package is
+`data/processed/activsg2000_scenarios_v2_6h/`: each game period is the mean of
+six consecutive hourly source records, and its root and six block manifests
+report `validation_status: passed` (4,384 six-hour states). The retired hourly
+package `activsg2000_scenarios_v1` is not the classroom default. The Colab benchmark is separate measurement-only work:
 it requires `highspy`, `psutil`, prepared artifacts, and a compatible
 runtime. It does not change evaluator math, and no unrun or partial benchmark
 justifies shortening the official horizon.
@@ -33,22 +32,25 @@ There are three weekly matches and six half-year submissions:
 | Week 2 | `2028_jan_jun` | `2028_jul_dec` | Scored match; both Submission 1 and Submission 2 count. |
 | Week 3 | `2029_jan_jun` | `2029_jul_dec` | Scored match; both Submission 1 and Submission 2 count. |
 
-The released horizons are:
+The released horizons, in six-hour game periods (four per day), are:
 
 | Released year | January-June | July-December |
 |---|---:|---:|
-| 2027 | 4,344 h | 4,416 h |
-| 2028 | 4,368 h | 4,416 h |
-| 2029 | 4,344 h | 4,416 h |
+| 2027 | 724 periods (4,344 source hours) | 736 periods (4,416 source hours) |
+| 2028 | 728 periods (4,368 source hours) | 736 periods (4,416 source hours) |
+| 2029 | 724 periods (4,344 source hours) | 736 periods (4,416 source hours) |
+
+IT value, energy purchases, and team-generator operating cost multiply each
+period's MW quantity by `time_step_hours = 6` from the rules file.
 
 Within one week, Submission 1 is the first-stage plan. The coordinator carries
-accepted sites, evaluator-assigned generator and storage assets, and final
-storage SOC into Submission 2. Capital cost (connection-site cost per MW,
+accepted sites and evaluator-assigned generator and storage assets into
+Submission 2. Storage energy does not carry over: under `daily_exact_cycle`
+every device starts and ends each day at 50% SOC. Capital cost (connection-site cost per MW,
 generator capital, storage capital) is charged once, in the submission where
 the asset is first built: Submission 1 pays for everything it builds, and
 Submission 2 pays only for newly added sites/assets, not for those carried
-from Submission 1. At the start of the next week, the asset ledger and SOC
-reset. The final ranking is the sum of four scores: Week 2 Submission 1 +
+from Submission 1. At the start of the next week, the asset ledger resets. The final ranking is the sum of four scores: Week 2 Submission 1 +
 Week 2 Submission 2 + Week 3 Submission 1 + Week 3 Submission 2 (an invalid
 submission scores 0). Week 1 is excluded.
 
@@ -59,8 +61,8 @@ For a 2027 January-June release:
 ```bash
 ercot-game-batch run \
   --submissions-dir work/half_year_submissions \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2027/jan_jun \
-  --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
+  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2027/jan_jun \
+  --rules data/teaching/dispatch_scoring_rules_jan_jun_6h_v1.json \
   --year 2027 --round jan_jun \
   --submission-number 2 \
   --workers 8 \
@@ -75,8 +77,8 @@ For July-December, use the matching year artifact and rules:
 ```bash
 ercot-game-batch run \
   --submissions-dir work/half_year_submissions \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2027/jul_dec \
-  --rules data/teaching/dispatch_scoring_rules_jul_dec_v1.json \
+  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2027/jul_dec \
+  --rules data/teaching/dispatch_scoring_rules_jul_dec_6h_v1.json \
   --year 2027 --round jul_dec \
   --submission-number 2 \
   --workers 8 \
@@ -95,7 +97,7 @@ valid license can be started, and otherwise falls back to HiGHS. Use
 `--solver-backend highs` or `--solver-backend gurobi` to force a backend.
 `--output-mode compact` writes scores, manifests, team diagnostics, aggregate
 diagnostics, and hashes without the large per-period dispatch export. Use
-`--output-mode full` when the detailed hourly dispatch is needed for debugging
+`--output-mode full` when the detailed per-period dispatch is needed for debugging
 or visualization.
 
 For controlled performance comparisons, use
@@ -130,7 +132,7 @@ team-blue,site-south,1002,15,0,0,0
 ```
 
 Every row is one site. The file has no `period`, hourly `load_mw`,
-`submission_id`, `generator_id`, or `storage_id` columns and no hourly
+`submission_id`, `generator_id`, or `storage_id` columns and no
 horizon rows. `bus_id` must exist in the selected block's `bus.csv`.
 Generator capacity cannot exceed connection capacity, and storage energy must
 equal four times storage power.
@@ -158,9 +160,12 @@ discharge, and SOC in the centralized prepared HiGHS model. Each storage asset
 has:
 
 - power limits in MW and energy limits in MWh;
-- 100% charge/discharge efficiency and a one-hour SOC transition;
-- initial SOC equal to one-half of energy capacity;
-- terminal SOC at least one-half of energy capacity;
+- 100% charge/discharge efficiency and a six-hour SOC transition
+  (`SOC[t] = SOC[t-1] - 6 h * p[t]`, with discharge energy limited to the
+  stored energy);
+- `storage_boundary_mode: daily_exact_cycle`: each day (four six-hour periods)
+  starts at one-half of energy capacity and ends at exactly one-half, with no
+  carry-over between days or submissions;
 - one signed net-power variable per asset and period (positive discharges,
   negative charges), so the coupled horizon remains a linear program with no
   binary operating-mode variable;
@@ -198,7 +203,7 @@ The active coefficients are:
 | Invalid/infeasible fallback score | 0 | USD | Deterministic instructor policy. |
 
 The current economic-profile artifacts contain a full-horizon constant IT-value
-vector and bus/hour LMP reference data. Submission 2 settlement uses the LMP
+vector and bus/period LMP reference data. Submission 2 settlement uses the LMP
 from the selected joint dispatch, not a student-chosen price vector. Existing
 public generators use dataset marginal costs; team-built generators use the
 common convex curve above.

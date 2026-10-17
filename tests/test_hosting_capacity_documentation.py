@@ -6,7 +6,7 @@ REPOSITORY_ROOT = Path(__file__).parents[1]
 README = REPOSITORY_ROOT / "docs" / "hosting_capacity" / "README.md"
 BENCHMARK_RESULTS = REPOSITORY_ROOT / "docs" / "hosting_capacity" / "benchmark-results.jsonl"
 BENCHMARK_REPORT = REPOSITORY_ROOT / "docs" / "hosting_capacity" / "benchmark-report.md"
-ARTIFACT_PATH = "data/processed/activsg2000_scenarios_v1/2028/jan_jun"
+ARTIFACT_PATH = "data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun"
 PILOT_GATE_HEADING = "## Task 9 release pilot gate"
 PILOT_OUTPUT_ROOT = "/private/tmp/hosting-capacity-pilot"
 

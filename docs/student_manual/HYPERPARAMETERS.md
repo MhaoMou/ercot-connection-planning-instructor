@@ -27,7 +27,7 @@ The active pipeline is:
 
 ```text
 ACTIVSg2000 network and catalogs
-    -> controlled half-year scenario block
+    -> controlled half-year scenario block (six-hour periods)
     -> canonical seven-column site CSV
     -> joint DCOPF and grid-operated storage
     -> fair projection when required
@@ -35,8 +35,8 @@ ACTIVSg2000 network and catalogs
 ```
 
 The canonical CSV is one row per site. The evaluator expands each constant site
-capacity over the selected half-year horizon. Students do not submit hourly
-profiles, generator IDs, storage IDs, prices, dispatch schedules, or storage
+capacity over the selected half-year horizon of six-hour periods. Students do
+not submit time-series profiles, generator IDs, storage IDs, prices, dispatch schedules, or storage
 state of charge.
 
 ## Network and horizon parameters
@@ -47,18 +47,18 @@ state of charge.
 | Buses | 2,000 | buses | DATASET-SPECIFIED | Student `bus_id` values must come from the selected block. |
 | Branches | 3,206 | branches | DATASET-SPECIFIED | Fixed topology used by the dispatch adapter. |
 | Generator records | 544 | records | DATASET-SPECIFIED | Active status, PMIN, PMAX, and marginal-cost fields come from the catalog. |
-| Time step | 1 | hour | INSTRUCTOR-CHOSEN | Literal hourly transition and settlement interval. |
-| January-June, 2027 or 2029 | 4,344 | hours | INSTRUCTOR-CHOSEN | Non-leap half-year calendar. |
-| January-June, 2028 | 4,368 | hours | INSTRUCTOR-CHOSEN | Leap-year half-year calendar. |
-| July-December, 2027-2029 | 4,416 | hours | INSTRUCTOR-CHOSEN | Second half of each released year. |
+| Time step | 6 | hours | INSTRUCTOR-CHOSEN | Each game period is the mean of six consecutive hourly source records; four periods per day. IT value, energy purchases, and generator operating cost multiply MW by 6 h. |
+| January-June, 2027 or 2029 | 724 | six-hour periods | INSTRUCTOR-CHOSEN | Non-leap half-year calendar (4,344 source hours). |
+| January-June, 2028 | 728 | six-hour periods | INSTRUCTOR-CHOSEN | Leap-year half-year calendar (4,368 source hours). |
+| July-December, 2027-2029 | 736 | six-hour periods | INSTRUCTOR-CHOSEN | Second half of each released year (4,416 source hours). |
+| Scenario package | `data/processed/activsg2000_scenarios_v2_6h/` | path | INSTRUCTOR-CHOSEN | Canonical six-hour package; scoring rules are `data/teaching/dispatch_scoring_rules_{jan_jun,jul_dec}_6h_v1.json`. |
 | Existing-generator availability | Static status, PMIN, PMAX | MW and status | DATASET-SPECIFIED | ACTIVSg2000 has no technology labels or hourly availability fields; no synthetic renewable derating is applied. |
 | Dispatch solver | HiGHS through the DCOPF adapter | solver | INSTRUCTOR-CHOSEN | Transparent, repeatable linear dispatch; storage-bearing horizons use the prepared storage-aware path. |
 
 The three years are instructional scenario labels, not historical ERCOT years.
 The selected block must have a passed validation manifest before production
-use. In this checkout the manifests are `unverified_dependency` because
-`highspy` is unavailable; this is a dependency limitation, not a passed or
-failed DCOPF validation.
+use. The six block manifests of the six-hour package record
+`validation_status: passed`.
 
 ## Classroom schedule and state boundaries
 
@@ -70,13 +70,15 @@ The game has three weekly matches and six half-year submissions:
 | Week 2 | `2028_jan_jun` | `2028_jul_dec` | Scored weekly match; Submission 1 and Submission 2 both count. |
 | Week 3 | `2029_jan_jun` | `2029_jul_dec` | Scored weekly match; Submission 1 and Submission 2 both count. |
 
-Within a week, Submission 1 is the first-stage plan. Its sites, evaluator-
-assigned assets, and final storage SOC are carried into Submission 2. Capital
+Within a week, Submission 1 is the first-stage plan. Its sites and evaluator-
+assigned assets are carried into Submission 2. Stored energy is not carried:
+under the daily storage cycle every device starts and ends each day at 50%
+state of charge, so each submission starts from the same SOC. Capital
 cost (connection-site cost, generator capital, storage capital) is charged
 once, in the submission where the asset is first built: Submission 1 pays for
 everything it builds, and Submission 2 pays only for newly added sites and
 assets. Assets carried over from Submission 1 are not charged again. At the
-beginning of the next week, the asset ledger and SOC reset; the previous
+beginning of the next week, the asset ledger resets; the previous
 week's assets do not receive credit or carry-over treatment.
 
 Submission 1 has no energy-purchase cost. Submission 2 uses the LMP from its
@@ -111,7 +113,7 @@ PYTHONPATH=src python scripts/check_submission.py \
 
 Use `--artifact-dir` when the checker should validate `bus_id` against a
 released scenario catalog. `--year`, `--round`, and `--horizon` are optional
-report context; they never create an hourly-row requirement. The evaluator
+report context; they never create a per-period row requirement. The evaluator
 remains authoritative.
 
 | CSV field | Units | Origin | Rule |
@@ -136,7 +138,7 @@ only and must not be copied into an active submission.
 |---|---:|---|---|---|
 | IT-service value | 6,500 | USD/MWh served load | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | AI-intensive instructional opportunity value, rounded from a recent compute-value estimate with a blended value near $6,350/MWh. Cloud prices remain contextual, not a direct tariff conversion. See [Compute Heat Rate](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=6322318) and the [IEA Energy and AI executive summary](https://www.iea.org/reports/energy-and-ai/executive-summary). |
 | Energy purchase cost, Submission 1 | 0 | USD | INSTRUCTOR-CHOSEN | Submission 1 settlement excludes grid-energy cost (it is still scored in Weeks 2 and 3). |
-| Energy purchase cost, Submission 2 | Joint-dispatch LMP times grid purchase | USD/MWh | DERIVED | The LMP is selected from the joint dispatch at the team's bus; it is not a student-chosen independent price. |
+| Energy purchase cost, Submission 2 | Joint-dispatch LMP times grid purchase (MW) times 6 h | USD/MWh | DERIVED | The LMP is selected from the joint dispatch at the team's bus; it is not a student-chosen independent price. |
 | Team-generator marginal curve | 25% at 80, 50% at 150, 25% at 250 | USD/MWh and capacity share | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | Convex curve for generic colocated natural-gas reciprocating/simple-cycle generation with diesel-standby/scarcity premium; exact curve remains instructional. See [EIA 2026 LCOE page](https://www.eia.gov/outlooks/aeo/electricity_generation/), [EIA AEO2025 technology-cost report](https://www.eia.gov/analysis/studies/powerplants/capitalcost/pdf/capital_cost_AEO2025.pdf), and [California Energy Commission data-center overview](https://www.energy.ca.gov/programs-and-topics/topics/data-centers). |
 | Team-generator capital | 1,500,000 | USD/MW | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | Rounded near EIA's 2024 internal-combustion-engine installed cost of $1,522/kW; charged once, in the submission where the generator MW is first built. See [EIA generator costs](https://www.eia.gov/electricity/generatorcosts/). |
 | Connection-site cost | 25,000,000 | USD/MW | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | AI-data-center facility-capital proxy, not a universal interconnection tariff. JLL reports $10.7M/MW shell/core and up to $25M/MW AI fit-out; Morgan Stanley reports approximately $21–31M/MW including GPUs/servers. See [JLL outlook](https://www.jll.com/en-us/insights/market-outlook/global-data-centers) and [Morgan Stanley data-center research](https://www.morganstanley.com/content/dam/msdotcom/en/assets/pdfs/Research_Bridging-Data-Center-Gap.pdf). |
@@ -157,6 +159,10 @@ IT-service value
 - storage capital cost
 ```
 
+IT-service value, energy purchase cost, and team-generator operating cost are
+energy terms: each sums a per-period MW quantity times its USD/MWh rate times
+the 6-hour period length. Capital terms are charged once per newly built asset.
+
 Existing public generators retain their dataset marginal costs. Team-owned
 generators and storage are separate private assets and cannot serve another
 team.
@@ -167,21 +173,23 @@ Students submit storage capacities only. The grid operator, not the student,
 chooses charging and discharging in the centralized dispatch. For each asset:
 
 ```text
-0 <= charge[t] <= storage_power_mw
-0 <= discharge[t] <= storage_power_mw
-SOC[t+1] = SOC[t] + charge[t] - discharge[t]
+dt = 6 hours (one game period)
+-storage_power_mw <= p[t] <= storage_power_mw     (p > 0 discharges, p < 0 charges)
+SOC[t] = SOC[t-1] - dt * p[t]
 0 <= SOC[t] <= storage_energy_mwh
-SOC[0] = 0.5 * storage_energy_mwh
-SOC[end] >= 0.5 * storage_energy_mwh
+dt * p[t] <= SOC[t-1]                               (discharge cannot exceed stored energy)
+SOC at the start of every day = 0.5 * storage_energy_mwh
+SOC at the end of every day   = 0.5 * storage_energy_mwh   (exact)
 ```
 
-The transition uses one hour and 100% efficiency. The prepared HiGHS model
-represents each storage asset with one signed net-power variable per period
-(`discharge[t] - charge[t]`; positive discharges, negative charges), so the
-coupled horizon dispatch is a linear program with no binary operating-mode
-variable. With ideal efficiency and no storage operating cost, simultaneous
-charge and discharge has no value, so this is equivalent to the two-variable
-form above. Discharge can reduce only the owning team's load. It cannot be
+The storage boundary mode is `daily_exact_cycle`: a day is four consecutive
+six-hour periods, every day starts half full and must end exactly half full,
+and no stored energy carries between days or between submissions. The
+transition uses 100% efficiency. The prepared HiGHS model represents each
+storage asset with this one signed net-power variable per period, so the
+dispatch is a linear program with no binary operating-mode variable. With ideal
+efficiency and no storage operating cost, simultaneous charge and discharge has
+no value, so this is equivalent to a two-variable charge/discharge form. Discharge can reduce only the owning team's load. It cannot be
 exported to another team. A separate continuous peak-shaving path exists only
 for explicitly marked no-artifact compatibility tests; it is not the active
 classroom dispatch.
@@ -210,8 +218,9 @@ team-out and individual fallback attempts are recorded where possible.
 
 ## Persistent assets and privacy-safe outputs
 
-The round coordinator carries accepted team-owned assets and final SOC from
-Submission 1 to Submission 2 within a week, charges capital only in the
+The round coordinator carries accepted team-owned assets (and records the final
+SOC, which the daily cycle fixes at 50%) from Submission 1 to Submission 2
+within a week, charges capital only in the
 submission where an asset is first built (Submission 2 is charged only for
 newly added sites/assets), and resets the ledger at each new week. The state file is written only
 after a usable dispatch and valid final SOC have been obtained.
@@ -226,18 +235,19 @@ cross-team dispatch JSON.
 
 ## Validation and benchmark limitations
 
-- The checked-in scenario root and block manifests currently report
-  `validation_status: unverified_dependency` and
-  `release_status: blocked_pending_highspy_validation` because `highspy` is
-  unavailable in this environment. A complete HiGHS-backed validation of all
-  26,304 hourly states is required before classroom release.
+- The canonical six-hour package (`activsg2000_scenarios_v2_6h`) records
+  `validation_status: passed` for all six blocks, covering 4,384 six-hour
+  states. The retired hourly package (`activsg2000_scenarios_v1`) and its
+  hourly rule files are historical and are not used by the current game.
 - The Colab benchmark is measurement-only and does not alter evaluator math.
   It requires `highspy`, `psutil`, the prepared artifacts, and a compatible
   Colab runtime. No generated full-horizon result artifact means no performance
-  conclusion; the official 4,368/4,416-hour horizons must not be shortened from
-  an intuition or a partial smoke test.
-- A short local screening run can help students iterate, but instructor
-  evaluation uses the selected full half-year block and release manifest.
+  conclusion; the official 724/728/736-period horizons must not be shortened
+  from an intuition or a partial smoke test.
+- The student preview (`ercot-game-preview`, default `--preview-stride 6`)
+  samples every sixth six-hour period (every 36 hours) and leaves storage idle.
+  It can help students iterate, but instructor evaluation uses the selected
+  full half-year block and release manifest.
 
 ## References
 

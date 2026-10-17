@@ -329,12 +329,18 @@ The current classroom convention is:
   50% at $150/MWh, and 25% at $250/MWh;
 - team-built generators and storage serve only their owning team;
 - one episode corresponds to one released half-year;
-- the time step is one hour;
+- the canonical classroom game uses six-hour periods (each the mean of six
+  hourly source records; 724, 728, or 736 periods per half-year) from
+  `data/processed/activsg2000_scenarios_v2_6h/`, while this RL package and its
+  examples still consume the retired one-hour package
+  `data/processed/activsg2000_scenarios_v1/` and have not yet been migrated;
 - January--June and July--December are separate episode configurations;
 - the existing evaluator remains authoritative for final classroom scores.
 
 The active scoring coefficients (from
-`data/teaching/dispatch_scoring_rules_{jan_jun,jul_dec}_v1.json`) are IT value
+`data/teaching/dispatch_scoring_rules_{jan_jun,jul_dec}_6h_v1.json` for the
+classroom game; the hourly `_v1.json` files used by the RL examples carry the
+same coefficients) are IT value
 of $6,500/MWh; site cost of $25M/MW of connection capacity; generator capital
 cost of $1.5M/MW; storage capital costs of $400k/MW plus $250k/MWh (a
 four-hour total of $1.4M/MW); no storage operating cost; and an invalid score

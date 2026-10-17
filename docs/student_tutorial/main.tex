@@ -337,8 +337,8 @@ capacity you submitted. So the question is not only ``how much load can my
 site take?'' but also ``how much room will be left for me once the other teams
 have built, and what do they expect me to do?''
 
-\Cref{sec:twoteam} works through a two-team example with real numbers from
-this grid.
+\Cref{sec:twoteam} works through a stylized two-team example at two
+neighboring buses of this grid.
 
 \begin{exercisebox}[Think about it]
 Suppose you expect most teams to crowd the best-connected buses. What do you
@@ -633,10 +633,9 @@ Because your site draws the same load every six-hour operating period, what matt
 \emph{smallest} hosting capacity over the half-year, which usually occurs in the
 aggregate periods with the highest system load.
 
-Use the code in \cref{app:hc} to compute hosting capacity for a typical
-aggregate period (period 0) and for the aggregate period with peak system
-load. The exact values are generated from the released scenario package and
-may change when the instructor releases a new validated block:
+Here are hosting capacities for a few buses in the 2028 July--December block,
+computed with the code in \cref{app:hc} for period 0 and for period 306, the
+six-hour period with the highest system load:
 
 \begin{center}
 \small
@@ -644,9 +643,9 @@ may change when the instructor releases a new validated block:
 \toprule
 Bus & Period 0 & Peak period\\
 \midrule
-1001 & run the script & run the script\\
-1002 & run the script & run the script\\
-candidate buses & compare your results & compare your results\\
+1001 & 375\MW & 334\MW\\
+1002 & 127\MW & 123\MW\\
+7419 & 598\MW & 278\MW\\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -657,8 +656,8 @@ also includes other teams and the dispatch of team-built assets.
 
 \begin{warningbox}
 Hosting capacity is computed as if your site were the only new load. Other
-teams' sites use up the same headroom. At the peak period, a bus can host
-its solo hosting capacity, but less if another team connects additional load at the
+teams' sites use up the same headroom. At the peak period, bus 1002 can host
+123\MW{} on its own, but only 82\MW{} if another team connects 60\MW{} at the
 neighboring bus 1010. The hosting capacities of different buses do not add up,
 and the busier a part of the network becomes, the less room each site there
 has (\cref{sec:projection}).
@@ -779,7 +778,7 @@ The preview differs from the official evaluator in four ways:
 \toprule
  & Preview & Official evaluator\\
 \midrule
-Operating periods solved & Sampled preview periods, scaled up to the full half-year & Every six-hour aggregate period\\
+Operating periods solved & Every 6th six-hour period (every 36 hours), scaled up to the full half-year & Every six-hour aggregate period\\
 Storage & Not dispatched (idle), but its capital is charged & Dispatched independently within each 24-hour block (four aggregate periods); reset to half-full at each block boundary\\
 Other teams & Only the CSVs you put in the folder & All teams, with fair projection if needed\\
 Capital cost & Charged for every site in the file & Charged only for assets new in this submission\\
@@ -872,7 +871,7 @@ network headroom. Shortlist buses with a large hosting capacity
 teams, and preview the same capacity at several of them.
 
 \textbf{Private generation?} At \$80/MWh or more, your generator costs more
-than baseline grid energy (about \$18/MWh), so in an uncongested hour it sits
+than baseline grid energy (about \$18/MWh), so in an uncongested operating period it sits
 idle and its \$1.5M/MW capital is lost. It pays off when it lets more of your
 load be served at a congested location, or when congestion pushes your LMP
 above its cost.
@@ -891,11 +890,11 @@ smallest team first, and you still pay for everything you submitted.
 treated in the joint evaluation with everyone else.
 
 \subsection{A two-team example}\label{sec:twoteam}
-Here is the game in miniature, with real numbers from this grid. Team A builds
+Here is the game in miniature. Team A builds
 at bus 1002 and team B at the neighboring bus 1010, and each chooses between a
-small (50\MW) and a large (100\MW) site. Use the hosting-capacity script in
-\cref{sec:hc} to obtain the corresponding peak-period values for the released
-block. Together the large choices may not fit. To keep the arithmetic simple, assume
+small (50\MW) and a large (100\MW) site. On its own, either bus could take
+100\MW: at the peak period their hosting capacities are 123 and 136\MW{}
+(\cref{sec:hc}). Together they cannot. To keep the arithmetic simple, assume
 every six-hour operating period of the week looks like the 2028 July--December peak
 period, both
 teams build in Submission 1, and service is decided by the fair projection
@@ -909,7 +908,7 @@ week, and each built MW costs \$25M.
 Payoffs per week, A / B (\$M) & B small (50\MW) & B large (100\MW)\\
 \midrule
 A small (50\MW) & 1,601 / 1,601 & 1,601 / 351\\
-A large (100\MW) & 351 / 1,601 & 3,202 / $-61$\\
+A large (100\MW) & 351 / 1,601 & 3,202 / $-39$\\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -921,11 +920,12 @@ A large (100\MW) & 351 / 1,601 & 3,202 / $-61$\\
     get 50\MW{} served, but the large team still pays for 100\MW.
   \item \textbf{Both large.} The plan is infeasible, and the caps change
     nothing because the requests are equal. The projection maximizes total
-    served load. Each MW served at bus 1002 uses less of the shared bottleneck
-    than a MW at bus 1010, so A is served in full and B gets only 42.8\MW.
+    served load. Each MW served at bus 1002 uses less of the shared
+    bottleneck than a MW at bus 1010, so A is served in full and B gets only
+    43.2\MW.
 \end{itemize}
 
-Team B should go small whatever A does: 1,601 beats both 351 and $-61$.
+Team B should go small whatever A does: 1,601 beats both 351 and $-39$.
 Knowing that, A's best reply is also small. So (small, small) is the stable
 outcome, the Nash equilibrium of this game (\cref{app:game}). A would do far
 better if both went large, but B will never cooperate with that. Three lessons
@@ -1071,7 +1071,7 @@ teams have learned from the results too.
   both submissions. A negative score in Submission 2, or a large negative
   total for the week, is a real warning sign: check your $\alpha$ and the map.
 \item[Is the preview my score?]
-  No. It samples every 6th hour, leaves batteries idle, ignores other teams,
+  No. It samples every 6th six-hour period (every 36 hours), leaves batteries idle, ignores other teams,
   and charges capital for every site in the file (\cref{sec:preview}). Use it to
   compare your own candidates.
 \item[Does Week 1 count?]
@@ -1154,7 +1154,7 @@ state a version that matches this game.
 Use the notation of the per-period DCOPF: buses $i$, generators $g$ with limits
 $[p_g^{\min}, p_g^{\max}]$, branches $\ell$ from $o(\ell)$ to $r(\ell)$ with
 susceptance $b_\ell$ and thermal limit $F_\ell$, base load $d_{i,t}$, and fixed
-DC-line injections $s_{i,t}$. The hosting capacity of bus $k$ in hour $t$ is
+DC-line injections $s_{i,t}$. The hosting capacity of bus $k$ in operating period $t$ is
 the optimal value of the linear program
 \begin{align*}
   \mathrm{HC}_{k,t} = \max_{L,\,p,\,\theta,\,f} \quad & L\\
@@ -1271,13 +1271,14 @@ def hosting_capacity(bus_id, period, upper_mw=1000.0, tol_mw=1.0):
     return lo
 
 
+peak_period = 306  # highest system load in 2028 July-December (see below)
 for bus in ["1001", "1002"]:
     print(bus, [round(hosting_capacity(bus, period)) for period in (0, peak_period)])
 \end{lstlisting}
 Output:
 \begin{lstlisting}
-1001 [377, 332]
-1002 [128, 123]
+1001 [375, 334]
+1002 [127, 123]
 \end{lstlisting}
 
 To find the operating periods with the highest system load, add up the
@@ -1286,7 +1287,8 @@ periodic bus loads:
 from ercot_game.scenario_profiles import hourly_state
 
 totals = []
-for period in range(736):
+for period in range(736):  # 736 six-hour periods in July-December
+    # hourly_state returns the six-hour mean state for this game period
     demand, _ = hourly_state(block, year=2028, calendar_block="jul_dec", period_index=period)
     totals.append(sum(demand.values()))
 peak_periods = sorted(range(len(totals)), key=lambda p: -totals[p])[:24]
@@ -1303,7 +1305,7 @@ The solver only runs on a block that your instructor has released
 (\cref{sec:preview}).
 
 \begin{promptbox}
-Here is my Python function \code{hosting_capacity(bus_id, hour)}: [paste it].
+Here is my Python function \code{hosting_capacity(bus_id, period)}: [paste it].
 Write a script that computes it for a list of candidate buses over the 24
 peak-load periods in \code{peak_periods}, keeps the minimum for each bus, and
 prints a table sorted from largest to smallest. Use
@@ -1330,26 +1332,29 @@ the fair projection is needed).
 $p_{g,t}$; voltage angles $\theta_{n,t}$ and flows $f_{\ell,t}$; private
 generation in three cost segments $q^{m}_{s,t}$, $m = 1,2,3$, with costs
 $c^1, c^2, c^3 = 80, 150, 250$ \$/MWh and widths $w^1, w^2, w^3 = 0.25, 0.5,
-0.25$; battery net output $u_{s,d,h}$ (positive means discharging) and state of
-charge $e_{s,d,h}$, where $d$ indexes a 24-hour block and $h=0,\ldots,24$ is
-the hour within that block.
+0.25$; battery net output $u_{s,t}$ in MW (positive means discharging) and
+state of charge $e_{s,d,h}$ in MWh. Each day $d$ contains four six-hour
+operating periods $h=1,\ldots,4$, and operating period $t=4(d-1)+h$ is the
+$h$-th of day $d$; $e_{s,d,h}$ is the stored energy at the end of that
+operating period and $e_{s,d,0}$ is the stored energy at the start of day $d$.
+All energy terms use the period length $\Delta t = 6$ hours.
 
 \paragraph{Problem.} The evaluator minimizes the total generation cost over the
 half-year,
 \[
-  \min \sum_{t=1}^{T}\Big( \sum_g c_g\, p_{g,t} + \sum_s \sum_{m=1}^{3} c^m q^m_{s,t} \Big),
+  \min \sum_{t=1}^{T}\Big( \sum_g c_g\, p_{g,t} + \sum_s \sum_{m=1}^{3} c^m q^m_{s,t} \Big)
 \]
-For the network equations, the flattened hour $t$ corresponds to one
-day--period pair $(d,h)$ for storage. Subject to, for every operating period $t$:
+(multiplying this objective by $\Delta t$ would not change the dispatch),
+subject to, for every operating period $t=4(d-1)+h$:
 \begin{align*}
   & \sum_{g \text{ at } n} p_{g,t} + \sum_{s:\,k(s)=n} \Big(\sum_m q^m_{s,t} + u_{s,t} - \alpha_{i(s)} C_s\Big)
     + s_{n,t} - d_{n,t}
     = \sum_{\ell:\,o(\ell)=n} f_{\ell,t} - \sum_{\ell:\,r(\ell)=n} f_{\ell,t} && \forall n,\\
   & f_{\ell,t} = b_\ell(\theta_{o(\ell),t} - \theta_{r(\ell),t}),\quad |f_{\ell,t}| \le F_\ell,\quad \theta_{\mathrm{ref},t} = 0 && \forall \ell,\\
   & p_g^{\min} \le p_{g,t} \le p_g^{\max},\qquad 0 \le q^m_{s,t} \le w^m G_s && \forall g, s, m,\\
-  & e_{s,d,h} = e_{s,d,h-1} - u_{s,d,h},\quad 0 \le e_{s,d,h} \le B_s,\quad |u_{s,d,h}| \le P_s,\quad u_{s,d,h} \le e_{s,d,h-1}, && \forall s,d,h,\\
-  & e_{s,d,0} = 0.5 B_s, \qquad e_{s,d,24} = 0.5 B_s && \forall s,d,\\
-  & \sum_{s \in \text{team } i,\ k(s)=n} u_{s,d,h} \le \sum_{s \in \text{team } i,\ k(s)=n} \alpha_i C_s && \forall i, n,d,h,
+  & e_{s,d,h} = e_{s,d,h-1} - \Delta t\, u_{s,t},\quad 0 \le e_{s,d,h} \le B_s,\quad |u_{s,t}| \le P_s,\quad \Delta t\, u_{s,t} \le e_{s,d,h-1} && \forall s,\ h=1,\ldots,4,\\
+  & e_{s,d,0} = 0.5 B_s, \qquad e_{s,d,4} = 0.5 B_s && \forall s,d,\\
+  & \sum_{s \in \text{team } i,\ k(s)=n} u_{s,t} \le \sum_{s \in \text{team } i,\ k(s)=n} \alpha_i C_s && \forall i, n,
 \end{align*}
 where the last constraint keeps a
 team's batteries from discharging more than that team's load at a bus.
@@ -1364,12 +1369,13 @@ bus $n$ is the part of its load that its own generation and batteries do not
 cover, $\pi_{i,n,t} = \max\{0,\ \sum_{s} (\alpha_i C_s - \sum_m q^m_{s,t} - u_{s,t})\}$,
 summed over its sites at $n$. Then
 \begin{align*}
-  \text{IT value}_i &= 6{,}500 \sum_t \sum_{s \in i} \alpha_i C_s, &
-  \text{energy cost}_i &= \sum_t \sum_n \lambda_{n,t}\, \pi_{i,n,t} \quad \text{(Submission 2 only)},\\
-  \text{gen.\ operating}_i &= \sum_t \sum_{s \in i} \sum_m c^m q^m_{s,t}, &
+  \text{IT value}_i &= 6{,}500\,\Delta t \sum_t \sum_{s \in i} \alpha_i C_s, &
+  \text{energy cost}_i &= \Delta t \sum_t \sum_n \lambda_{n,t}\, \pi_{i,n,t},\\
+  \text{gen.\ operating}_i &= \Delta t \sum_t \sum_{s \in i} \sum_m c^m q^m_{s,t},\\
   \text{capital}_i &= \sum_{s \in i,\ \text{new}} \big(25\text{M}\,C_s + 1.5\text{M}\,G_s + 0.4\text{M}\,P_s + 0.25\text{M}\,B_s\big),
 \end{align*}
-where ``new'' means built in this submission.
+where $\Delta t = 6$ hours, the energy cost applies to Submission 2 only, and
+``new'' means built in this submission.
 
 % ---------------------------------------------------------------------------
 \section{The fair projection in detail}\label{app:projection}
@@ -1384,7 +1390,7 @@ cannot block anyone else.
     $\hat d_i$.
   \item \textbf{Most total service.} Find service fractions
     $\alpha_i \in [10^{-6}, 1]$ that make the joint dispatch feasible in every
-    hour and maximize the total served load $\sum_i \alpha_i \hat d_i$. Call the
+    operating period and maximize the total served load $\sum_i \alpha_i \hat d_i$. Call the
     maximum $L^* := \max_{d_i, \forall i} \sum_i \alpha_i \hat d_i$.
   \item \textbf{Proportional fairness.} Among the fractions whose total is
     within $\max(10^{-6}, 10^{-6}L^*)$ of $L^*$, choose the ones that maximize

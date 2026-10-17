@@ -301,7 +301,7 @@ def test_student_manual_points_to_checked_in_profiles_and_instructor_control():
     lowered = text.lower()
 
     assert "data/teaching/dispatch_scoring_rules_" in text
-    assert "data/processed/activsg2000_scenarios_v1/" in text
+    assert "data/processed/activsg2000_scenarios_v2_6h/" in text
     assert "canonical" in lowered
     assert "instructor-controlled" in lowered
     assert "hourly price/value vectors" not in lowered

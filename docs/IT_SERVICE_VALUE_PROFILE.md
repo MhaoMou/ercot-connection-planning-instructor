@@ -1,6 +1,10 @@
 # IT-service value profile
 
-**Status:** Current first-release policy for the two half-year rule files.
+**Status:** Historical first-release policy, superseded. The current game
+uses a constant $6,500/MWh IT value over six-hour periods (724, 728, or 736
+values per half-year) in
+`data/teaching/dispatch_scoring_rules_{jan_jun,jul_dec}_6h_v1.json`; those rule
+files are authoritative. The hourly values below describe the retired release.
 
 The evaluator assigns a value to served computational load. This is an
 instructor-chosen **opportunity value of IT service**, not an electricity

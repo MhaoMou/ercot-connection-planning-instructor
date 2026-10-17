@@ -89,3 +89,16 @@ def test_render_without_dispatch_draws_neutral_lines():
     )
     assert "Peak line loading" not in svg
     assert "#c9ced6" in svg
+
+
+def test_loading_legend_reports_periods_for_multi_hour_steps():
+    svg = render_svg(
+        positions={"1": (0.0, 0.0), "2": (1.0, 0.5)},
+        branches=(MapBranch("b1", "1", "2", 10.0),),
+        connection_by_bus={},
+        loading_by_branch={"b1": (1.0, 3)},
+        hours=728,
+        time_step_hours=6.0,
+    )
+    assert "Peak line loading over 728 periods of 6 h" in svg
+    assert "at or near limit in 3 of 728 periods" in svg

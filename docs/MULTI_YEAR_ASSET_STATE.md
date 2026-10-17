@@ -93,10 +93,13 @@ dispatch. A newly built storage asset starts half full. The public CSV never
 contains SOC.
 
 The prepared storage model is grid-operated, ideal-efficiency, and
-team-dedicated. It enforces power limits, energy limits, one-hour SOC
-transitions, binary no-simultaneous-charge/discharge mode, initial half-full
-SOC, and terminal SOC at least half full. Discharge is capped to the owning
-team's load.
+team-dedicated. In the canonical six-hour release it enforces power limits,
+energy limits, six-hour SOC transitions (`SOC[t] = SOC[t-1] - 6 h * p[t]` with
+one signed net-power variable `p[t]` per asset and period), discharge energy no
+greater than the stored energy, and the `daily_exact_cycle` boundary: every day
+(four six-hour periods) starts half full and ends exactly half full, so no
+stored energy carries between days or submissions and the recorded final SOC is
+half full. Discharge is capped to the owning team's load.
 
 After a usable evaluation, the coordinator reads the final dispatch period's
 `storage_soc_mwh_by_team` mapping. Every dispatched storage-bearing team must

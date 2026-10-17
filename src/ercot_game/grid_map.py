@@ -245,6 +245,7 @@ def render_svg(
     base_load_by_bus: Mapping[str, float] | None = None,
     loading_by_branch: Mapping[str, tuple[float, int]] | None = None,
     hours: int = 0,
+    time_step_hours: float = 1.0,
     title: str = "Grid map",
     subtitle: str = "",
 ) -> str:
@@ -285,7 +286,8 @@ def render_svg(
     out.append(f'<text x="{margin + 240}" y="{legend_y + 46}" font-size="11">MW</text>')
     if loading_by_branch is not None:
         lx = margin + 330
-        out.append(f'<text x="{lx}" y="{legend_y}" font-size="12" font-weight="bold">Peak line loading over {hours} h</text>')
+        span = f"{hours} h" if time_step_hours == 1 else f"{hours} periods of {time_step_hours:g} h"
+        out.append(f'<text x="{lx}" y="{legend_y}" font-size="12" font-weight="bold">Peak line loading over {escape(span)}</text>')
         for i, (label, value) in enumerate((("< 50%", 0.0), ("50-80%", 0.6), ("80-99%", 0.9), ("at limit", 1.0))):
             color, stroke = _line_style(value)
             x0 = lx + i * 95
@@ -304,7 +306,8 @@ def render_svg(
         tip = f"Line {branch.branch_id}: bus {branch.from_bus_id} to {branch.to_bus_id}, limit {branch.limit_mw:g} MW"
         if loading_by_branch is not None and branch.branch_id in loading_by_branch:
             loading, near_hours = loading_by_branch[branch.branch_id]
-            tip += f"\npeak loading {loading:.0%}; at or near limit in {near_hours} of {hours} h"
+            unit = "h" if time_step_hours == 1 else "periods"
+            tip += f"\npeak loading {loading:.0%}; at or near limit in {near_hours} of {hours} {unit}"
         color, stroke = _line_style(loading)
         x1, y1 = point(branch.from_bus_id)
         x2, y2 = point(branch.to_bus_id)
@@ -342,6 +345,7 @@ def build_map(
     dispatch_dir: str | Path | None = None,
     title: str = "Grid map",
     subtitle: str = "",
+    time_step_hours: float = 6.0,
 ) -> str:
     bus_ids, branches, base_load = load_network(artifact_dir)
     positions = load_or_create_layout(layout_path, bus_ids, branches)
@@ -356,6 +360,7 @@ def build_map(
         base_load_by_bus=base_load,
         loading_by_branch=loading,
         hours=hours,
+        time_step_hours=time_step_hours,
         title=title,
         subtitle=subtitle,
     )
@@ -373,6 +378,7 @@ def _parser() -> argparse.ArgumentParser:
         "--layout", type=Path, default=Path("data/teaching/activsg2000_layout_v1.json"),
         help="stored bus layout (created if missing)",
     )
+    parser.add_argument("--time-step-hours", type=float, default=6.0, help="length of one dispatch period (game default: 6)")
     parser.add_argument("--title", default="Grid map")
     parser.add_argument("--subtitle", default="")
     parser.add_argument("--output", required=True, type=Path)
@@ -388,6 +394,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         dispatch_dir=args.dispatch_dir,
         title=args.title,
         subtitle=args.subtitle,
+        time_step_hours=args.time_step_hours,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(svg, encoding="utf-8")

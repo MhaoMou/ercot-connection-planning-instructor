@@ -3,14 +3,15 @@
 **Status:** Active calibration note for instructor review. The versioned
 half-year rules files remain authoritative for production scoring.
 
-**Current approved release economics:** The active half-year rules and hourly
-artifacts use `$6500/MWh` for AI-intensive IT service value, `$1.5m/MW` for
+**Current approved release economics:** The active six-hour half-year rules
+and artifacts use `$6500/MWh` for AI-intensive IT service value, `$1.5m/MW` for
 team-generator capital, `$25m/MW` for the AI-data-center facility/site proxy,
 an `$80/$150/$250` per MWh team-generator curve at 25/50/25%, `$400,000/MW`
 plus `$250,000/MWh` for storage capital, and no storage operating-cost charge.
 The versioned files under
-`data/teaching/dispatch_scoring_rules_*_v1.json` and the processed hourly
-artifacts are authoritative when they differ from this calibration note.
+`data/teaching/dispatch_scoring_rules_*_6h_v1.json` and the six-hour package
+`data/processed/activsg2000_scenarios_v2_6h` are authoritative when they differ
+from this calibration note.
 
 ## 1. Modeling interpretation
 
@@ -161,11 +162,11 @@ quantities. A data center can rationally pay more than the wholesale energy
 price to serve a valuable workload, while still choosing locations and local
 generation based on congestion and operating costs.
 
-The production evaluator uses the hourly, bus-specific ACTIVSg2000 baseline
-DCOPF LMP artifact rather than a six-value ERCOT price vector. The historical
+The production evaluator settles Submission 2 at bus-specific LMPs from the
+six-hour joint dispatch rather than a six-value ERCOT price vector. The historical
 base IT-service values are superseded; the approved release value is
-`$6500/MWh`, and the artifact records
-the exact hourly values and provenance.
+`$6500/MWh`, and the rules file records
+the exact per-period values and provenance.
 
 The former `$125/MWh` pilot value is retained only as historical context and
 is superseded by the active AI-intensive value.

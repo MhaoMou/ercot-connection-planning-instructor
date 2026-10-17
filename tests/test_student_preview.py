@@ -50,7 +50,7 @@ def test_preview_samples_full_horizon_and_strips_storage_from_fast_dispatch(monk
     assert observed["workers"] == 3
     assert observed["plans"][0].storages == ()
     assert result.exact is False
-    assert result.storage_dispatch_policy == "idle_for_speed;sampled_every_6_hours"
+    assert result.storage_dispatch_policy == "idle_for_speed;sampled_every_6_periods_6h"
     assert result.team_scores[0].storage_capital_cost == pytest.approx(28.0)
 
 

@@ -9,7 +9,7 @@
     grid/.style={draw=blue!65!black, fill=blue!10, rounded corners=6pt, align=center, minimum height=34mm, text width=27mm,
       execute at begin node={\hyphenpenalty=10000 }},
     link/.style={thick, draw=ink}}
-  \node[grid] (net) at (0,0) {{\bfseries ACTIVSg2000}\\{\bfseries network}\\[3pt]hourly DCOPF with all teams' sites};
+  \node[grid] (net) at (0,0) {{\bfseries ACTIVSg2000}\\{\bfseries network}\\[3pt]six-hour DCOPF with all teams' sites};
   \node[circle, draw=blue!65!black, fill=white, thick, minimum size=10mm, align=center] (bus) at (5.0,0) {bus $k$};
   \node[gen] (g) at (10.2,0) {{\bfseries Private generator}\\$0\le g_t\le G$, \$80/150/250 per MWh};
   \node[load, above=3mm of g] (it) {{\bfseries IT load} $\alpha C$\\earns \$6,500 per MWh served};

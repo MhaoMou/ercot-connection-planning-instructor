@@ -1,8 +1,18 @@
 # ACTIVSg2000 scenario package
 
 The production game uses the public synthetic Texas ACTIVSg2000 model and a
-controlled three-year hourly scenario package labeled as instructional years
+controlled three-year scenario package labeled as instructional years
 2027--2029. These labels are not historical source-data years or forecasts.
+
+This document describes the hourly source package
+(`data/processed/activsg2000_scenarios_v1`). The canonical classroom release is
+the six-hour package `data/processed/activsg2000_scenarios_v2_6h`, built from
+the hourly package by `tools/activsg2000/build_aggregated_scenario_package.py`
+(`--source-dir` the hourly package, `--output-dir` the six-hour package). Each
+six-hour game period is the mean of six consecutive source hours, giving 724
+(January--June 2027/2029), 728 (January--June 2028), or 736 (July--December)
+periods per block; all six blocks of the six-hour package report
+`validation_status: passed`.
 
 ## Package
 

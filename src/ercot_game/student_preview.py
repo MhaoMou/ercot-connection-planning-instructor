@@ -1,11 +1,12 @@
 """Fast, conservative student-side plan preview.
 
 The instructor evaluator solves the exact multi-period storage dispatch LP.  A
-full storage solve is intentionally not used here: it couples every hour and
+full storage solve is intentionally not used here: it couples every period and
 is too slow for interactive Colab iteration on the 2,000-bus model.  The
-  preview instead runs the fast independent-hour DCOPF on a six-hour sample
-  of the complete half-year, with submitted storage removed from dispatch.
-  Sampled totals are scaled to the represented hours. Storage remains
+preview instead runs the fast independent-period DCOPF on every
+``preview_stride``-th six-hour game period of the complete half-year (every
+36 hours by default), with submitted storage removed from dispatch.  Sampled
+totals are scaled to the represented hours.  Storage remains
 validated and its capital cost is included in the preview score, but its
 operating benefit is deliberately omitted.  The result is a conservative
 screening estimate, never the official score.
@@ -46,6 +47,8 @@ class StudentPreviewResult:
     storage_dispatch_policy: str
     dispatch: BatchDispatchResult
     team_scores: tuple[TeamScore, ...]
+    preview_stride: int = 6
+    sample_spacing_hours: float = 36.0
 
 
 def preview_plans(
@@ -58,11 +61,12 @@ def preview_plans(
     submission_number: int | None = 2,
     preview_stride: int = 6,
 ) -> StudentPreviewResult:
-    """Screen plans with independent hourly DCOPF and no storage dispatch.
+    """Screen plans with independent per-period DCOPF and no storage dispatch.
 
-    This function deliberately keeps the official horizon.  Only the
-    storage-coupling decision is simplified, so students can use the same
-    4,368/4,416-hour planning convention without waiting for the large
+    This function deliberately keeps the official horizon (724, 728, or 736
+    six-hour periods).  It samples every ``preview_stride``-th period and
+    drops storage coupling, so students can screen plans on the same
+    half-year planning convention without waiting for the large
     horizon LP.  The returned scores are marked ``student_preview`` by the
     caller-facing serialization and must not be used for ranking.
     """
@@ -79,9 +83,10 @@ def preview_plans(
     if len({plan.team_id for plan in ordered_plans}) != len(ordered_plans):
         raise ValueError("team IDs must be unique")
     # A sampled preview is intentionally distinct from the exact instructor
-    # evaluator.  Solving every hour through the high-level plan adapter is
-    # still too expensive on a free Colab runtime.  Six-hour sampling keeps
-    # the half-year index space and scales the score by the represented hours.
+    # evaluator.  Solving every period through the high-level plan adapter is
+    # still too expensive on a free Colab runtime.  Sampling every
+    # ``preview_stride``-th period keeps the half-year index space and scales
+    # the score by the represented hours.
     period_indices = tuple(range(0, horizon, preview_stride))
     sampled_rules = replace(rules, time_step_hours=rules.time_step_hours * preview_stride)
 
@@ -118,9 +123,14 @@ def preview_plans(
         exact=False,
         horizon_hours=horizon,
         checked_periods=period_indices,
-        storage_dispatch_policy=f"idle_for_speed;sampled_every_{preview_stride}_hours",
+        storage_dispatch_policy=(
+            f"idle_for_speed;sampled_every_{preview_stride}_periods_"
+            f"{preview_stride * rules.time_step_hours:g}h"
+        ),
         dispatch=dispatch,
         team_scores=ranked,
+        preview_stride=preview_stride,
+        sample_spacing_hours=preview_stride * rules.time_step_hours,
     )
 
 
@@ -136,7 +146,9 @@ def _result_payload(result: StudentPreviewResult) -> dict[str, Any]:
         "checked_period_count": len(result.checked_periods),
         "storage_dispatch_policy": result.storage_dispatch_policy,
         "warning": (
-            "Preview only: six-hour sampled dispatch; storage is validated and capital-costed but not dispatched. "
+            f"Preview only: dispatch sampled every {result.preview_stride} game periods "
+            f"(every {result.sample_spacing_hours:g} hours); storage is validated and "
+            "capital-costed but not dispatched. "
             "Use the instructor evaluator for official storage-aware scores."
         ),
         "team_scores": [_score_payload(score) for score in result.team_scores],

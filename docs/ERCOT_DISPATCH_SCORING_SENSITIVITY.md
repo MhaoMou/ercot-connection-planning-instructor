@@ -6,8 +6,8 @@ configuration.
 
 This document records a historical sensitivity analysis of the retired
 six-period pilot rules. The pilot rules file is intentionally no longer part of
-the production repository; current scoring uses the half-year rule files and
-hourly ACTIVSg2000 economic-profile artifacts.
+the production repository; current scoring uses the six-hour half-year rule files and
+the six-hour ACTIVSg2000 scenario package.
 
 The authoritative sweep evaluates all six zero-based pilot periods. Under the
 legacy pilot horizon, each representative period is weighted as `8760 / 6 =

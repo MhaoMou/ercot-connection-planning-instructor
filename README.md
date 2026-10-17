@@ -42,7 +42,7 @@ assets reset between weeks.
 | Path | Purpose |
 | --- | --- |
 | `src/ercot_game/` | Canonical CSV reader, validator, batch evaluator, and CLI |
-| `tools/activsg2000/` | Scenario construction, hourly validation, DCOPF, storage scheduling, and joint dispatch |
+| `tools/activsg2000/` | Scenario construction, per-period validation, DCOPF, storage scheduling, and joint dispatch |
 | `data/processed/activsg2000_scenarios_v2_6h/` | Canonical validated six-block ACTIVSg2000 package |
 | `data/teaching/` | Half-year scoring rules |
 | `scripts/` | CSV checks, fixture generation, simulation, and summary utilities |

@@ -77,7 +77,7 @@ The recommended production workflow is:
 \fbox{\parbox{0.84\textwidth}{\centering
 ACTIVSg2000 public model\\
 $\Downarrow$\\
-Scenario block and hourly economic artifacts, subject to validation gate\\
+Six-hour scenario block (from hourly source data), subject to validation gate\\
 $\Downarrow$\\
 Student CSV collection and format validation\\
 $\Downarrow$\\
@@ -93,8 +93,9 @@ The release uses the following distinction:
 \begin{itemize}[leftmargin=*]
   \item \textbf{Public dataset:} the synthetic Texas ACTIVSg2000 topology,
   buses, branches, generators, status values, PMIN, PMAX, and marginal costs.
-  \item \textbf{Derived scenario:} deterministic bus-level hourly load profiles
-  over six released half-year blocks, grouped into three weekly matches.
+  \item \textbf{Derived scenario:} deterministic bus-level hourly source load
+  profiles, released as six-hour period means over six half-year blocks,
+  grouped into three weekly matches.
   \item \textbf{Instructional assumptions:} student-owned assets, IT value,
   capital costs, storage costs, DCOPF settlement, scoring, and fair projection.
 \end{itemize}
@@ -102,7 +103,7 @@ The release uses the following distinction:
 The active scenario package contains 2,000 buses, 3,206 branches, and 544
 generator records. ACTIVSg2000 does not provide technology labels or hourly
 availability fields. Therefore the active release uses each active generator's
-dataset status, PMIN, and PMAX in every hour; it does not apply synthetic
+dataset status, PMIN, and PMAX in every period; it does not apply synthetic
 wind/solar derating. The package is not historical ERCOT telemetry, an official
 ERCOT planning model, or a forecast.
 
@@ -113,21 +114,24 @@ generator or storage device by ID. Every team-built generator uses the same
 convex piecewise-linear
 operating curve at every bus: 25\% of capacity at \$80/MWh, the next 50\% at
 \$150/MWh, and the final 25\% at \$250/MWh. Students submit capacities; the
-evaluator determines hourly dispatch. Team-built generators and storage serve only
+evaluator determines the dispatch in every six-hour period. Team-built generators and storage serve only
 their submitting team.
 
 \section{Released scenario blocks}
 
-Each round covers one half-year with a one-hour time step.
+Each round covers one half-year with a six-hour time step ($\Delta t=6$\,h,
+four periods per day); each period is the mean of six consecutive hourly
+source records. IT value, energy purchases, and team-generator operating cost
+multiply each period's MW quantity by $\Delta t$.
 \begin{center}
-\begin{tabularx}{0.8\textwidth}{l l Y Y}
+\begin{tabularx}{0.9\textwidth}{l l Y Y Y}
 \toprule
-Year & Round & Evaluator hours & CSV rows\\
+Year & Round & Source hours & Evaluator periods & CSV rows\\
 \midrule
-2028 & January--June & 4,368 & one row per site\\
-2028 & July--December & 4,416 & one row per site\\
-2027 or 2029 & January--June & 4,344 & one row per site\\
-2027 or 2029 & July--December & 4,416 & one row per site\\
+2028 & January--June & 4,368 & 728 & one row per site\\
+2028 & July--December & 4,416 & 736 & one row per site\\
+2027 or 2029 & January--June & 4,344 & 724 & one row per site\\
+2027 or 2029 & July--December & 4,416 & 736 & one row per site\\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -146,24 +150,27 @@ Week & Submission 1 & Submission 2 & Ranking and state treatment\\
 \end{tabularx}
 \end{center}
 
-Accepted sites, evaluator-assigned assets, and final storage SOC persist from
-Submission 1 to Submission 2 within a week. Capital cost (connection-site
+Accepted sites and evaluator-assigned assets persist from Submission 1 to
+Submission 2 within a week. Storage energy does not carry over: every device
+starts and ends each day at $0.5B$. Capital cost (connection-site
 cost per MW, generator capital, storage capital) is charged once, in the
 submission where the asset is first built: Submission 1 pays for everything it
 builds, and Submission 2 pays only for newly added sites and assets, not for
-those carried from Submission 1. The asset ledger and SOC reset at the
+those carried from Submission 1. The asset ledger resets at the
 beginning of the next week. The final ranking is the sum of four scores:
 Week 2 Submission 1 + Week 2 Submission 2 + Week 3 Submission 1 + Week 3
 Submission 2; Week 1 is excluded and an invalid submission scores 0.
 
-The released artifacts are under
-\path{data/processed/activsg2000_scenarios_v1/<year>/<block>}. The root and
-block manifests record validation status, scenario hashes, and artifact
-metadata. In this checkout, all six blocks are
-\code{validation\_status: unverified\_dependency} because \code{highspy} is
-unavailable. This is a dependency limitation, not a passed or failed validation.
+The released artifacts and scoring rules are stored at:
+\begin{lstlisting}
+data/processed/activsg2000_scenarios_v2_6h/<year>/<block>
+data/teaching/dispatch_scoring_rules_{jan_jun,jul_dec}_6h_v1.json
+\end{lstlisting}
+The root and block manifests record validation status, scenario hashes, and
+artifact metadata; all six blocks report \code{validation\_status: passed}.
 A block must report \code{validation\_status: passed} after a complete
-HiGHS-backed run before it is used for a classroom round.
+HiGHS-backed run before it is used for a classroom round. The retired hourly
+package \code{activsg2000\_scenarios\_v1} is not the classroom default.
 
 \section{Student submission contract}
 
@@ -172,12 +179,12 @@ The active CSV header is exactly seven columns:
 team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
 \end{lstlisting}
 
-The file has one data row per site and no hourly horizon rows. It has no
-\code{period}, hourly \code{load\_mw}, \code{submission\_id},
+The file has one data row per site and no horizon rows. It has no
+\code{period}, \code{load\_mw}, \code{submission\_id},
 \code{generator\_id}, or \code{storage\_id} columns. \code{site\_id} is a
 team-defined site label; \code{bus\_id} must come from the selected block's bus
 catalog. The evaluator uses the submitted site capacities with the released
-hourly scenario and applies the common team-built generator curve described
+six-hour scenario and applies the common team-built generator curve described
 above. It assigns deterministic private generator and storage IDs from the
 team/site identity. Students do not submit those IDs. Generator and storage
 assets are private to the submitting team and cannot serve another team.
@@ -197,10 +204,12 @@ the centralized prepared HiGHS model. Storage uses MW power capacity and MWh
 energy capacity. With ideal charging and discharging efficiency, the evaluator
 represents each asset by one signed net-power variable per period (positive
 discharges, negative charges), so the coupled horizon is a linear program with
-no binary operating-mode variable. It enforces power and energy bounds,
-discharge no greater than the stored energy, an initial state of charge of
-$0.5B$, and a terminal state of charge of at least $0.5B$. Discharge can reduce
-only the owning team's load.
+no binary operating-mode variable. With $\Delta t=6$\,h the state of charge
+follows $e_t=e_{t-1}-\Delta t\,p_t$. The evaluator enforces power and energy
+bounds and discharge energy no greater than the stored energy, and uses the
+\code{daily\_exact\_cycle} boundary: every day (four six-hour periods) starts
+at $0.5B$ and ends at exactly $0.5B$, with no carry-over between days or
+submissions. Discharge can reduce only the owning team's load.
 
 \section{Course operation}
 
@@ -233,8 +242,8 @@ Evaluate a frozen round:
 \begin{lstlisting}
 ercot-game-batch run \
   --submissions-dir work/round_01/submissions \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
-  --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
+  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
+  --rules data/teaching/dispatch_scoring_rules_jan_jun_6h_v1.json \
   --year 2028 --round jan_jun \
   --submission-number 2 \
   --workers 8 --projection-iterations 10 \
@@ -262,8 +271,8 @@ ercot-game-batch classroom \\
 \end{lstlisting}
 
 The classroom coordinator rejects a second submission without a committed first
-submission for that week, persists the asset ledger and SOC within the week,
-resets them between weeks, charges capital only in the submission where an
+submission for that week, persists the asset ledger within the week (stored
+energy is fixed at $0.5B$ at every day boundary), resets it between weeks, charges capital only in the submission where an
 asset is first built, ranks each scored week by the Submission 1 + Submission 2
 total, ranks the final standings by the sum of the four Week 2 and Week 3
 scores, and writes aggregate classroom-safe outputs.
@@ -271,15 +280,15 @@ scores, and writes aggregate classroom-safe outputs.
 Validate the complete scenario package:
 \begin{lstlisting}
 PYTHONPATH=.:src python3 tools/activsg2000/validate_scenario_package.py \
-  --package data/processed/activsg2000_scenarios_v1 --workers 6
+  --package data/processed/activsg2000_scenarios_v2_6h --workers 6
 \end{lstlisting}
 
 The economic profiles are generated by the module invocation below. The
 module form is intentional because the builder uses package-relative imports:
 \begin{lstlisting}
 PYTHONPATH=.:src python3 -m tools.activsg2000.build_economic_profiles \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
-  --output-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun
+  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
+  --output-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun
 \end{lstlisting}
 
 \section{Evaluation and joint infeasibility}
@@ -324,9 +333,9 @@ JLL shell/core and AI fit-out construction costs~\cite{jll2026dc}; EIA/NREL
 technology and battery benchmarks inform generator and storage calibration~\cite{eia2024generatorcosts,eia2025heatrate,nrel2024bess,eia2024bess}.
 
 For Submission 2, energy purchase cost uses the nonnegative LMP from the
-selected joint dispatch at the selected bus and hour. The released LMP
-artifacts are deterministic economic-profile references with one row per hour
-and one column per bus; raw balance duals are retained for audit. Submission 1
+selected joint dispatch at the selected bus and six-hour period, multiplied by
+$\Delta t=6$\,h. Optional baseline LMP artifacts are deterministic
+economic-profile references with one row per period and one column per bus; raw balance duals are retained for audit. Submission 1
 has no energy-purchase cost (it is still scored in Weeks 2 and 3). IT value is a complete
 full-horizon vector supplied in the corresponding economic-profile JSON. These
 are instructional model outputs, not official ERCOT market prices. The
@@ -350,7 +359,8 @@ for file in docs/instructor_manual/examples/eight_team_round/submissions/*.csv; 
 done
 \end{lstlisting}
 
-The full-horizon instructor command is:
+This example was recorded on the retired hourly package before the six-hour
+release; its full-horizon instructor command was:
 \begin{lstlisting}
 PYTHONPATH=src python3 -m ercot_game.batch_cli run \\
   --submissions-dir docs/instructor_manual/examples/eight_team_round/submissions \\
@@ -362,7 +372,7 @@ PYTHONPATH=src python3 -m ercot_game.batch_cli run \\
 
 The verified Electrify run accepted all eight files and found a feasible joint
 dispatch, so every team received its complete requested capacity. It used the
-active rule file (\path{dispatch-scoring-jan_jun-v1}), took 1,507.80 seconds
+then-active hourly rule file (\path{dispatch-scoring-jan_jun-v1}), took 1,507.80 seconds
 (25.1 minutes), and used approximately 9.62~GiB peak resident memory.
 The compact result is stored in
 \path{docs/instructor_manual/examples/eight_team_round/results.json}, and the
@@ -413,7 +423,7 @@ into the repository because it is very large.
 \subsection{Single-team CSV excerpt}
 
 Each student group submits one CSV file. The current format contains one row
-per site and no hourly horizon rows:
+per site and no horizon rows:
 \begin{lstlisting}
 team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
 team-blue,site-north,1001,40,20,10,40
@@ -480,7 +490,7 @@ energy purchases but adds power-capacity and energy-capacity costs.
 \section{Privacy and classroom reporting}
 
 Keep raw CSVs, per-team diagnostics, bus selections, generator capacities,
-storage capacities, and hourly profiles instructor-only. The classroom writer's
+storage capacities, and load profiles instructor-only. The classroom writer's
 shared \code{classroom-safe-v1} output may include aggregate team counts,
 aggregate periods, and aggregate projection metadata. Each team receives only
 its own \code{classroom-private-v1} summary under a hashed directory, with its

@@ -282,7 +282,7 @@ def test_task5_csv_flow_separates_exact_evaluator_from_preview():
     assert "exact instructor evaluator" in flow
     assert "joint storage-aware" in flow
     assert "dcopf/lp" in flow
-    assert "every 6th hour" in main
+    assert "every 6th six-hour period (every 36 hours)" in main
     assert "not dispatched (idle)" in main
     assert "dispatched independently within each 24-hour block" in main
 

@@ -62,6 +62,11 @@ full-horizon benchmark rows are published here.
 
 ## Exact follow-up procedure
 
+*Historical note:* this procedure targeted the retired hourly package
+`activsg2000_scenarios_v1`. The canonical six-hour package
+`activsg2000_scenarios_v2_6h` already records `validation_status: passed` for
+all six blocks, and the pilot gate and full-horizon command below now use it.
+
 After installing `highspy`, validate every released scenario block successfully
 before running the benchmark:
 
@@ -95,7 +100,7 @@ Run the one-bus pilot once from a clean output directory:
 ```bash
 env PYTHONPATH=.:src /usr/bin/time -l -o /private/tmp/hosting-capacity-pilot/one-bus-24h/resource-usage-fresh.txt \
   python3 -m ercot_game.hosting_capacity_cli \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
+  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
   --horizon 24 \
   --period-count 24 \
   --bus-id 1001 \
@@ -112,7 +117,7 @@ checkpoint directory:
 ```bash
 env PYTHONPATH=.:src /usr/bin/time -l -o /private/tmp/hosting-capacity-pilot/one-bus-24h/resource-usage-resumed.txt \
   python3 -m ercot_game.hosting_capacity_cli \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
+  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
   --horizon 24 \
   --period-count 24 \
   --bus-id 1001 \
@@ -128,7 +133,7 @@ Run the ten-bus pilot with the ten concrete IDs from that same `bus.csv`:
 ```bash
 env PYTHONPATH=.:src /usr/bin/time -l -o /private/tmp/hosting-capacity-pilot/ten-bus-24h/resource-usage.txt \
   python3 -m ercot_game.hosting_capacity_cli \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
+  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
   --horizon 24 \
   --period-count 24 \
   --bus-id 1001 \
@@ -153,7 +158,7 @@ Run the one-period all-bus pilot without any `--bus-id` option:
 ```bash
 env PYTHONPATH=.:src /usr/bin/time -l -o /private/tmp/hosting-capacity-pilot/all-bus-1h/resource-usage.txt \
   python3 -m ercot_game.hosting_capacity_cli \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
+  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
   --horizon 1 \
   --period-count 1 \
   --solver-backend highs \
@@ -194,7 +199,7 @@ the 1-, 24-, 168-, and full-horizon stages:
 
 ```bash
 PYTHONPATH=.:src python3 tools/benchmarks/benchmark_hosting_capacity.py \
-  --artifact-dir data/processed/activsg2000_scenarios_v1/2028/jan_jun \
+  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
   --solver-backend highs \
   --solver-threads 1 \
   --workers 1 \

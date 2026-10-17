@@ -131,7 +131,7 @@ def build_baseline_lmp_profile(
 
     The student plan is absent by construction.  The resulting matrices are
     indexed by operating period and bus, and contain both the raw balance dual and the
-    non-negative scoring LMP.  A one-hour finite-difference perturbation is
+    non-negative scoring LMP.  A single-period finite-difference perturbation is
     solved before generation to validate the dual sign convention.
     """
 
@@ -254,7 +254,7 @@ def build_baseline_lmp_profile(
 def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Generate baseline hourly ACTIVSg2000 DCOPF LMPs")
+    parser = argparse.ArgumentParser(description="Generate baseline per-period ACTIVSg2000 DCOPF LMPs")
     parser.add_argument("--artifact-dir", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--allow-unvalidated", action="store_true")

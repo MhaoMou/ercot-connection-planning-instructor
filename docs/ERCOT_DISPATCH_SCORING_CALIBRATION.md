@@ -3,6 +3,15 @@
 **Status:** Canonical checked-in calibration; release validation pending because
 `highspy` is unavailable.
 
+**Six-hour release note:** the current classroom game uses
+`data/teaching/dispatch_scoring_rules_{jan_jun,jul_dec}_6h_v1.json` with
+`time_step_hours: 6` and the validated six-hour package
+`data/processed/activsg2000_scenarios_v2_6h` (724, 728, or 736 periods per
+half-year; each period is the mean of six source hours). The coefficients are
+unchanged; IT value, energy purchases, and generator operating cost multiply
+each period's MW quantity by 6 hours. Hourly horizons and the pending-validation
+status below describe the retired hourly rule files and package.
+
 This document separates parameters that can be anchored to public engineering or
 market data from parameters that are intentionally instructional. It applies to
 the CSV/DCOPF competition path, which uses fixed submitted load and no
@@ -84,9 +93,11 @@ tariff. The half-year rules files record the same provenance in JSON.
 
 Convert source CAPEX from `$ / kW` to `$ / MW`, then annualize it with the
 chosen capital-recovery assumptions. The legacy calibration note used
-`1,460` hours per representative period. The released half-year files use
-literal one-hour intervals, so capital coefficients are applied once to the
-plan and hourly operating quantities are multiplied by `1` hour.
+`1,460` hours per representative period. The retired hourly half-year files
+used literal one-hour intervals, so hourly operating quantities were multiplied
+by `1` hour; the current six-hour files multiply each period's operating
+quantities by `6` hours. In both, capital coefficients are applied once to the
+plan.
 
 The missing calibration choices are:
 
